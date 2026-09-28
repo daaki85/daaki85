@@ -1,4 +1,4 @@
-"""Read-only access to another process's memory.
+"""Access to another process's memory.
 
 Windows is the main target (ReadProcessMemory). Linux (/proc/<pid>/mem) is
 supported too, mostly so the tool can be developed and tested there.
@@ -35,6 +35,8 @@ if sys.platform == "win32":
 
     _PROCESS_QUERY_INFORMATION = 0x0400
     _PROCESS_VM_READ = 0x0010
+    _PROCESS_VM_WRITE = 0x0020
+    _PROCESS_VM_OPERATION = 0x0008
     _MEM_COMMIT = 0x1000
     _PAGE_GUARD = 0x100
     _WRITABLE = 0x04 | 0x08 | 0x40 | 0x80  # READWRITE, WRITECOPY, EXECUTE_READWRITE, EXECUTE_WRITECOPY
@@ -77,6 +79,10 @@ if sys.platform == "win32":
         wintypes.HANDLE, wintypes.LPCVOID, wintypes.LPVOID, ctypes.c_size_t,
         ctypes.POINTER(ctypes.c_size_t)]
     _k32.ReadProcessMemory.restype = wintypes.BOOL
+    _k32.WriteProcessMemory.argtypes = [
+        wintypes.HANDLE, wintypes.LPVOID, wintypes.LPCVOID, ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t)]
+    _k32.WriteProcessMemory.restype = wintypes.BOOL
     _k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
     _k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
     _k32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_ProcessEntry32)]
@@ -102,7 +108,9 @@ if sys.platform == "win32":
     class ProcessMemory:
         def __init__(self, pid: int):
             self.pid = pid
-            self._handle = _k32.OpenProcess(_PROCESS_QUERY_INFORMATION | _PROCESS_VM_READ, False, pid)
+            self._handle = _k32.OpenProcess(
+                _PROCESS_QUERY_INFORMATION | _PROCESS_VM_READ | _PROCESS_VM_WRITE | _PROCESS_VM_OPERATION,
+                False, pid)
             if not self._handle:
                 raise ProcessError(
                     f"Cannot open process {pid} (error {ctypes.get_last_error()}). "
@@ -128,6 +136,13 @@ if sys.platform == "win32":
                 raise ProcessError(
                     f"ReadProcessMemory at {addr:#x} failed ({ctypes.get_last_error()})")
             return buf.raw[:done.value]
+
+        def write(self, addr: int, data: bytes) -> None:
+            done = ctypes.c_size_t(0)
+            if not _k32.WriteProcessMemory(self._handle, addr, data, len(data), ctypes.byref(done)) \
+                    or done.value != len(data):
+                raise ProcessError(
+                    f"WriteProcessMemory at {addr:#x} failed ({ctypes.get_last_error()})")
 
         def is_alive(self) -> bool:
             code = wintypes.DWORD()
@@ -156,7 +171,7 @@ else:
         def __init__(self, pid: int):
             self.pid = pid
             try:
-                self._mem = open(f"/proc/{pid}/mem", "rb", buffering=0)
+                self._mem = open(f"/proc/{pid}/mem", "r+b", buffering=0)
             except OSError as e:
                 raise ProcessError(
                     f"Cannot open memory of process {pid}: {e}. "
@@ -176,6 +191,13 @@ else:
                 return self._mem.read(size)
             except (OSError, ValueError) as e:
                 raise ProcessError(f"Read at {addr:#x} failed: {e}") from e
+
+        def write(self, addr: int, data: bytes) -> None:
+            try:
+                self._mem.seek(addr)
+                self._mem.write(data)
+            except (OSError, ValueError) as e:
+                raise ProcessError(f"Write at {addr:#x} failed: {e}") from e
 
         def is_alive(self) -> bool:
             return os.path.exists(f"/proc/{self.pid}")

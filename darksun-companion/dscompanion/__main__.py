@@ -117,6 +117,67 @@ def cmd_save(args) -> None:
         print(label.ljust(width) + "".join(cell.ljust(w) for cell, w in zip(cells, cols)))
 
 
+def cmd_dicelog(args) -> None:
+    import time
+    from .dicelog import DiceLog
+    from .dicelog import DiceLogError
+    log = DiceLog(connect(args), show_all=args.all)
+
+    def attach() -> None:
+        waiting = False
+        while True:
+            try:
+                print(log.attach(), "Press Ctrl+C to stop.", flush=True)
+                return
+            except DiceLogError as e:
+                if not waiting:
+                    print(f"{e} Waiting...", flush=True)
+                    waiting = True
+                time.sleep(1)
+
+    try:
+        attach()
+        while True:
+            if not log.still_patched():
+                print("The game restarted; attaching again.", flush=True)
+                log.detach()
+                attach()
+            for entry in log.poll():
+                line = log.describe(entry, show_all=args.all)
+                if line:
+                    print(line, flush=True)
+            time.sleep(0.02)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        log.detach()
+        if log.missed:
+            print(f"({log.missed} rolls happened too fast to record)")
+
+
+def cmd_launch(args) -> None:
+    from . import launch
+    game_dir = launch.find_game_dir(args.game_dir)
+    if game_dir is None:
+        import tkinter
+        from tkinter import filedialog
+        root = tkinter.Tk()
+        root.withdraw()
+        game_dir = filedialog.askdirectory(title="Where is Dark Sun: Shattered Lands installed?")
+        root.destroy()
+        if not game_dir:
+            raise CliError("No game folder chosen.")
+        if not launch.is_game_dir(game_dir):
+            raise CliError(f"{game_dir} has no DSUN.EXE and DOSBOX folder; pick the GOG install folder.")
+    settings = launch.load_settings()
+    if settings.get("game_dir") != game_dir:
+        settings["game_dir"] = game_dir
+        launch.save_settings(settings)
+    print(f"Starting Shattered Lands from {game_dir}")
+    launch.launch(game_dir)
+    cmd_view(args)
+
+
 def cmd_view(args) -> None:
     from .viewer import run  # tkinter is only needed here
     run(Layout.load(args.layout), lambda: connect(args))
@@ -133,6 +194,15 @@ def main(argv=None) -> int:
     s = sub.add_parser("view", parents=[common], help="open the party viewer window")
     s.add_argument("--layout", default=DEFAULT_LAYOUT, help="layout JSON file")
     s.set_defaults(func=cmd_view)
+
+    s = sub.add_parser("launch", parents=[common], help="start the game with the dice log helper, then the viewer")
+    s.add_argument("--game-dir", help="the game's install folder (remembered after the first time)")
+    s.add_argument("--layout", default=DEFAULT_LAYOUT, help="layout JSON file")
+    s.set_defaults(func=cmd_launch)
+
+    s = sub.add_parser("dicelog", parents=[common], help="print the game's dice rolls as they happen")
+    s.add_argument("--all", action="store_true", help="also show rolls the log can't label")
+    s.set_defaults(func=cmd_dicelog)
 
     s = sub.add_parser("save", help="show the party stored in a save file (SAVEnn.SAV)")
     s.add_argument("file")

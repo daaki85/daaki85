@@ -41,6 +41,11 @@ class GuestMemory:
             return b""
         return self.proc.read(self.base + start, end - start)
 
+    def write(self, addr: int, data: bytes) -> None:
+        if addr < 0 or addr + len(data) > self.size:
+            raise GuestMemoryError(f"Write at guest {addr:#x} is outside guest RAM")
+        self.proc.write(self.base + addr, data)
+
     def snapshot(self) -> bytes:
         return self.read(0, self.size)
 

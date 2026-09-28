@@ -1,10 +1,12 @@
 """The party viewer window (tkinter).
 
-Left: one column per party slot showing the fields mapped in the layout.
-Right: tools for mapping records — locate a character by name (linked records
-such as the character sheet are then found automatically), and a live hex view
-of a record that highlights bytes as they change. Click a byte to see it
-decoded as each value type.
+Left: one column per party slot showing the fields mapped in the layout. For
+Shattered Lands the party is found automatically; other layouts locate a
+character by name (linked records such as the character sheet are then found
+automatically).
+Right: the dice log (when the game was started with DSCLOG), and memory tools:
+name search and a live hex view of a record that highlights bytes as they
+change. Click a byte to see it decoded as each value type.
 """
 
 import time
@@ -12,12 +14,16 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Callable, Dict, List, Optional
 
-from . import values
+from . import game, values
+from .dicelog import DiceLog, DiceLogError
 from .guestmem import GuestMemory
 from .layout import Layout
 from .process import ProcessError
 
 REFRESH_MS = 500
+DICE_MS = 50
+RETRY_SECONDS = 2.0
+MAX_LOG_LINES = 3000
 HIGHLIGHT_SECONDS = 3.0
 HEX_PREFIX = 17  # width of "+0040  0012a3f0  "
 MAX_HITS = 500
@@ -45,12 +51,17 @@ class Viewer:
         self.hex_data = b""
         self.prev_hex: Dict[int, int] = {}  # guest address -> last byte value
         self.changed_at: Dict[int, float] = {}  # guest address -> time it last changed
+        self.ds: Optional[int] = None  # the game's data segment, once found
+        self.dice: Optional[DiceLog] = None
+        self.next_try = 0.0  # when to retry connecting / attaching
 
         root.title(f"Dark Sun Companion - {layout.game or 'party viewer'}")
         root.geometry("1240x720")
+        root.protocol("WM_DELETE_WINDOW", self.close)
         self._build()
         self.reconnect()
         self._tick()
+        self._dice_tick()
 
     # ---- layout of the window -------------------------------------------------
 
@@ -71,8 +82,33 @@ class Viewer:
         self.table.pack(fill="both", expand=True)
         panes.add(party, weight=1)
 
-        tools = ttk.Frame(panes)
-        panes.add(tools, weight=1)
+        tabs = ttk.Notebook(panes)
+        panes.add(tabs, weight=1)
+
+        dice = ttk.Frame(tabs, padding=6)
+        tabs.add(dice, text="Dice log")
+        row = ttk.Frame(dice)
+        row.pack(fill="x")
+        self.dice_status = tk.StringVar(value="Waiting for the game...")
+        ttk.Label(row, textvariable=self.dice_status).pack(side="left")
+        ttk.Button(row, text="Clear", command=lambda: self.dice_text.delete("1.0", "end")).pack(side="right")
+        self.show_all = tk.BooleanVar(value=False)
+        ttk.Checkbutton(row, text="Show unlabelled rolls", variable=self.show_all,
+                        command=self._show_all_changed).pack(side="right", padx=8)
+        box = ttk.Frame(dice)
+        box.pack(fill="both", expand=True, pady=(6, 0))
+        self.dice_text = tk.Text(box, font="TkFixedFont", wrap="word", height=20)
+        scroll = ttk.Scrollbar(box, command=self.dice_text.yview)
+        self.dice_text.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        self.dice_text.pack(side="left", fill="both", expand=True)
+        self.dice_text.tag_configure("hit", foreground="#1a7f37")
+        self.dice_text.tag_configure("miss", foreground="#8c8c8c")
+        self.dice_text.tag_configure("damage", foreground="#b35900")
+        self.dice_text.tag_configure("other", foreground="#6f42c1")
+
+        tools = ttk.Frame(tabs, padding=6)
+        tabs.add(tools, text="Memory tools")
 
         locate = ttk.LabelFrame(tools, text="Locate by name (or hex:14 16 12 for bytes)", padding=6)
         locate.pack(fill="x")
@@ -140,12 +176,16 @@ class Viewer:
 
     # ---- actions ----------------------------------------------------------------
 
-    def reconnect(self) -> None:
+    def reconnect(self, quiet: bool = False) -> None:
+        self.ds = None
+        self.dice = None
         try:
             self.guest = self.connect()
         except Exception as e:  # shown to the user, who can fix it and retry
             self.guest = None
-            self.status.set(f"Not connected: {e}")
+            if not quiet or not self.status.get().startswith("Not connected"):
+                self.status.set(f"Not connected: {e}")
+            self.next_try = time.monotonic() + RETRY_SECONDS
             return
         self.status.set(f"Connected to DOSBox pid {self.guest.proc.pid}, "
                         f"guest RAM {self.guest.size // (1024 * 1024)} MB at host {self.guest.base:#x}")
@@ -241,16 +281,106 @@ class Viewer:
 
     def _disconnected(self, err: Exception) -> None:
         self.guest = None
-        self.status.set(f"Disconnected ({err}). Start DOSBox and press Reconnect.")
+        self.dice = None
+        self.ds = None
+        self.status.set(f"Disconnected ({err}). Waiting for DOSBox...")
+        self.dice_status.set("Waiting for the game...")
+        self.next_try = time.monotonic() + RETRY_SECONDS
+
+    def close(self) -> None:
+        """Put the game's rand() back before closing, so the game keeps working."""
+        try:
+            if self.dice:
+                self.dice.detach()
+        except Exception:
+            pass
+        self.root.destroy()
 
     def _tick(self) -> None:
+        if not self.guest and time.monotonic() >= self.next_try:
+            self.reconnect(quiet=True)
         if self.guest:
             try:
+                self._auto_locate()
                 self._refresh_table()
                 self._refresh_hex()
             except ProcessError as e:
                 self._disconnected(e)
         self.root.after(REFRESH_MS, self._tick)
+
+    def _auto_locate(self) -> None:
+        """For Shattered Lands, point the party slots at the game's own tables."""
+        if not self.layout.raw.get("auto_locate"):
+            return
+        if self.ds is None:
+            self.ds = game.find_data_segment(self.guest)
+            if self.ds is None:
+                return
+        creature, sheet = self.layout.records.get("creature"), self.layout.records.get("sheet")
+        records = game.party_records(self.guest, self.ds)
+        if not any(c for c, _ in records):  # the game restarted or quit: find DS again
+            self.ds = None
+            return
+        for slot, (c, s) in enumerate(records[:self.layout.count]):
+            if creature:
+                creature.slots[slot] = c
+            if sheet:
+                sheet.slots[slot] = s
+
+    # ---- dice log ---------------------------------------------------------------
+
+    def _show_all_changed(self) -> None:
+        if self.dice and self.dice.attached:
+            try:
+                self.dice.set_show_all(self.show_all.get())
+            except ProcessError as e:
+                self._disconnected(e)
+
+    def _dice_tick(self) -> None:
+        try:
+            self._dice_step()
+        except ProcessError as e:
+            self._disconnected(e)
+        self.root.after(DICE_MS, self._dice_tick)
+
+    def _dice_step(self) -> None:
+        if not self.guest:
+            return
+        now = time.monotonic()
+        if self.dice is None or not self.dice.attached:
+            if now < self.next_try:
+                return
+            self.next_try = now + RETRY_SECONDS
+            self.dice = self.dice or DiceLog(self.guest, self.show_all.get())
+            try:
+                self.dice_status.set(self.dice.attach())
+            except DiceLogError as e:
+                self.dice_status.set(str(e))
+            return
+        if now >= self.next_try:  # every couple of seconds: has the game restarted?
+            self.next_try = now + RETRY_SECONDS
+            if not self.dice.still_patched():
+                self.dice.detach()
+                self.dice_status.set("The game restarted; attaching again...")
+                return
+        lines = [line for e in self.dice.poll() if (line := self.dice.describe(e, self.show_all.get()))]
+        if self.dice.missed:
+            lines.append(f"({self.dice.missed} rolls came too fast to record)")
+            self.dice.missed = 0
+        if lines:
+            self._append_dice(lines)
+
+    def _append_dice(self, lines: List[str]) -> None:
+        at_end = self.dice_text.yview()[1] >= 0.999
+        for line in lines:
+            tag = ("hit" if "-> HIT" in line else "miss" if "-> miss" in line
+                   else "damage" if line.startswith("  ") else "other")
+            self.dice_text.insert("end", line + "\n", tag)
+        excess = int(self.dice_text.index("end-1c").split(".")[0]) - MAX_LOG_LINES
+        if excess > 0:
+            self.dice_text.delete("1.0", f"{excess + 1}.0")
+        if at_end:
+            self.dice_text.see("end")
 
     def _refresh_table(self) -> None:
         slots = [self.layout.decode_slot(i, self.guest.read) for i in range(self.layout.count)]

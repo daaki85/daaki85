@@ -3,12 +3,13 @@
   "_notes": [
     "Mapped from Shattered Lands save files; see README 'What is known'. Memory is expected to use the same structures but that is not yet confirmed.",
     "Each character has a 'creature' record (name, current HP/PSP, THAC0) and a 'sheet' record (XP, classes, saves).",
-    "Locate the creature record by name in the viewer; the sheet is found automatically by its matching ability scores and entity id.",
+    "auto_locate: the viewer finds the party through the game's own pointers (see dscompanion/game.py). Otherwise locate the creature record by name; the sheet is then found by its matching ability scores and entity id.",
     "Offsets are relative to a record's base, in hex (\"0x1c\") or decimal. null means 'not discovered yet' (shown as '?').",
     "Types: u8 s8 u16 s16 u32 s32 (little-endian) and str (needs a length). \"values\" maps raw numbers to names."
   ],
   "count": 4,
-  "name": {"record": "creature", "offset": "0x28", "length": 18},
+  "auto_locate": true,
+  "name": {"record": "creature", "offset": "0x28", "length": 16},
   "records": {
     "creature": {"slots": [null, null, null, null], "stride": "0x3a"},
     "sheet": {
