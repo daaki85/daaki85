@@ -14,7 +14,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Dict, List, Optional, Tuple
 
-from . import game, theme, values
+from . import art, game, launch, theme, values
 from .dicelog import DiceLog, DiceLogError
 from .guestmem import GuestMemory
 from .layout import Layout
@@ -54,6 +54,9 @@ class Viewer:
         self.ds: Optional[int] = None  # the game's data segment, once found
         self.dice: Optional[DiceLog] = None
         self.next_try = 0.0  # when to retry connecting / attaching
+        # the game's portraits and font, from the player's own install (if it can be found)
+        self.art = art.GameArt(launch.find_game_dir())
+        self._images: List[tk.PhotoImage] = []  # Tk shows an image only while it's referenced
 
         root.title(f"{theme.NAME} - {layout.game or 'party viewer'}")
         root.geometry("1320x780")
@@ -69,6 +72,8 @@ class Viewer:
     def _build(self) -> None:
         self.banner = theme.Banner(self.root)
         self.banner.pack(fill="x")
+        if self.art.font:
+            self.banner.use_game_font(self.art.font)
         top = ttk.Frame(self.root, padding=(6, 6, 6, 0))
         top.pack(fill="x")
         self.status = tk.StringVar(value="Not connected")
@@ -130,7 +135,7 @@ class Viewer:
         row = ttk.Frame(talk)
         row.pack(fill="x")
         ttk.Label(row, text="What characters say, and the replies offered").pack(side="left")
-        ttk.Button(row, text="Clear", command=lambda: self.talk_text.delete("1.0", "end")).pack(side="right")
+        ttk.Button(row, text="Clear", command=self.clear_dialogue).pack(side="right")
         ttk.Button(row, text="Save...", command=lambda: self.save_text(self.talk_text, "dialogue")).pack(
             side="right", padx=4)
         box = ttk.Frame(talk)
@@ -433,9 +438,19 @@ class Viewer:
         if talk:
             self._append_dialogue(talk)
 
+    def clear_dialogue(self) -> None:
+        self.talk_text.delete("1.0", "end")
+        self._images.clear()
+
     def _append_dialogue(self, entries) -> None:
         at_end = self.talk_text.yview()[1] >= 0.999
         for entry in entries:
+            face = self.art.portrait(entry.portrait) if entry.portrait else None
+            if face:  # the game's portrait, twice its size (more at larger text sizes)
+                image = art.photo(self.root, face, max(2, round(2 * theme.scale())), background=theme.DEEP)
+                self._images.append(image)
+                self.talk_text.image_create("end", image=image, padx=2, pady=4, align="center")
+                self.talk_text.insert("end", " ")
             self.talk_text.insert("end", self.dice.speaker(entry.portrait) + "\n", "speaker")
             if entry.text:
                 self.talk_text.insert("end", entry.text + "\n")

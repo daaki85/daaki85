@@ -231,6 +231,13 @@ goes with the text, so speakers show as `Portrait 119` and so on (119 is the
 arena announcer); the text itself often names who's speaking. Text shown
 without a face (the emblem instead) is `Narration`.
 
+Each entry shows the speaker's portrait, as the game's own dialogue window
+does. Portraits and the title's lettering are read from your installed game
+at run time (GPLDATA.GFF and RESOURCE.GFF in the install folder the launcher
+remembers); nothing from the game is copied into Templar's Ledger. Without
+the game installed the window uses its own lettering and no portraits (the
+screenshots here are taken that way).
+
 ### How the dice log works
 
 Every roll in the game goes through one function, Borland C++'s `rand()`.
@@ -290,6 +297,9 @@ WCAG 2.0 level AA:
 - **Keyboard:** Tab and Shift+Tab move between controls, and the one with the
   keyboard focus is outlined in yellow. **Ctrl+Tab** switches tabs, as do
   **Alt+L** (Dice log), **Alt+I** (Dialogue) and **Alt+M** (Memory tools).
+- **The game's font** is only used for the title: it's a 9-pixel bitmap
+  font, fine enlarged as a heading but harder to read than ordinary text,
+  so everything else is in the system's fonts.
 - **Screen readers:** tkinter's windows are not read well by screen readers.
   **Save...** on the Dice log and Dialogue tabs writes the log to a text file,
   and `python -m dscompanion dicelog` prints the same log (dialogue included) in

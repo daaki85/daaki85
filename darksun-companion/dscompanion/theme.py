@@ -130,6 +130,10 @@ def style_text(widget: tk.Text) -> None:
         widget.configure(insertbackground=PALE, padx=8, pady=6)
 
 
+def _rgb(colour: str) -> Tuple[int, int, int]:
+    return int(colour[1:3], 16), int(colour[3:5], 16), int(colour[5:7], 16)
+
+
 def _rock(width: int, height: int, seed: int = 7) -> tk.PhotoImage:
     """A tile of mottled dark red rock, like the arena's walls."""
     rnd = random.Random(seed)
@@ -163,7 +167,14 @@ class Banner(tk.Canvas):
         self.tile = _rock(96, self.HEIGHT)
         title, _, _ = fonts()
         self.title_font = title
+        self.game_font = None  # the game's own font (art.Font), when the game is installed
+        self._title_image = None
         self.bind("<Configure>", lambda _e: self.redraw())
+
+    def use_game_font(self, font) -> None:
+        """Draw the title in the game's font (whole-pixel zoom keeps it sharp)."""
+        self.game_font = font
+        self.redraw()
 
     def redraw(self) -> None:
         """Draw at the current text size (the strip grows with the title)."""
@@ -177,8 +188,17 @@ class Banner(tk.Canvas):
                 self.create_image(x, y, image=self.tile, anchor="nw")
         self.create_line(0, height - 2, width, height - 2, fill=SHADOW, width=3)
         middle = height // 2
-        for dx, dy, colour in ((2, 2, SHADOW), (0, 0, AMBER)):
-            self.create_text(14 + dx, middle + dy, text=NAME.upper(), anchor="w", fill=colour, font=self.title_font)
-        right = 14 + tkfont.nametofont(self.title_font).measure(NAME.upper()) + 14
+        if self.game_font is not None:
+            from . import art
+            zoom = max(2, round(3 * _scale))
+            pixels = self.game_font.render(NAME.upper(), _rgb(AMBER), _rgb(SHADOW))
+            self._title_image = art.photo(self, pixels, zoom)
+            self.create_image(14, middle, image=self._title_image, anchor="w")
+            right = 14 + self._title_image.width() + 14
+        else:
+            for dx, dy, colour in ((2, 2, SHADOW), (0, 0, AMBER)):
+                self.create_text(14 + dx, middle + dy, text=NAME.upper(), anchor="w", fill=colour,
+                                 font=self.title_font)
+            right = 14 + tkfont.nametofont(self.title_font).measure(NAME.upper()) + 14
         self.create_text(right, middle + round(4 * _scale), text=SUBTITLE, anchor="w", fill=SAND,
                          font="LedgerSmall")
