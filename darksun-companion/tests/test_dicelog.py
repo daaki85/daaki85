@@ -182,6 +182,19 @@ class AttackTests(unittest.TestCase):
                          ["  Dag hits Mountain Stalker for 20: 2d8 = [2 + 5] +1 weapon +12 STR 24"])
 
 
+class BackstabTests(unittest.TestCase):
+    def test_backstab_multiplies_the_damage(self):
+        log = make_game()
+        sheet = SHEETS + 0 * game.SHEET_SIZE  # make Dag a 6th level thief
+        log.guest.mem[sheet + game.SHEET_CLASSES + 1], log.guest.mem[sheet + game.SHEET_LEVELS + 1] = 17, 6
+        # the attack's frame: ... [BP+16h] melee, [BP+1Eh] backstab, [BP+20h] from behind;
+        # [BP-0Ah] attacks made this round
+        parent = words(0, 0, 0, 0, 10, 4, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1)
+        e = entry(raw_for(5, 8), dicelog.DICE_SITE, words(0, 0, 1, 8, 0), parent, (0x29, 0, 0, 0),
+                  parent_code=dicelog.WEAPON_DAMAGE_RETURN, parent_locals=locals_at(0x28, ma=1))
+        self.assertEqual(log.describe(e), ["  Dag hits Mountain Stalker for 51: (1d8 = [5] +12 STR 24) x3 backstab"])
+
+
 class SaveTests(unittest.TestCase):
     def save_roll(self, log, natural, target=0x29, caster=0, spell=HOLD_PERSON):
         # the saving throw's frame: [BP+6] target, [BP+8] caster, [BP+0Ah] spell;

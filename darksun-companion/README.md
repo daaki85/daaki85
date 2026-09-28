@@ -90,6 +90,7 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 | `X attacks Y with Long Sword +1 (1d8+1): d20 = 14, hits AC 1, target AC 3 -> HIT` | An attack roll, the weapon and its damage dice. "Hits AC" is the lowest AC this roll hits (THAC0 − d20); the target AC is the one the game used, with armour, DEX and spells. A natural 20 always hits and a natural 1 always misses. |
 | `    THAC0 16, +1 Blessed, +6 STR, +1 weapon = 8` | Where the attacker's THAC0 for this attack comes from: STR (melee) or DEX (missiles), spells (Bless, Prayer, Slow, Graft Weapon, the target's Blur), attacking from behind, the weapon's plus, the penalty for non-metal weapons (wooden −3, bone −1, stone and obsidian −2), and the difficulty setting for monsters. |
 | `  X hits Y for 14: 1d8 = [6] +8 STR 20` | The damage of that hit: the dice, the weapon's bonus, and the STR bonus the game adds for melee. Damage is at least 1. |
+| `  X hits Y for 51: (1d8 = [5] +12 STR 24) x3 backstab` | A backstab (see below) multiplies the whole damage, STR bonus included. |
 | `Fireball damage: 9d6 = [...] = 26` | A spell's damage roll, rolled for each target before its saving throw. |
 | `Y magic resistance 30% vs Fireball: d100 = 71 -> not resisted` | The magic resistance roll (only shown for targets that have some). |
 | `Y saves vs Fireball from X (petrification/polymorph): d20 = 6, doubled for this spell = 12 +1 modifiers (incl. Blessed) = 13, needs 11 -> saved` | A saving throw: which of the target's five saves it uses, the d20, the game's modifiers, and the number it had to reach. The game doubles the d20 for some spells (Burning Hands, Fireball, Cone of Cold, Flame Strike, Wall of Fire...). A natural 1 always fails and a natural 20 always saves. |
@@ -126,6 +127,20 @@ Ability scores such as `STR 24 (20 without spells)` show the score now and, in
 brackets, the character's own score when a spell (Strength, for one) has
 raised it. The character's own score already includes the racial adjustment:
 a half-giant's 20 + 4 shows as 24.
+
+### Attacks from behind and backstabs
+
+From the game's code:
+
+- An attack is **from behind** when the attacker stands in the square directly
+  behind the way the target is facing (one of eight directions; a creature
+  turns to face whoever it attacks). It gets +2 to hit, and the target loses
+  its DEX bonus and its shield.
+- A **backstab** is an attack from behind by a thief, in melee, with a weapon
+  that isn't too heavy (the game's weight value at most 40; a long sword's
+  is 20). It gets another +2 to hit (+4 in all), and on the thief's first
+  attack of the round the damage, STR bonus included, is multiplied: x2 at
+  thief levels 1-4, x3 at 5-8, x4 at 9-12, x5 from 13.
 
 ### The Dialogue tab
 

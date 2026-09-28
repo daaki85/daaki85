@@ -64,6 +64,7 @@ FILTERS = tuple(SCALED_ROLL + bytes.fromhex(h) for h in (
     "666bc0", "6669c0", "66c1e0", "660fbf56")) + (PERCENT_SITE[:8],)
 
 KIND_ROLL, KIND_SAVE, KIND_AC = 0, 1, 2
+THIEF = 17  # class number
 
 EFFECT_INTERVAL = 0.25  # seconds between looks at the active effects
 LOAD_SETTLE = 3.0  # seconds after the party changes (a game was loaded) when effects are not news
@@ -526,6 +527,17 @@ class DiceLog:
             if str_bonus:
                 steps += f" {signed(str_bonus)} STR {strength}"
                 total += str_bonus
+        # a backstab (a thief attacking from right behind, see the THAC0 line) multiplies all of
+        # that on the attacker's first attack of the round: x2, x3 from thief level 5, x4 from 9,
+        # x5 from 13. The attack's frame: [BP+1Eh] backstab, [BP+20h] from behind, [BP-0Ah] the
+        # attacks already made this round
+        backstab, rear, made = e.parent_arg(0x1E), e.parent_arg(0x20), e.parent_local(-0x0A)
+        if backstab and rear and made is not None and made <= 1:
+            sheet = g.sheet(attacker)
+            thief = [sheet[game.SHEET_LEVELS + i] for i in range(3) if sheet[game.SHEET_CLASSES + i] == THIEF]
+            times = min(2 + (max(thief[0], 1) - 1) // 4, 5) if thief else 2
+            total *= times
+            steps = f"({steps}) x{times} backstab"
         return [f"  {g.creature_name(attacker)} hits {g.combatant_name(e.glob[0])} for {total}: {steps}"]
 
     # weapons breaking and levels ------------------------------------------------------
