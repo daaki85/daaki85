@@ -23,6 +23,9 @@ CPU 386
 VEC_RAND equ 0x60     ; rand() (DSUNLOG.EXE: INT 60h at the start of rand())
 VEC_SAVE equ 0x61     ; PROBE_SAVE
 VEC_AC   equ 0x62     ; PROBE_AC
+VEC_TEXT equ 0x63     ; PROBE_TEXT
+VEC_MSG  equ 0x64     ; PROBE_MSG
+TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
 ESIZE   equ 192         ; bytes per entry (see ENTRY LAYOUT)
@@ -76,9 +79,23 @@ NFILT   equ ($ - filt) / 9
 skipped  dw 0                   ; +106 calls not recorded because no filter matched
 probe_save_off dw probe_save    ; +108 offset of PROBE_SAVE in this segment
 probe_ac_off   dw probe_ac      ; +110 offset of PROBE_AC in this segment
-vectors  db VEC_RAND, VEC_SAVE, VEC_AC  ; +112 the interrupts the patched game uses
-hooked   db 0                   ; +115 1 once the vectors are ours
-int_rand_off dw int_rand        ; +116 offset of INT_RAND (VEC_RAND's handler) in this segment
+vectors  db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG  ; +112 the interrupts the patched game uses
+hooked   db 0                   ; +117 1 once the vectors are ours
+int_rand_off dw int_rand        ; +118 offset of INT_RAND (VEC_RAND's handler) in this segment
+gpl_hook_off dw gpl_hook        ; +120 offset of GPL_HOOK in this segment
+gpl_chain dd 0                  ; +122 the game's own hook, which GPL_HOOK passes on to
+tpos     dw 0                   ; +126 bytes written to the text buffer so far (wraps at 65536)
+tbuf_off dw tbuf                ; +128 offset of the text buffer in this segment
+tsize    dw TSIZE               ; +130 its size (a power of two)
+probe_text_off dw probe_text    ; +132 offset of PROBE_TEXT in this segment
+probe_msg_off dw probe_msg      ; +134 offset of PROBE_MSG in this segment
+
+; TEXT BUFFER: what the game sends to its dialogue window, as records of
+;   byte 0FEh, byte kind (0 = a reply to choose, 1 = a portrait, 2 = text,
+;   3 = a message box),
+;   dword first argument (the text's far pointer, for 0 and 2), word second argument,
+;   word length, then that many bytes of text (for kinds 0 and 2).
+; A record is complete once TPOS counts it.
 
 ; ENTRY LAYOUT (ESIZE bytes, all words little-endian)
 ;   +0  seq of this entry (0xFFFF while being written)
@@ -325,12 +342,136 @@ probe_ac:
         pop si
         retf 2
 
+; GPL_HOOK: the game's script interpreter calls the far pointer at DS:00ACh with
+; each command's number before running it. The companion points it here and
+; puts the game's own hook in GPL_CHAIN. Records the command (kind 3), then
+; passes on to the game's hook.
+gpl_hook:
+        push si
+        mov si, sp
+        sub si, 4               ; SS:SI+6 = our return address
+        push ax
+        mov ax, [ss:si+10]      ; the command number
+        mov word [cs:kind], 3
+        call record
+        pop ax
+        pop si
+        jmp far [cs:gpl_chain]
+
+; PROBE_TEXT: INT VEC_TEXT replaces "push bp / mov bp,sp" (3 bytes: INT + NOP) at
+; the start of the game's routine that feeds its dialogue window
+; (kind, dword, word). Copies what it's given to the text buffer, then does the
+; replaced instructions for the routine.
+probe_text:
+        call text_enter         ; SS:BP+16 = the routine's arguments
+        mov cl, [bp+16]
+        lds si, [bp+18]
+        mov dx, [bp+22]
+        jmp text_leave
+
+; PROBE_MSG: the same for the game's message box routine (far pointer to the
+; message), recorded as kind 3.
+probe_msg:
+        call text_enter
+        mov cl, 3
+        lds si, [bp+16]
+        xor dx, dx
+        jmp text_leave
+
+text_enter:                     ; take the interrupt frame off, save registers, BP = SP
+        pop word [cs:t_ret]
+        pop word [cs:t_ip]      ; the routine's stack is underneath the interrupt frame
+        pop word [cs:t_cs]
+        pop word [cs:t_fl]
+        sti
+        push ax
+        push bx
+        push cx
+        push dx
+        push si
+        push ds
+        push bp
+        mov bp, sp              ; SS:BP+14 = return address of the routine, +18 its arguments
+        add bp, 2               ; ... so that +16 is the first argument
+        jmp [cs:t_ret]
+
+text_leave:                     ; record CL = kind, DS:SI = dword, DX = word, then return
+        mov bx, [cs:tpos]
+        mov al, 0xFE
+        call tput
+        mov al, cl
+        call tput
+        mov ax, si
+        call tputw
+        mov ax, ds
+        call tputw
+        mov ax, dx
+        call tputw
+        xor ax, ax
+        cmp cl, 1
+        je .len                 ; a portrait: no text
+        mov ax, ds
+        or ax, si
+        jz .len
+        push si
+        xor ax, ax
+.count:
+        cmp byte [si], 0
+        je .counted
+        inc si
+        inc ax
+        cmp ax, 400
+        jb .count
+.counted:
+        pop si
+.len:
+        mov cx, ax
+        call tputw
+        jcxz .done
+.copy:
+        lodsb
+        call tput
+        loop .copy
+.done:
+        mov [cs:tpos], bx       ; publish the record
+        pop bp
+        pop ds
+        pop si
+        pop dx
+        pop cx
+        pop bx
+        pop ax
+        push bp                 ; the replaced instructions
+        mov bp, sp
+        push word [cs:t_fl]
+        push word [cs:t_cs]
+        push word [cs:t_ip]
+        iret
+
+tput:                           ; AL -> text buffer at position BX
+        push bx
+        and bx, TSIZE - 1
+        mov [cs:tbuf+bx], al
+        pop bx
+        inc bx
+        ret
+
+tputw:
+        call tput
+        mov al, ah
+        jmp tput
+
+t_ret   dw 0
+t_ip    dw 0
+t_cs    dw 0
+t_fl    dw 0
 kind    dw 0
 extra   dw 0
 SPELL_SEG equ 2 + 0x79BB7 - 0x79A85  ; return address - (DSUN.EXE offsets: patch, mov ax's operand)
 
 align 16
 ring:   times NENT*ESIZE db 0
+tbuf:   times TSIZE db 0
 resident_end:
 
 install:                        ; DS = ES = PSP, CS = the image
@@ -338,7 +479,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, vectors         ; the vectors must be free
-        mov cx, 3
+        mov cx, 5
 .check:
         lodsb
         mov ah, 35h
@@ -363,6 +504,12 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_AC
         mov dx, probe_ac
         int 21h
+        mov ax, 2500h + VEC_TEXT
+        mov dx, probe_text
+        int 21h
+        mov ax, 2500h + VEC_MSG
+        mov dx, probe_msg
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -378,7 +525,7 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-62h are in use (already loaded?). Not loaded.', 13, 10, '$'
+busy    db 'DSCLOG: interrupts 60h-64h are in use (already loaded?). Not loaded.', 13, 10, '$'
 
         align 16, db 0
 image_len equ $ - $$

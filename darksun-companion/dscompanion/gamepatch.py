@@ -1,15 +1,18 @@
 """The patched copy of the game the dice log runs: DSUNLOG.EXE.
 
-The copy differs from DSUN.EXE in three places, each replaced by an INT
+The copy differs from DSUN.EXE in a few places, each replaced by an INT
 instruction that DSCLOG.EXE answers (see dos/dsclog.asm):
 
   * the start of rand(), so every random number goes through DSCLOG, which
     gives the same numbers and records who asked;
   * the end of the saving throw, where DSCLOG records the final total and the
     number it had to reach;
-  * the end of the AC calculation, where DSCLOG records the AC the game uses.
+  * the end of the AC calculation, where DSCLOG records the AC the game uses;
+  * the start of the routine that feeds the dialogue window, where DSCLOG
+    copies the text, the replies to choose from and the portrait shown;
+  * the start of the message box routine ("... is broken !", level ups).
 
-A fourth change lets the copy live outside the game folder: the game looks for
+A last change lets the copy live outside the game folder: the game looks for
 its data files in the folder its EXE is in, and the copy looks in the current
 folder instead (the launcher runs it from the game folder).
 
@@ -23,7 +26,7 @@ from typing import NamedTuple
 
 GOG_SIZE = 611408  # DSUN.EXE of the GOG release (1.1)
 
-VEC_RAND, VEC_SAVE, VEC_AC = 0x60, 0x61, 0x62  # must match dsclog.asm
+VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG = 0x60, 0x61, 0x62, 0x63, 0x64  # must match dsclog.asm
 
 
 class Patch(NamedTuple):
@@ -44,6 +47,10 @@ PATCHES = (
     Patch("save", 0x79BB7, bytes.fromhex("8a46fe3a46ff"), _interrupt(VEC_SAVE, 6)),
     # AC: mov ax,[bp-6] / add ax,si
     Patch("ac", 0x58FB6, bytes.fromhex("8b46fa03c6"), _interrupt(VEC_AC, 5)),
+    # the dialogue window's input routine (kind, far pointer, word): push bp / mov bp,sp
+    Patch("text", 0x7CE83, bytes.fromhex("558bec"), _interrupt(VEC_TEXT, 3)),
+    # the message box routine (far pointer to the message): push bp / mov bp,sp
+    Patch("message", 0x5536E, bytes.fromhex("558bec"), _interrupt(VEC_MSG, 3)),
     # The data path is argv[0] cut after its last \ or :, kept at DS:4B81h. The
     # code that finds the cut becomes: path = ".\", then on to "mov byte [si],0"
     # which ends it. (Not an empty path: the save list needs a \ in it.)

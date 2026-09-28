@@ -27,6 +27,8 @@ from . import game
 from .game import (CONVENTIONAL_AND_UPPER, CREATURE_ABILITIES, CREATURE_SIDE, CREATURE_THAC0, EFFECT_NAMES,
                    EFFECT_RULES, MATERIAL_TO_HIT, MATERIALS, SAVE_NAMES, STR_DAMAGE, GameData)
 from .guestmem import GuestMemory
+from .textlog import KIND_MESSAGE, Dialogue, DialogueEntry, TextBuffer
+from .tracker import PartyTracker
 
 HDR_SIG = b"DSCLOGv5"
 RAND_PATCHED = b"\xcd\x60"  # INT 60h at the start of rand() in DSUNLOG.EXE
@@ -34,7 +36,7 @@ RAND_IP = 0x822  # rand()'s offset in the game's first code segment
 SEED = 0x4122  # DS offset of rand()'s 32-bit seed
 
 TARGET_GLOBAL = 0x494A  # DS word: combatant id of the current attack's target
-CHECK_MODS = (0x396A, 4)  # segment (relative to the load segment), offset: ability check modifiers
+CHECK_MODS = (0x3971, 4)  # segment (relative to the load segment), offset: ability check modifiers
 
 ABILITIES = ("STR", "DEX", "CON", "INT", "WIS", "CHA")
 
@@ -43,8 +45,14 @@ ATTACK_SITE = bytes.fromhex("660fbfc0666bc01466bb00800000669966f7fb408946fa")
 DICE_SITE = bytes.fromhex("660fbfc0660fbf5608660fafc266bb00800000669966f7fb")
 CHECK_SITE = bytes.fromhex("660fbfc0666bc01466bb00800000669966f7fb8946fc3d13")
 PERCENT_SITE = bytes.fromhex("bb640099f7fb3b56fe")
+# The weapon break check after an attack: 0-7, then 0-19; both under the chance (1) breaks it
+BREAK_ROLL_1 = bytes.fromhex("660fbfc066c1e00366bb00800000669966f7fb3bc77d")
+BREAK_ROLL_2 = bytes.fromhex("660fbfc0666bc01466bb00800000669966f7fb3bc77d")
 # Code right after the attack function's call to the dice function
 WEAPON_DAMAGE_RETURN = bytes.fromhex("83c4068946fc0bc07f05")
+# ... and after the 1d10 for a creature's 1-in-10 special effect on a hit (the thri-kreen
+# bite, for one); the caller's arguments are (target, attacker)
+SPECIAL_EFFECT_RETURN = bytes.fromhex("83c4043d01007510")
 # ... and in the routine that adds up a spell's damage dice
 SPELL_DAMAGE_RETURN = bytes.fromhex("83c4045a03d0")
 # DSCLOG only records calls whose calling code starts like one of these, so
@@ -163,6 +171,14 @@ class PendingDice:
     resistance: Optional[Tuple[int, int, int]] = None  # target, spell, roll
 
 
+class AcDetail(NamedTuple):
+    base: int  # from the character sheet
+    armour: int  # armour and shields (and spells that stand in for armour)
+    dex: int
+    other: int  # spells and the rest
+    total: int
+
+
 class DiceLog:
     def __init__(self, guest: GuestMemory, record_everything: bool = False):
         self.guest = guest
@@ -173,6 +189,7 @@ class DiceLog:
         self.missed = 0
         self.game: Optional[GameData] = None
         self.last_ac: Dict[int, int] = {}  # creature index -> the AC the game last computed for it
+        self.ac_detail: Dict[int, AcDetail] = {}  # creature index -> how that AC was made up
         self._dice: Dict[Tuple[int, int, int, int], List[int]] = {}
         self._pending: List[PendingDice] = []
         self._save_rolls: Dict[Tuple[int, int], int] = {}  # (SS, save frame BP) -> natural d20
@@ -180,6 +197,13 @@ class DiceLog:
         self._party: Optional[bytes] = None
         self._party_changed_at = 0.0
         self._next_effect_check = 0.0
+        self._names: Dict[int, str] = {}  # combatant -> name, for effects that end after a fight
+        self._last_attacker = ""
+        self._break_first: Optional[int] = None  # the 0-7 roll of a break check in progress
+        self.tracker: Optional[PartyTracker] = None
+        self.text: Optional[TextBuffer] = None
+        self.dialogue = Dialogue()
+        self._dialogue: List[DialogueEntry] = []
 
     # ---- attaching ------------------------------------------------------------
 
@@ -201,6 +225,8 @@ class DiceLog:
         self.tsr_hdr, self.rand_addr = hdr, rand_addr
         self.guest.write(hdr + 22, struct.pack("<5H", SEED, TARGET_GLOBAL, 0, 0, 0))
         self.game = GameData(self.guest, ds)
+        self.tracker = PartyTracker(self.game)
+        self.text = TextBuffer(self.guest.read, hdr)
         self.set_record_everything(self.record_everything)
         self.last_seq = struct.unpack("<H", self.guest.read(hdr + 8, 2))[0]
         self._effects = None
@@ -256,24 +282,62 @@ class DiceLog:
         out: List[str] = []
         for e in self.poll():
             out += self.describe(e, show_all, now)
+        for rec in self.text.poll():
+            if rec.kind == KIND_MESSAGE:
+                out.append(f"Message: {' '.join(rec.text.split())}")
+            else:
+                self._dialogue += self.dialogue.add(rec, now)
+        self._dialogue += self.dialogue.idle(now)
         if now >= self._next_effect_check:
             self._next_effect_check = now + EFFECT_INTERVAL
             out += self.effect_changes(now)
+            if not self._party_check(now):
+                out += self.tracker.check(now)
         out += self.flush(now)
         if self.missed:
             out.append(f"({self.missed} rolls came too fast to record)")
             self.missed = 0
         return out
 
+    def speaker(self, portrait: Optional[int]) -> str:
+        """Who a dialogue portrait belongs to, as far as is known."""
+        if portrait is None:
+            return "(no portrait)"
+        return f"Portrait {portrait}"
+
+    def take_dialogue(self) -> List[DialogueEntry]:
+        """Dialogue that has come in since the last call (lines() collects it)."""
+        out, self._dialogue = self._dialogue, []
+        return out
+
+    def _party_check(self, now: float) -> bool:
+        """True for a while after the party changes (a game was loaded): what's there is not news."""
+        party = self.game.party_signature()
+        if party != self._party:
+            self._party, self._party_changed_at = party, now
+        if now - self._party_changed_at < LOAD_SETTLE:
+            if self.tracker:
+                self.tracker.reset()
+            return True
+        return False
+
     # ---- effects (spells and powers on creatures) ------------------------------
+
+    def _name(self, combatant: int) -> str:
+        """A combatant's name, remembered for when the fight is over."""
+        name = self.game.combatant_name(combatant)
+        if name != "?":
+            self._names[combatant] = name
+        return self._names.get(combatant, name)
 
     def effect_changes(self, now: float = 0.0) -> List[str]:
         """Lines for effects that started or ended since the last look."""
         current = Counter(self.game.effects())
-        party = self.game.party_signature()
-        if party != self._party:  # a game was loaded: its effects are not news
-            self._party, self._party_changed_at = party, now
-        if self._effects is None or now - self._party_changed_at < LOAD_SETTLE:
+        for eff in current:
+            self._name(eff.owner)
+            self._name(eff.caster)
+        loading = self._party_check(now)
+        if self._effects is None or loading:
             self._effects = current  # the first look, or just loaded: remember what is active
             return []
         started, ended = current - self._effects, self._effects - current
@@ -284,15 +348,15 @@ class DiceLog:
             by_cast.setdefault((eff.caster, eff.id), []).append(eff.owner)
         for (caster, eid), owners in by_cast.items():
             name = EFFECT_NAMES.get(eid, f"effect {eid}")
-            targets = ", ".join(self.game.combatant_name(o) for o in owners)
+            targets = ", ".join(self._name(o) for o in owners)
             rule = f": {EFFECT_RULES[eid]}" if eid in EFFECT_RULES else ""
-            out.append(f"{self.game.combatant_name(caster)} gives {name} to {targets}{rule}")
+            out.append(f"{self._name(caster)} gives {name} to {targets}{rule}")
         by_end: Dict[int, List[int]] = {}
         for eff in ended.elements():
             by_end.setdefault(eff.id, []).append(eff.owner)
         for eid, owners in by_end.items():
             name = EFFECT_NAMES.get(eid, f"effect {eid}")
-            out.append(f"{name} ends on {', '.join(self.game.combatant_name(o) for o in owners)}")
+            out.append(f"{name} ends on {', '.join(self._name(o) for o in owners)}")
         return out
 
     # ---- describing -----------------------------------------------------------
@@ -329,6 +393,8 @@ class DiceLog:
             return self._dice_roll(e, show_all, now)
         if code.startswith(CHECK_SITE):
             return self.flush(now, force=True) + self._check(e, show_all)
+        if code.startswith(BREAK_ROLL_1) or code.startswith(BREAK_ROLL_2):
+            return self._break_check(e, code.startswith(BREAK_ROLL_1), show_all)
         if code.startswith(PERCENT_SITE):
             chance, roll = e.local(-2), e.raw % 100 + 1
             return [f"Percentile check: d100 = {roll}, needs {chance} or less "
@@ -353,6 +419,7 @@ class DiceLog:
         hit = d20 == 20 or (d20 != 1 and d20 >= need)
         note = " (natural 20)" if d20 == 20 else " (natural 1)" if d20 == 1 else ""
 
+        self._last_attacker = g.creature_name(attacker)
         target_index = g.combatant_creature(target_combatant)
         if target_index is not None:
             self.last_ac[target_index] = ac
@@ -430,6 +497,14 @@ class DiceLog:
         if not weapon:
             if count == 1 and sides == 20 and self._is_save_roll(e):
                 return self._save_roll(e)
+            if count == 1 and sides == 10 and e.parent_code.startswith(SPECIAL_EFFECT_RETURN):
+                target, attacker = e.parent_arg(6), e.parent_arg(8)
+                return [f"    {self._name(attacker)}'s special effect on {self._name(target)}: d10 = {faces[0]}, "
+                        f"works on a 1 -> {'it works' if faces[0] == 1 else 'no effect'}"]
+            if count == 1:
+                level_up = self._level_hp(e, sides, faces[0])
+                if level_up:
+                    return level_up
             if sides > 1:  # the game sometimes "rolls" 1d1
                 pending = PendingDice(f"{count}d{sides} = {faces_text} = {sum(faces)}", now,
                                       damage=e.parent_code.startswith(SPELL_DAMAGE_RETURN))
@@ -452,6 +527,55 @@ class DiceLog:
                 steps += f" {signed(str_bonus)} STR {strength}"
                 total += str_bonus
         return [f"  {g.creature_name(attacker)} hits {g.combatant_name(e.glob[0])} for {total}: {steps}"]
+
+    # weapons breaking and levels ------------------------------------------------------
+
+    def _break_check(self, e: Entry, first: bool, show_all: bool) -> List[str]:
+        """After an attack the game checks the weapon: non-magical wood, bone, stone and
+        obsidian break when a 0-7 roll and then a 0-19 roll both come up 0 (1 in 160)."""
+        item, item_type = e.arg(6), e.arg(8)
+        weapon = self.game.weapon(item, item_type)
+        name = self.game.weapon_name(weapon) if weapon else "weapon"
+        who = f"{self._last_attacker}'s " if self._last_attacker else ""
+        if not self.game.item_breaks(item, item_type):
+            return [f"    {who}{name} can't break"] if show_all and first else []
+        if first:
+            self._break_first = scaled(e.raw, 8)
+            if self._break_first == 0 or show_all:
+                return []  # wait for the second roll (there is one only if this was 0)
+            return []
+        second, first_roll, self._break_first = scaled(e.raw, 20), self._break_first, None
+        if second == 0:
+            return [f"    {who}{name} BREAKS: 0 on 0-7 and 0 on 0-19 (1 in 160 after each hit)"]
+        return [f"    {who}{name} nearly broke: {first_roll if first_roll is not None else 0} on 0-7, "
+                f"then {second} on 0-19 (needed 0)"]
+
+    def _level_hp(self, e: Entry, sides: int, roll: int) -> List[str]:
+        """The hit point roll of a new level: the caller's arguments are (party member, class, level)."""
+        member, cls, level = e.parent_arg(6), e.parent_arg(8), e.parent_arg(0x0A)
+        if member is None or not 0 <= member < game.PARTY_SIZE or cls is None or level is None:
+            return []
+        sheet = self.game.sheet(member)
+        if len(sheet) < game.SHEET_SIZE:
+            return []
+        slots = [i for i in range(3) if sheet[game.SHEET_CLASSES + i] == cls]
+        if not slots or sheet[game.SHEET_LEVELS + slots[0]] != level:
+            return []
+        rule = self.game.level_hp_rule(cls)
+        if rule is None or rule.sides != sides:
+            return []
+        con = sheet[game.SHEET_ABILITIES + 2]
+        text = f"d{sides} = {roll}"
+        gained = roll
+        minimum = self.game.level_hp_minimum(con)
+        if minimum > roll:
+            gained = minimum
+            text += f", raised to {minimum} for CON {con}"
+        if sheet[game.SHEET_RACE] == game.RACE_HALF_GIANT:
+            gained *= 2
+            text += f", doubled for a half-giant = {gained}"
+        cls_name = game.CLASS_NAMES.get(cls, f"class {cls}")
+        return [f"{self.game.creature_name(member)}'s {game.ordinal(level)} {cls_name} level: hit points {text}"]
 
     # saving throws -------------------------------------------------------------------
 
@@ -547,11 +671,20 @@ class DiceLog:
     # AC --------------------------------------------------------------------------------
 
     def _ac(self, e: Entry, show_all: bool) -> List[str]:
-        target = e.arg(6)
+        """The end of the game's AC calculation: [BP-6] is the AC after armour (and spells that
+        replace armour, such as Spirit Armor); SI adds DEX, when not attacked from behind,
+        and spells."""
+        target, rear = e.arg(6), e.arg(0x0A)
         index = self.game.combatant_creature(target) if target is not None else None
         ac = e.raw if e.raw < 0x8000 else e.raw - 0x10000
         if index is not None:
             self.last_ac[index] = ac
+            sheet, rec = self.game.sheet(index), self.game.creature(index)
+            armour = e.local(-6)
+            if len(sheet) >= game.SHEET_SIZE and len(rec) >= game.CREATURE_SIZE and armour is not None:
+                base = struct.unpack("b", sheet[game.SHEET_BASE_AC:game.SHEET_BASE_AC + 1])[0]
+                dex = self.game.dex_ac(rec[CREATURE_ABILITIES + 1]) if not rear else 0
+                self.ac_detail[index] = AcDetail(base, armour - base, dex, ac - armour - dex, ac)
         if show_all:
             return [f"AC of {self.game.combatant_name(target)} against {self.game.combatant_name(e.arg(8))}: {ac}"]
         return []

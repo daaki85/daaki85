@@ -13,7 +13,8 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dscompanion.dicelog import FILTERS, Entry
-from dscompanion.gamepatch import VEC_AC, VEC_RAND, VEC_SAVE
+from dscompanion.textlog import TextBuffer
+from dscompanion.gamepatch import VEC_AC, VEC_MSG, VEC_RAND, VEC_SAVE, VEC_TEXT
 
 try:
     from unicorn import Uc, UC_ARCH_X86, UC_HOOK_INTR, UC_MODE_16
@@ -61,7 +62,7 @@ class HeaderTests(unittest.TestCase):
         built_in = tuple(image[hdr + 34 + i * 9 + 1:hdr + 34 + i * 9 + 1 + image[hdr + 34 + i * 9]]
                          for i in range(n))
         self.assertEqual(built_in, FILTERS)
-        self.assertEqual(tuple(image[hdr + 112:hdr + 115]), (VEC_RAND, VEC_SAVE, VEC_AC))
+        self.assertEqual(tuple(image[hdr + 112:hdr + 117]), (VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG))
 
 
 @unittest.skipIf(Uc is None, "unicorn is not installed")
@@ -70,7 +71,8 @@ class StubTests(unittest.TestCase):
         image = load_image()
         hdr_off = struct.unpack_from("<H", image, 20)[0]
         ring = struct.unpack_from("<H", image, 16)[0]
-        probe_save, probe_ac, _, int_rand = struct.unpack_from("<HHIH", image, hdr_off + 108)
+        probe_save, probe_ac = struct.unpack_from("<HH", image, hdr_off + 108)
+        int_rand = struct.unpack_from("<H", image, hdr_off + 118)[0]
 
         mu = Uc(UC_ARCH_X86, UC_MODE_16)
         mu.mem_map(0, 0x100000)
@@ -199,6 +201,47 @@ class StubTests(unittest.TestCase):
         self.assertEqual(mu.reg_read(r.UC_X86_REG_AX), 4)
         self.assertEqual((mu.reg_read(r.UC_X86_REG_SI), mu.reg_read(r.UC_X86_REG_BX)), (0xFFFD, 0xB0B0))
         self.assertEqual(mu.reg_read(r.UC_X86_REG_SP), 0x800)
+
+
+    def test_text_probes_copy_the_text_and_do_the_routines_prologue(self):
+        image = load_image()
+        hdr_off = struct.unpack_from("<H", image, 20)[0]
+        mu = Uc(UC_ARCH_X86, UC_MODE_16)
+        mu.mem_map(0, 0x100000)
+        mu.mem_write(TSR * 16, image)
+        probe_text, probe_msg = struct.unpack_from("<HH", image, hdr_off + 132)
+        for vec, off in ((VEC_TEXT, probe_text), (VEC_MSG, probe_msg)):
+            mu.mem_write(vec * 4, struct.pack("<HH", off, TSR))
+        mu.hook_add(UC_HOOK_INTR, real_mode_interrupt)
+        mu.mem_write(GAME_DS * 16 + 0x100, b"Do not worry, \0")
+        mu.mem_write(GAME_DS * 16 + 0x200, b"Long Sword is broken !\0")
+        buf = TextBuffer(lambda a, n: bytes(mu.mem_read(a, n)), TSR * 16 + hdr_off)
+
+        def call(vector, args, at):
+            # the routine starts with INT (was PUSH BP / MOV BP,SP) then a NOP; its caller's
+            # return address and arguments are on the stack
+            mu.mem_write(CALLER * 16 + at, bytes((0xCD, vector, 0x90, 0xF4)))
+            mu.mem_write(SS * 16 + 0x800, struct.pack("<HH", 0x1234, 0x5678) + args)
+            for reg, value in ((r.UC_X86_REG_CS, CALLER), (r.UC_X86_REG_SS, SS), (r.UC_X86_REG_DS, GAME_DS),
+                               (r.UC_X86_REG_ESP, 0x800), (r.UC_X86_REG_EBP, BP), (r.UC_X86_REG_ESI, 0x5151),
+                               (r.UC_X86_REG_EAX, 0xAAAA), (r.UC_X86_REG_EFLAGS, IF | 2)):
+                mu.reg_write(reg, value)
+            mu.emu_start(CALLER * 16 + at, CALLER * 16 + at + 3)
+            # as if PUSH BP / MOV BP,SP had run
+            self.assertEqual(mu.reg_read(r.UC_X86_REG_SP), 0x7FE)
+            self.assertEqual(mu.reg_read(r.UC_X86_REG_BP), 0x7FE)
+            self.assertEqual(struct.unpack("<H", mu.mem_read(SS * 16 + 0x7FE, 2))[0], BP)
+            for reg, want in ((r.UC_X86_REG_SI, 0x5151), (r.UC_X86_REG_AX, 0xAAAA), (r.UC_X86_REG_DS, GAME_DS)):
+                self.assertEqual(mu.reg_read(reg), want)
+            self.assertTrue(mu.reg_read(r.UC_X86_REG_EFLAGS) & IF)
+            return buf.poll()
+
+        recs = call(VEC_TEXT, struct.pack("<HHHH", 1, 0, 0, 119), 0x100)  # a portrait
+        self.assertEqual([(x.kind, x.value, x.text) for x in recs], [(1, 119, "")])
+        recs = call(VEC_TEXT, struct.pack("<HHHH", 2, 0x100, GAME_DS, 115), 0x110)
+        self.assertEqual([(x.kind, x.value, x.text) for x in recs], [(2, 115, "Do not worry, ")])
+        recs = call(VEC_MSG, struct.pack("<HH", 0x200, GAME_DS), 0x120)
+        self.assertEqual([(x.kind, x.text) for x in recs], [(3, "Long Sword is broken !")])
 
 
 if __name__ == "__main__":

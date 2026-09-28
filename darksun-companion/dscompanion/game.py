@@ -26,6 +26,8 @@ CREATURES_PTR = 0x1665  # DS offset of a far pointer to the creature table
 SHEETS_PTR = 0x1661  # DS offset of a far pointer to the character sheet table
 ITEMS_PTR = 0x165D  # far pointer to the item table (21-byte records)
 ITEM_TYPES_PTR = 0x1669  # far pointer to the item type table (20-byte records)
+ITEM_NAMES_PTR = 0x166D  # far pointer to the item names (GPLDATA's NAME list, 25 bytes each)
+DEX_AC = 0x07F6  # DS: AC adjustment for each DEX score (bytes)
 DIFFICULTY = 0x11AE  # DS word: game difficulty (monsters get difficulty-1 to hit)
 EFFECT_COUNT = 0x1E24  # DS word: number of active effects
 SPELL_NAMES = 0x254E  # DS offset of the NUL-separated spell and psionic names
@@ -52,6 +54,16 @@ SPELL_INFO_OFF, SPELL_INFO_SIZE, SPELL_COUNT = 0x3FD33, 7, 137
 # bits 5-7: the kind of save)
 SPELLS_SEG, SPELLS_OFF, SPELL_SIZE = 0x3CB4, 0x40, 0x20
 SHEET_MAGIC_RESISTANCE = 0x29
+SHEET_XP, SHEET_XP_VALUE, SHEET_MAX_HP = 0x00, 0x04, 0x08  # a monster's sheet holds its XP value at +4
+SHEET_RACE, SHEET_ABILITIES = 0x18, 0x1B
+SHEET_CLASSES, SHEET_LEVELS, SHEET_BASE_AC = 0x21, 0x24, 0x27
+RACE_HALF_GIANT = 5
+# Hit points per level (segment relative to the load segment): +10h + class = the class's
+# group; group * 4 = (die, levels that roll it, fixed gain after that); +38h + CON = the
+# least a roll counts for
+LEVEL_HP_SEG = 0x40B1
+ITEM_NAME_SIZE = 25
+BROKEN_ITEM_TYPE = 0x6B  # what a broken weapon becomes
 
 MATERIALS = ("Wooden", "Bone", "Stone", "Obsidian", "Metal", "Leather")
 # Dark Sun's to-hit penalty for non-magical weapons of weaker materials (from the game's code)
@@ -146,6 +158,21 @@ class Effect(NamedTuple):
     id: int
 
 
+CLASS_NAMES = {1: "Cleric", 2: "Cleric", 3: "Cleric", 4: "Cleric", 5: "Druid", 6: "Druid", 7: "Druid",
+               8: "Druid", 9: "Fighter", 10: "Gladiator", 11: "Preserver", 12: "Psionicist",
+               13: "Ranger", 14: "Ranger", 15: "Ranger", 16: "Ranger", 17: "Thief"}
+
+
+def ordinal(n: int) -> str:
+    return f"{n}{'th' if 10 <= n % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
+
+
+class LevelHp(NamedTuple):
+    sides: int  # the hit die
+    dice_levels: int  # levels up to this one roll it
+    fixed: int  # hit points per level after that
+
+
 class SpellRules(NamedTuple):
     doubles_roll: bool  # the saving throw's d20 counts double
     save_modifier: int  # added to every saving throw against the spell
@@ -172,7 +199,6 @@ class GameData:
         self.guest = guest
         self.ds = ds
         self.load_seg = ds - DGROUP
-        self._item_names: Optional[int] = None
 
     def _word(self, offset: int) -> int:
         return struct.unpack("<h", self.guest.read(self.ds * 16 + offset, 2))[0]
@@ -199,6 +225,20 @@ class GameData:
             (self.load_seg + COMBATANTS_SEG) * 16 + COMBATANTS_OFF + combatant * 3, 3))
         return index if kind == 2 else None
 
+    def combatants(self) -> Dict[int, int]:
+        """{combatant: creature index} for every creature in the fight (or the area)."""
+        data = self.guest.read((self.load_seg + COMBATANTS_SEG) * 16 + COMBATANTS_OFF, 256 * 3)
+        out = {}
+        for combatant in range(len(data) // 3):
+            kind, index = struct.unpack_from("<Bh", data, combatant * 3)
+            if kind == 2 and 0 <= index < 512:
+                out[combatant] = index
+        return out
+
+    def creatures(self, count: int) -> bytes:
+        """The first `count` creature records, in one read."""
+        return self.guest.read(far_pointer(self.guest, self.ds, CREATURES_PTR), count * CREATURE_SIZE)
+
     def combatant_name(self, combatant: int) -> str:
         index = self.combatant_creature(combatant)
         return self.creature_name(index) if index is not None else "?"
@@ -214,6 +254,8 @@ class GameData:
         return [Effect(*struct.unpack_from("<hh", data, i * 10), data[i * 10 + 6]) for i in range(count)]
 
     def spell_name(self, spell: int) -> str:
+        if spell > SPELL_COUNT:  # monsters' powers, such as a paralysing touch
+            return f"special attack {spell}"
         if 1 <= spell <= SPELL_COUNT:
             info = self.load_seg * 16 + SPELL_INFO_OFF + (spell - 1) * SPELL_INFO_SIZE
             name = struct.unpack("<H", self.guest.read(info + 5, 2))[0]
@@ -242,17 +284,45 @@ class GameData:
                                + SHEET_MAGIC_RESISTANCE, 1)[0]
 
     def item_name(self, name_index: int) -> str:
-        if self._item_names is None:
-            # GPLDATA.GFF's NAME list, loaded by the game: 25-byte records, name at +3
-            mem = self.guest.read(0, self.guest.size)
-            pos = mem.find(b"Sling\0")
-            while pos != -1 and mem[pos + 25:pos + 25 + 12] != b"Staff Sling\0":
-                pos = mem.find(b"Sling\0", pos + 1)
-            self._item_names = pos - 3 if pos != -1 else -1
-        if self._item_names < 0:
-            return f"item {name_index}"
-        rec = self.guest.read(self._item_names + name_index * 25 + 3, 22)
-        return rec.split(b"\0", 1)[0].decode("cp437", "replace") or f"item {name_index}"
+        if 0 <= name_index < 0x400:
+            rec = self.guest.read(far_pointer(self.guest, self.ds, ITEM_NAMES_PTR) + name_index * ITEM_NAME_SIZE, 22)
+            name = rec.split(b"\0", 1)[0].decode("cp437", "replace")
+            if name:
+                return name
+        return f"item {name_index}"
+
+    def sheet(self, creature: int) -> bytes:
+        """The character sheet of a creature (party members and monsters alike)."""
+        rec = self.creature(creature)
+        if len(rec) < CREATURE_SIZE:
+            return b""
+        index = struct.unpack_from("<H", rec, CREATURE_SHEET_INDEX)[0]
+        return self.guest.read(far_pointer(self.guest, self.ds, SHEETS_PTR) + index * SHEET_SIZE, SHEET_SIZE)
+
+    def dex_ac(self, dex: int) -> int:
+        """The game's AC adjustment for a DEX score."""
+        if not 0 <= dex < 26:
+            return 0
+        return struct.unpack("b", self.guest.read(self.ds * 16 + DEX_AC + dex, 1))[0]
+
+    def level_hp_rule(self, cls: int) -> Optional[LevelHp]:
+        if not 0 < cls < 32:
+            return None
+        base = (self.load_seg + LEVEL_HP_SEG) * 16
+        group = self.guest.read(base + 0x10 + cls, 1)[0]
+        return LevelHp(*self.guest.read(base + group * 4, 3)) if group < 4 else None
+
+    def level_hp_minimum(self, con: int) -> int:
+        return self.guest.read((self.load_seg + LEVEL_HP_SEG) * 16 + 0x38 + min(max(con, 0), 25), 1)[0]
+
+    def item_breaks(self, item: int, item_type: int) -> bool:
+        """Whether a weapon can break: the game's rule for non-magical wood, bone, stone and obsidian."""
+        rec = self.guest.read(far_pointer(self.guest, self.ds, ITEMS_PTR) + item * ITEM_SIZE, ITEM_SIZE)
+        typ = self.guest.read(far_pointer(self.guest, self.ds, ITEM_TYPES_PTR) + item_type * ITEM_TYPE_SIZE,
+                              ITEM_TYPE_SIZE)
+        if len(rec) < ITEM_SIZE or len(typ) < ITEM_TYPE_SIZE:
+            return False
+        return not typ[0x08] & 0x80 and rec[0x14] == 0 and rec[0x0F] == 0 and typ[0x08] & 0x0F <= 3
 
     def weapon(self, item: int, item_type: int) -> Optional[Weapon]:
         if item < 0 or item_type < 0:

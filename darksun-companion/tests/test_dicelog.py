@@ -9,7 +9,9 @@ from collections import Counter
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dscompanion import dicelog, game
-from dscompanion.dicelog import DiceLog, Entry, KIND_AC, KIND_ROLL, KIND_SAVE
+from dscompanion.dicelog import AcDetail, DiceLog, Entry, KIND_AC, KIND_ROLL, KIND_SAVE
+from dscompanion.textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, TextBuffer
+from dscompanion.tracker import PartyTracker
 
 LOAD_SEG = 0x1A2
 DS = LOAD_SEG + game.DGROUP
@@ -39,13 +41,15 @@ def make_game():
     guest = FakeGuest()
     m = guest.mem
     for offset, addr in ((game.CREATURES_PTR, CREATURES), (game.SHEETS_PTR, SHEETS),
-                         (game.ITEMS_PTR, ITEMS), (game.ITEM_TYPES_PTR, ITEM_TYPES)):
+                         (game.ITEMS_PTR, ITEMS), (game.ITEM_TYPES_PTR, ITEM_TYPES),
+                         (game.ITEM_NAMES_PTR, NAMES + 3)):
         m[DS * 16 + offset:DS * 16 + offset + 4] = far(addr)
     struct.pack_into("<h", m, DS * 16 + game.DIFFICULTY, 1)
     creatures = [("Dag", 16, 24, 1), ("Daaki", 16, 20, 1), ("Jellybelly", 15, 20, 1)] + [("", 20, 12, 0)] * 4 \
         + [("Mountain Stalker", 11, 12, 2)]
     for index, (name, thac0, strength, side) in enumerate(creatures):
         rec = CREATURES + index * game.CREATURE_SIZE
+        struct.pack_into("<H", m, rec + game.CREATURE_SHEET_INDEX, index)
         m[rec + game.CREATURE_THAC0] = thac0
         m[rec + game.CREATURE_SIDE] = side
         m[rec + game.CREATURE_ABILITIES] = strength
@@ -53,7 +57,7 @@ def make_game():
     table = (LOAD_SEG + game.COMBATANTS_SEG) * 16 + game.COMBATANTS_OFF
     for combatant, creature in ((0, 0), (1, 1), (2, 2), (0x29, STALKER)):
         struct.pack_into("<Bh", m, table + combatant * 3, 2, creature)
-    # item names (GPLDATA's NAME list: 25-byte records, name at +3)
+    # item names (GPLDATA's NAME list: 25 bytes each)
     for i, name in enumerate(["Sling", "Staff Sling"] + ["x"] * 26 + ["Long Sword"]):
         m[NAMES + i * 25 + 3:NAMES + i * 25 + 3 + len(name)] = name.encode()
     # items 5 (metal long sword +1) and 6 (wooden long sword, plain); item type 9 = 1d8
@@ -73,10 +77,26 @@ def make_game():
         rules = (LOAD_SEG + game.SPELLS_SEG) * 16 + game.SPELLS_OFF + spell * game.SPELL_SIZE
         struct.pack_into("<H", m, rules + 0x0A, flags)
         name += len(text) + 1
+    # character sheets: Dag a half-giant fighter (CON 21), the stalker worth 500 XP
+    for index, race, cls, level, con, base_ac in ((0, 5, 9, 4, 21, 10), (STALKER, 0, 0, 0, 12, 10)):
+        sheet = SHEETS + index * game.SHEET_SIZE
+        m[sheet + game.SHEET_RACE], m[sheet + game.SHEET_ABILITIES + 2] = race, con
+        m[sheet + game.SHEET_CLASSES], m[sheet + game.SHEET_LEVELS] = cls, level
+        m[sheet + game.SHEET_BASE_AC] = base_ac
+    struct.pack_into("<I", m, SHEETS + STALKER * game.SHEET_SIZE + game.SHEET_XP_VALUE, 500)
+    m[CREATURES + STALKER * game.CREATURE_SIZE + game.CREATURE_ABILITIES + 1] = 16  # DEX
+    m[DS * 16 + game.DEX_AC + 16] = 0xFE  # DEX 16: AC -2
+    hp = (LOAD_SEG + game.LEVEL_HP_SEG) * 16  # fighters roll d10 up to level 9; CON 21: at least 3
+    m[hp + 0x10 + 9], m[hp + 4:hp + 7], m[hp + 0x38 + 21] = 1, bytes((10, 9, 3)), 3
+    # DSCLOG's text buffer
+    struct.pack_into("<HHHH", m, HDR + 126, 0, 0x800, 256, 0)
     log = DiceLog(guest)
     log.rand_addr = LOAD_SEG * 16 + dicelog.RAND_IP
     log.tsr_hdr = HDR
+    log.last_seq = 0
     log.game = game.GameData(guest, DS)
+    log.tracker = PartyTracker(log.game)
+    log.text = TextBuffer(guest.read, HDR)
     return log
 
 
@@ -309,6 +329,65 @@ class OtherTests(unittest.TestCase):
         self.assertEqual([e.seq for e in log.poll()], [3, 4, 5, 6])
         self.assertEqual(log.missed, 2)
         self.assertEqual(log.poll(), [])
+
+
+class NewLinesTests(unittest.TestCase):
+    def test_weapon_break_check(self):
+        log = make_game()
+        log._last_attacker = "Dag"
+        wooden = words(0, 0, 6, 10)  # item 6, type 10: plain wood, can break
+        self.assertEqual(log.describe(entry(raw_for(3, 8), dicelog.BREAK_ROLL_1, wooden)), [])  # 2 on 0-7: fine
+        self.assertEqual(log.describe(entry(raw_for(1, 8), dicelog.BREAK_ROLL_1, wooden)), [])  # 0: one more roll
+        self.assertEqual(log.describe(entry(raw_for(6, 20), dicelog.BREAK_ROLL_2, wooden)),
+                         ["    Dag's Wooden Long Sword nearly broke: 0 on 0-7, then 5 on 0-19 (needed 0)"])
+        log.describe(entry(raw_for(1, 8), dicelog.BREAK_ROLL_1, wooden))
+        self.assertEqual(log.describe(entry(raw_for(1, 20), dicelog.BREAK_ROLL_2, wooden)),
+                         ["    Dag's Wooden Long Sword BREAKS: 0 on 0-7 and 0 on 0-19 (1 in 160 after each hit)"])
+        # a magical metal sword never breaks
+        self.assertEqual(log.describe(entry(raw_for(1, 8), dicelog.BREAK_ROLL_1, words(0, 0, 5, 9))), [])
+
+    def test_level_up_hit_points(self):
+        log = make_game()
+        # the caller's arguments: party member 0, class 9 (fighter), new level 4
+        e = entry(raw_for(2, 10), dicelog.DICE_SITE, words(0, 0, 1, 10), words(0, 0, 0, 9, 4))
+        self.assertEqual(log.describe(e), ["Dag's 4th Fighter level: hit points d10 = 2, raised to 3 for CON 21, "
+                                           "doubled for a half-giant = 6"])
+
+    def test_special_effect_roll(self):
+        log = make_game()
+        e = entry(raw_for(1, 10), dicelog.DICE_SITE, words(0, 0, 1, 10), words(0, 0, 0x29, 0),
+                  parent_code=dicelog.SPECIAL_EFFECT_RETURN)
+        self.assertEqual(log.describe(e), ["    Dag's special effect on Mountain Stalker: d10 = 1, works on a 1 "
+                                           "-> it works"])
+
+    def test_ac_breakdown(self):
+        log = make_game()
+        # AC 4 = armour AC 7 (base 10, armour -3) + DEX -2 + spells -1
+        log.describe(entry(4, frame=words(0, 0, 0x29, 0, 0), locals_=locals_at(0x10, m6=7), kind=KIND_AC))
+        self.assertEqual(log.ac_detail[STALKER], AcDetail(10, -3, -2, -1, 4))
+
+    def test_kill_and_experience(self):
+        log = make_game()
+        tracker, m = log.tracker, log.guest.mem
+        struct.pack_into("<h", m, CREATURES + STALKER * game.CREATURE_SIZE, 20)
+        self.assertEqual(tracker.check(1.0), [])
+        struct.pack_into("<h", m, CREATURES + STALKER * game.CREATURE_SIZE, -3)
+        self.assertEqual(tracker.check(2.0), ["Mountain Stalker is killed (500 XP)"])
+        struct.pack_into("<I", m, SHEETS, 125)  # Dag's XP
+        self.assertEqual(tracker.check(2.2), [])  # waits for the others' XP
+        self.assertEqual(tracker.check(3.0), ["XP: Dag +125 (for Mountain Stalker 500)"])
+
+    def test_messages_and_dialogue_from_the_text_buffer(self):
+        log = make_game()
+        data = b""
+        for kind, value, text in ((KIND_MESSAGE, 0, b"Long Sword is broken !"), (KIND_PORTRAIT, 119, b""),
+                                  (KIND_TEXT, 115, b"Watch and enjoy! "), (KIND_TEXT, 115, b"END")):
+            data += bytes((0xFE, kind)) + struct.pack("<IHH", 0, value, len(text)) + text
+        log.guest.mem[HDR + 0x800:HDR + 0x800 + len(data)] = data
+        struct.pack_into("<H", log.guest.mem, HDR + 126, len(data))
+        self.assertIn("Message: Long Sword is broken !", log.lines(now=100.0))
+        (said,) = log.take_dialogue()
+        self.assertEqual((log.speaker(said.portrait), said.text), ("Portrait 119", "Watch and enjoy!"))
 
 
 if __name__ == "__main__":

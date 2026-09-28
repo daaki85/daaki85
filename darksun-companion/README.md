@@ -1,11 +1,11 @@
 # Dark Sun Companion
 
 A companion tool for **Dark Sun: Shattered Lands** (the GOG release) running in
-DOSBox, in the spirit of the Gold Box Companion. It has two parts:
+DOSBox, in the spirit of the Gold Box Companion. It has three parts:
 
 - **Party viewer:** every party member's stats, live, including numbers the
   game doesn't show (THAC0, saving throws, attacks per round, the AC the game
-  uses in a fight, class ids).
+  uses in a fight and what it's made of, class ids).
 - **Dice log:** the rolls the game makes behind the scenes, with what they were
   compared against and where every bonus comes from. For example:
 
@@ -17,7 +17,11 @@ DOSBox, in the spirit of the Gold Box Companion. It has two parts:
   Red Slaad magic resistance 30% vs Fireball: d100 = 71 -> not resisted
   Red Slaad saves vs Fireball from Daaki (petrification/polymorph): d20 = 6, doubled for this spell = 12, needs 11 -> saved
   Jellybelly gives Blessed to Daaki: +1 to hit, +1 on saves
+  Slig is killed (270 XP)
+  XP: Gerakis +67, K'ratchek +22, Cermak +67, Cilla +22 (for Slig 270)
   ```
+- **Dialogue:** what characters say, and the replies you're offered, kept in a
+  tab you can scroll back through.
 
 Nothing in the game folder or your save files is changed. The viewer only reads
 memory. For the dice log, the launcher runs a patched copy of the game that it
@@ -92,6 +96,13 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 | `X gives Blessed to Y, Z: +1 to hit, +1 on saves` / `Blessed ends on Y` | A spell or psionic effect starting or ending, with what it does in the game's code where that is known (to-hit, AC, saving throws). |
 | `X DEX check: d20 = 9, needs 16 or less (DEX 16) -> success` | An ability check. A natural 20 always fails. |
 | `Percentile check: d100 = 35, needs 40 or less -> success` | A percentage roll. What it's for isn't known yet. |
+| `    X's Bone Long Sword nearly broke: 0 on 0-7, then 12 on 0-19 (needed 0)` / `... BREAKS` | The weapon check the game makes after an attack sequence whose last attack hit. Only non-magical wood, bone, stone and obsidian weapons can break (and not every kind: clubs and quarterstaffs can't): they break when a 0-7 roll and then a 0-19 roll both come up 0, 1 chance in 160. The line only appears when the first roll comes up 0. |
+| `Message: Long Sword is broken !` | The game's own message boxes: broken or corroded weapons and armour, level-ups, "NO PATH FROM HERE" and so on. |
+| `    X's special effect on Y: d10 = 1, works on a 1 -> it works` | The 1-in-10 extra effect some creatures' hits have (the thri-kreen bite, for one). |
+| `Slig is killed (270 XP)` | A creature dying, with the XP it's worth (from its character sheet). |
+| `XP: Gerakis +67, K'ratchek +22, ... (for Slig 270)` | Experience the party got, and for which kills. The game gives it right after the kill: an equal share to each character, split again between a multi-class character's classes (the sheet counts XP per class, so a three-class thri-kreen shows a third of the share). |
+| `Cilla is now a 3rd level Ranger` / `    max HP 15 -> 21 (+6)` | A level gained, and the new maximum HP. |
+| `Cilla's 3rd Ranger level: hit points d10 = 2, raised to 3 for CON 21` | The hit point roll for a new level: the class's die (d8 clerics and druids, d10 fighters, gladiators and rangers, d4 preservers, d6 psionicists and thieves), never less than 2, 3 or 4 with CON 20, 21-22 or 23+, and doubled for half-giants. After level 9 or 10 there's no roll, just a fixed gain. |
 | `Dice: 1d8 = [3] = 3` | Dice the log couldn't tie to anything (for example a spell with no saving throw). |
 
 **Show unlabelled rolls** also lists everything else the game randomises
@@ -104,26 +115,44 @@ for both the party and the monsters, and every saving throw of a Fireball is
 logged.
 
 The viewer's **Current AC** row is the AC the game last used for each
-character in a fight (armour, DEX and spells included). It shows "-" until the
-game has needed it, typically when something first attacks that character.
+character in a fight (armour, DEX and spells included), and the rows under it
+say what it was made of: armour and shield (and spells that take their place,
+such as Spirit Armor and Magical Vestments), DEX (the game's table: −1 at 15
+down to −6 at 24; not counted when attacked from behind), and spells and
+anything else. They show "-" until the game has worked out that character's AC
+in a fight.
+
+Ability scores such as `STR 24 (20 without spells)` show the score now and, in
+brackets, the character's own score when a spell (Strength, for one) has
+raised it. The character's own score already includes the racial adjustment:
+a half-giant's 20 + 4 shows as 24.
+
+### The Dialogue tab
+
+Everything the game shows in its dialogue window, one entry per window of
+text, with the replies offered numbered underneath. The game only says which
+portrait goes with the text, so speakers show as `Portrait 119` and so on
+(119 is the arena announcer); the text itself often names who's speaking.
 
 ### How the dice log works
 
 Every roll in the game goes through one function, Borland C++'s `rand()`.
 
 1. When you start the game with the dice log, the launcher writes
-   `dos\DSUNLOG.EXE`: a copy of the game's `DSUN.EXE` with four small changes
+   `dos\DSUNLOG.EXE`: a copy of the game's `DSUN.EXE` with a few small changes
    (`dscompanion/gamepatch.py`). The start of `rand()`, the end of the saving
-   throw and the end of the AC calculation become `INT 60h`, `61h` and `62h`,
-   and the copy looks for its data files in the current folder rather than
-   next to itself. DOSBox runs it from the game folder, so it uses your saves
-   as usual.
+   throw, the end of the AC calculation, the start of the routine that fills
+   the dialogue window and the start of the message box routine become
+   `INT 60h` to `64h`, and the copy looks for its data files in the current
+   folder rather than next to itself. DOSBox runs it from the game folder, so
+   it uses your saves as usual.
 2. `dos\DSCLOG.EXE` (source in `dos\dsclog.asm`) is a tiny DOS program loaded
    into upper memory before the game, so the game loses no memory. It answers
    those interrupts. Its `rand()` returns exactly the numbers the original
    would and also records each call, what code called it, and that code's
-   arguments (dice count and sides, THAC0, AC...) in a ring buffer. The other
-   two record the final saving throw total and the AC the game uses.
+   arguments (dice count and sides, THAC0, AC...) in a ring buffer. The others
+   record the final saving throw total, the AC the game uses, and the text
+   of dialogues and messages (in a second buffer).
 3. The companion finds the buffer in DOSBox's memory and reads it every 50 ms.
    It works out what each roll was for from the code that asked for it, and
    reads the rest (names, weapons, spells, effects) from the game's own data.
@@ -143,6 +172,10 @@ Limitations:
 - A save-file load from the main menu is recognised, so the spells already
   active in it aren't reported as new. Loading a save of the same party in the
   middle of play isn't, and its effects may be listed as if just cast.
+- Dialogue speakers are portrait numbers, not names (see above).
+- Weapon breaking was checked against the game's code, and the check's rolls
+  were seen in play, but no weapon happened to break during testing; the
+  game's own "is broken !" message is logged either way.
 
 ## Using the viewer
 
@@ -202,7 +235,7 @@ parties, plus the in-game View Character screens.
 | creature | `+0x22` | u8 ×6 | STR DEX CON INT WIS CHA | same as the sheet |
 | creature | `+0x28` | str 18 | Name | |
 | sheet | `+0x00` | u32 | XP | matches the game |
-| sheet | `+0x04` | u32 | Unknown; usually equals XP | a recruited NPC kept the previous occupant's value |
+| sheet | `+0x04` | u32 | For monsters, the XP they're worth; for the party, usually equals XP | matches the XP the party gets for a kill |
 | sheet | `+0x08` | s16 | Max HP | |
 | sheet | `+0x0a` | s16 | HP before CON bonus (probably) | max − this = CON bonus × level for single-class characters |
 | sheet | `+0x0c` | s16 | Max PSP | |
@@ -215,6 +248,7 @@ parties, plus the in-game View Character screens.
 | sheet | `+0x24` | u8 ×3 | Level in each class | |
 | sheet | `+0x27` | s8 | Base AC for the AC calculation | read by the game's AC code |
 | sheet | `+0x29` | u8 | Magic resistance (%) | read by the game's magic resistance check |
+| sheet | `+0x1d` | u8 | CON (among the abilities at `+0x1b`); sets the least a level's hit point roll counts for | read by the game's level-up code |
 | sheet | `+0x2a` | u8 | Attacks per round × 2 | read by the game's combat code |
 | sheet | `+0x37` | u8 ×5 | Saves: para/poison, rod/staff, petrify, breath, spell | match the AD&D warrior table exactly |
 

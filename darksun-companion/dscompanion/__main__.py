@@ -152,6 +152,10 @@ def cmd_dicelog(args) -> None:
                 attach()
             for line in log.lines(show_all=args.all):
                 print(line, flush=True)
+            for entry in log.take_dialogue():
+                print(f"[{log.speaker(entry.portrait)}] {entry.text}", flush=True)
+                for n, reply in enumerate(entry.replies, 1):
+                    print(f"    {n}. {reply}", flush=True)
             time.sleep(0.02)
     except KeyboardInterrupt:
         pass

@@ -12,7 +12,7 @@ change. Click a byte to see it decoded as each value type.
 import time
 import tkinter as tk
 from tkinter import messagebox, ttk
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 from . import game, values
 from .dicelog import DiceLog, DiceLogError
@@ -107,6 +107,22 @@ class Viewer:
         self.dice_text.tag_configure("other", foreground="#6f42c1")
         self.dice_text.tag_configure("save", foreground="#0550ae")
         self.dice_text.tag_configure("detail", foreground="#57606a")
+
+        talk = ttk.Frame(tabs, padding=6)
+        tabs.add(talk, text="Dialogue")
+        row = ttk.Frame(talk)
+        row.pack(fill="x")
+        ttk.Label(row, text="What characters say, and the replies offered").pack(side="left")
+        ttk.Button(row, text="Clear", command=lambda: self.talk_text.delete("1.0", "end")).pack(side="right")
+        box = ttk.Frame(talk)
+        box.pack(fill="both", expand=True, pady=(6, 0))
+        self.talk_text = tk.Text(box, wrap="word", height=20)
+        scroll = ttk.Scrollbar(box, command=self.talk_text.yview)
+        self.talk_text.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        self.talk_text.pack(side="left", fill="both", expand=True)
+        self.talk_text.tag_configure("speaker", font="TkDefaultFont 9 bold")
+        self.talk_text.tag_configure("reply", foreground="#0550ae")
 
         tools = ttk.Frame(tabs, padding=6)
         tabs.add(tools, text="Memory tools")
@@ -360,6 +376,21 @@ class Viewer:
         lines = self.dice.lines(self.show_all.get())
         if lines:
             self._append_dice(lines)
+        talk = self.dice.take_dialogue()
+        if talk:
+            self._append_dialogue(talk)
+
+    def _append_dialogue(self, entries) -> None:
+        at_end = self.talk_text.yview()[1] >= 0.999
+        for entry in entries:
+            self.talk_text.insert("end", self.dice.speaker(entry.portrait) + "\n", "speaker")
+            if entry.text:
+                self.talk_text.insert("end", entry.text + "\n")
+            for n, reply in enumerate(entry.replies, 1):
+                self.talk_text.insert("end", f"  {n}. {reply}\n", "reply")
+            self.talk_text.insert("end", "\n")
+        if at_end:
+            self.talk_text.see("end")
 
     def _append_dice(self, lines: List[str]) -> None:
         at_end = self.dice_text.yview()[1] >= 0.999
@@ -376,19 +407,23 @@ class Viewer:
         if at_end:
             self.dice_text.see("end")
 
-    def _current_acs(self, slots) -> List[str]:
-        """The AC the game last worked out for each character in a fight (armour, DEX and
-        spells included), which the dice log's AC probe sees; "-" until then."""
+    def _ac_rows(self, slots) -> List[Tuple[str, List[str]]]:
+        """The AC the game last worked out for each character in a fight, and what it was made
+        of, as the dice log sees them; "-" until then."""
+        labels = ("Current AC", "  AC: armour, shield", "  AC: DEX", "  AC: spells, other")
         if not (self.dice and self.dice.attached and self.ds is not None and "creature" in self.layout.records):
-            return ["-"] * len(slots)
+            return [(label, ["-"] * len(slots)) for label in labels]
         table = game.far_pointer(self.guest, self.ds, game.CREATURES_PTR)
-        acs = []
+        columns = []
         for s in slots:
             addr = s[1].get("creature")
             index = (addr - table) // game.CREATURE_SIZE if addr is not None else None
-            ac = self.dice.last_ac.get(index)
-            acs.append("-" if ac is None else str(ac))
-        return acs
+            ac, detail = self.dice.last_ac.get(index), self.dice.ac_detail.get(index)
+            if detail is None or detail.total != ac:
+                columns.append(["-" if ac is None else str(ac), "-", "-", "-"])
+            else:
+                columns.append([str(ac)] + [f"{v:+d}" for v in (detail.armour, detail.dex, detail.other)])
+        return [(label, [c[i] for c in columns]) for i, label in enumerate(labels)]
 
     def _refresh_table(self) -> None:
         slots = [self.layout.decode_slot(i, self.guest.read) for i in range(self.layout.count)]
@@ -398,7 +433,7 @@ class Viewer:
         for i, f in enumerate(self.layout.fields):
             rows.append((f.label, [s[2][i][1] for s in slots]))
             if f.label == "Base AC":
-                rows.append(("Current AC", self._current_acs(slots)))
+                rows += self._ac_rows(slots)
 
         existing = self.table.get_children()
         if len(existing) != len(rows):

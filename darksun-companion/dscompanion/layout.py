@@ -40,7 +40,7 @@ class Field:
     length: int = 16
     names: Dict[int, str] = field(default_factory=dict)  # value -> display name, e.g. race ids
     format: str = ""  # "halves": the value counts halves, shown as 1, 3/2, 2...
-    base: Optional["Field"] = None  # shown in brackets when it differs, e.g. an unbuffed score
+    base: Optional["Field"] = None  # shown in brackets when it differs, e.g. the score without spells
 
     @classmethod
     def from_json(cls, raw: dict, default_record: str) -> "Field":
@@ -215,7 +215,7 @@ class Layout:
             if f.base and f.base.record in data:
                 base = f.base.value(*data[f.base.record])
                 if base is not None and base != f.value(*data[f.record]):
-                    text += f" (base {base})"
+                    text += f" ({base} without spells)"
             return text
 
         return show(self.name), bases, [(f.label, show(f)) for f in self.fields]
