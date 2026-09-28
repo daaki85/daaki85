@@ -284,6 +284,19 @@ SLOT_CLASS_RULES, SLOT_RULES = 0x664, 0x678
 SLOTS_ALL_19 = 0x1164  # a DS word the game checks: 1 gives the party 19 of everything
 HUMAN = 1
 
+# Thief skills (the game's routine at 8023Bh in DSUN.EXE). Their order is AD&D's; the game
+# never names them, but its checks fit: blindness stops all but hearing noise, Fire Shield
+# and Mirror Image stop hiding, Graft Weapon stops picking pockets, opening locks and
+# climbing, Detect Traps lets anyone find traps, Feeblemind stops reading languages.
+THIEF_SKILLS = ("pick pockets", "open locks", "find/remove traps", "move silently", "hide in shadows",
+                "hear noise", "climb walls", "read languages")
+THIEF = 17  # class number
+# Tables (a byte per skill): base; then 8 per race (race 1 first); DEX below which each point
+# costs 5, above which each gives 5, above which each costs 3 again; the armour penalty
+THIEF_TABLE_SEG = 0x3FAA
+THIEF_BASE, THIEF_RACE, THIEF_DEX_LOW, THIEF_DEX_HIGH, THIEF_DEX_TOP, THIEF_ARMOUR = 0, 8, 0x90, 0x98, 0xA0, 0xA8
+THIEF_PER_LEVEL = 4
+
 
 class SpellRules(NamedTuple):
     doubles_roll: bool  # the saving throw's d20 counts double
@@ -514,6 +527,38 @@ class GameData:
                 total += min(max(count, 0), most)
                 rules >>= 4
         return total
+
+    def thief_skill_parts(self, creature: int, skill: int) -> Optional[List[Tuple[str, int]]]:
+        """What a thief skill's chance (percent) is made of, before armour, effects and the
+        situation: [(what, amount), ...], or None for a character without thief levels."""
+        sheet = self.sheet(creature)
+        rec = self.creature(creature)
+        if len(sheet) < SHEET_SIZE or len(rec) < CREATURE_SIZE or not 0 <= skill < len(THIEF_SKILLS):
+            return None
+        level = next((sheet[SHEET_LEVELS + n] for n in range(3) if sheet[SHEET_CLASSES + n] == THIEF), 0)
+        if not level:
+            return None
+        table = self.guest.read((self.load_seg + THIEF_TABLE_SEG) * 16, THIEF_ARMOUR + 8)
+        signed_byte = lambda offset: struct.unpack_from("b", table, offset)[0]
+        race, dex = sheet[SHEET_RACE], rec[CREATURE_ABILITIES + 1]
+        parts = [("base", signed_byte(THIEF_BASE + skill)),
+                 (f"thief level {level}", level * THIEF_PER_LEVEL)]
+        if 1 <= race <= 8:
+            parts.append((RACE_NAMES[race], signed_byte(THIEF_RACE + race * 8 + skill)))
+        low, high, top = (table[o + skill] for o in (THIEF_DEX_LOW, THIEF_DEX_HIGH, THIEF_DEX_TOP))
+        dex_part = -5 * max(low - dex, 0) + 5 * max(dex - high, 0) - 3 * max(dex - top, 0)
+        parts.append((f"DEX {dex}", dex_part))
+        return [(what, n) for what, n in parts if n or what == "base"]
+
+    def thief_skills(self, creature: int) -> List[Tuple[str, int]]:
+        """[(skill, chance before armour and effects), ...] for a thief, else []."""
+        out = []
+        for skill, name in enumerate(THIEF_SKILLS):
+            parts = self.thief_skill_parts(creature, skill)
+            if parts is None:
+                return []
+            out.append((name, sum(n for _, n in parts)))
+        return out
 
     def dex_ac(self, dex: int) -> int:
         """The game's AC adjustment for a DEX score."""

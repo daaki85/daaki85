@@ -549,9 +549,7 @@ class DiceLog:
         if code.startswith(BREAK_ROLL_1) or code.startswith(BREAK_ROLL_2):
             return self._break_check(e, code.startswith(BREAK_ROLL_1), show_all)
         if code.startswith(PERCENT_SITE):
-            chance, roll = e.local(-2), e.raw % 100 + 1
-            return [f"Percentile check: d100 = {roll}, needs {chance} or less "
-                    f"-> {'success' if roll <= chance else 'failure'}"]
+            return self._thief_skill(e)
         if show_all:
             generic = generic_roll(code, e)
             where = f"{e.cs:04x}:{e.ip:04x}"
@@ -559,6 +557,30 @@ class DiceLog:
                 return [f"{generic[0]} = {generic[1]}  (at {where})"]
             return [f"rand() = {e.raw}  (at {where})"]
         return []
+
+    def _thief_skill(self, e: Entry) -> List[str]:
+        """A thief skill check (the game's routine at 803B8h): d100 under the skill's chance plus
+        the situation's bonus. Its arguments are (character, skill, bonus); [BP-2] the chance."""
+        chance, roll = e.local(-2), e.raw % 100 + 1
+        who, skill, bonus = e.arg(6), e.arg(8), e.arg(0x0C) or 0
+        if chance is None or who is None or skill is None:
+            return []
+        name = game.THIEF_SKILLS[skill] if 0 <= skill < len(game.THIEF_SKILLS) else f"skill {skill}"
+        head = f"{self._name(who)} tries to {name}: d100 = {roll}"
+        if chance <= -500:  # the game takes 1000 off when an effect makes it impossible
+            return [f"{head} -> failure (an effect stops it)"]
+        head += f", needs {chance} or less -> {'success' if roll <= chance else 'failure'}"
+        creature = self.game.combatant_creature(who)
+        parts = self.game.thief_skill_parts(creature, skill) if creature is not None else None
+        if parts is None:
+            return [head]
+        rest = chance - bonus - sum(n for _, n in parts)
+        steps = [f"{n}" if what == "base" else f"{signed(n)} {what}" for what, n in parts]
+        if bonus:
+            steps.append(f"{signed(bonus)} this attempt")
+        if rest:
+            steps.append(f"{signed(rest)} armour and effects")
+        return [head, f"    {name} {chance} = " + " ".join(steps).replace(" +", " + ").replace(" -", " - ")]
 
     # attacks ---------------------------------------------------------------------
 

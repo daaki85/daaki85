@@ -526,8 +526,18 @@ class Viewer:
     def _slot_rows(self, slots) -> List[Tuple[str, List[str]]]:
         """'Wizard spells left' / 'Priest spells left': '1st 3/5, 2nd 2/3', left of the most."""
         per_member = [dict(m) for m in self._member_slots(slots)]
-        return [(f"{kind} spells left", [game.slots_text(m.get(kind, [])) for m in per_member])
+        rows = [(f"{kind} spells left", [game.slots_text(m.get(kind, [])) for m in per_member])
                 for kind, _ in game.MAGIC_KINDS]
+        if self.ds is not None:  # each thief's skills, before armour and effects
+            gd = game.GameData(self.guest, self.ds)
+            table = game.far_pointer(self.guest, self.ds, game.CREATURES_PTR)
+            cells = []
+            for s in slots:
+                addr = s[1].get("creature")
+                skills = gd.thief_skills((addr - table) // game.CREATURE_SIZE) if addr is not None else []
+                cells.append(" ".join(f"{n}" for _, n in skills))
+            rows.append(("Thief skills PP/OL/FT/MS/HS/HN/CW/RL", cells))
+        return rows
 
     def _refresh_table(self) -> None:
         slots = [self.layout.decode_slot(i, self.guest.read) for i in range(self.layout.count)]
@@ -575,7 +585,8 @@ class Viewer:
                 if names:
                     status += (", " if status else "") + ", ".join(names)
                 ac = self.dice.last_ac.get(index) if self.dice and self.dice.attached else None
-            card.show(name, dict(fields), status, ac, self.art, member_slots)
+            thief = gd.thief_skills(index) if gd and addr is not None and table is not None else []
+            card.show(name, dict(fields), status, ac, self.art, member_slots, thief)
 
     def _hex_base(self) -> Optional[int]:
         record = self.layout.records.get(self.hex_record.get())

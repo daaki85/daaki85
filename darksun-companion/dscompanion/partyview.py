@@ -69,7 +69,7 @@ class Card(ttk.Frame):
             var = self.vars[score] = tk.StringVar()
             ttk.Label(sheet, textvariable=var, style="CardStat.TLabel").grid(row=i, column=1, sticky="w",
                                                                            padx=(4, 16))
-        right = ("who", "alignment", "classes", "xp", "ac", "thac0", "move", "attacks", "slots")
+        right = ("who", "alignment", "classes", "xp", "ac", "thac0", "move", "attacks", "slots", "thief")
         labels = []
         for row, key in enumerate(right):
             var = self.vars[key] = tk.StringVar()
@@ -90,8 +90,9 @@ class Card(ttk.Frame):
             label.bind("<Configure>", lambda e: label.configure(wraplength=max(e.width, 120)))
 
     def show(self, name: str, fields: Dict[str, str], status: str, current_ac: Optional[int],
-             game_art: Optional["art.GameArt"], slots=()) -> None:
-        """`slots`: [(kind, [(spell level, left, most), ...]), ...], as GameData.spell_slots gives."""
+             game_art: Optional["art.GameArt"], slots=(), thief=()) -> None:
+        """`slots`: [(kind, [(spell level, left, most), ...]), ...], as GameData.spell_slots gives;
+        `thief`: [(skill, percent), ...], as GameData.thief_skills gives."""
         get = fields.get
         self.vars["name"].set(name.upper() if name else f"SLOT {self.index + 1}")
         pair = lambda cur, top: f"{get(cur, '')}/{get(top, '')}" if get(cur) else ""
@@ -111,6 +112,8 @@ class Card(ttk.Frame):
         self.vars["thac0"].set(f"THAC0: {get('THAC0', '')}")
         self.vars["move"].set(f"Move: {get('Move', '')}")
         self.vars["attacks"].set(f"Attacks: {get('Attacks/round', '')} a round")
+        self.vars["thief"].set(("Thief skills (before armour): " + ", ".join(f"{name} {n}%" for name, n in thief))
+                               if thief else "")
         self.vars["slots"].set("\n".join(f"{kind} spells left: {game.slots_text(levels)}" for kind, levels in slots))
         key = (number(get("Race", "")) or 0, number(get("Gender", "")) or 0)
         zoom = 2 if theme.scale() >= 1.6 else 1

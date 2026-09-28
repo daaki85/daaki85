@@ -442,10 +442,24 @@ class OtherTests(unittest.TestCase):
         e = entry(raw_for(14, 20), dicelog.CHECK_SITE, words(0, 0, 1, 3, 1))
         self.assertEqual(log.describe(e), ["Daaki DEX check: d20 = 14, needs 14 or less (DEX 16 -2) -> success"])
 
-    def test_percentile_check(self):
+    def test_thief_skill(self):
+        """Dag as a 4th level half-giant thief with DEX 16 opening a lock with a -10 for this lock:
+        the game's chance was 24, so 5 went on armour and effects."""
         log = make_game()
-        self.assertEqual(log.describe(entry(1234, dicelog.PERCENT_SITE, locals_=locals_at(0x10, m2=35))),
-                         ["Percentile check: d100 = 35, needs 35 or less -> success"])
+        m = log.guest.mem
+        table = (LOAD_SEG + game.THIEF_TABLE_SEG) * 16
+        m[table + game.THIEF_BASE + 1] = 18
+        m[table + game.THIEF_DEX_LOW + 1], m[table + game.THIEF_DEX_HIGH + 1], m[table + game.THIEF_DEX_TOP + 1] = 11, 15, 20
+        sheet = SHEETS
+        m[sheet + game.SHEET_CLASSES + 1], m[sheet + game.SHEET_LEVELS + 1] = game.THIEF, 4
+        m[CREATURES + game.CREATURE_ABILITIES + 1] = 16
+        e = entry(1223, dicelog.PERCENT_SITE, words(0, 0, 0, 1, 0, -10), locals_=locals_at(0x10, m2=24))
+        self.assertEqual(log.describe(e), ["Dag tries to open locks: d100 = 24, needs 24 or less -> success",
+                                           "    open locks 24 = 18 + 16 thief level 4 + 5 DEX 16 - 10 this attempt "
+                                           "- 5 armour and effects"])
+        # an effect (Blind, Afraid...) takes 1000 off
+        e = entry(1223, dicelog.PERCENT_SITE, words(0, 0, 0, 1, 0, 0), locals_=locals_at(0x10, m2=-961))
+        self.assertEqual(log.describe(e), ["Dag tries to open locks: d100 = 24 -> failure (an effect stops it)"])
 
     def test_generic_shapes_when_showing_everything(self):
         log = make_game()
