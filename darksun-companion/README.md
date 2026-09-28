@@ -162,8 +162,15 @@ alike, is adjusted by the DEX table used for initiative with its sign flipped
 and never below 0, and rangers are left out. That comes to a **bonus** of +6 at
 DEX 1, +4 at 2, +3 at 3, +2 at 4 and +1 at 5, and nothing at DEX 6 and up, so
 in practice there is no off-hand penalty at all: both weapons hit as well as a
-single one would. (Tested by lowering a two-weapon fighter's DEX to 4 in
-memory: both weapons got +2.) The log names it, e.g. `+2 two weapons at DEX 4`.
+single one would. The log names it, e.g. `+2 two weapons at DEX 4`.
+
+Tested in one arena fight by changing DEX in memory: a gladiator with a club
+and a bone long sword got +6 on **both** weapons at DEX 1 (THAC0 11 and 12
+became 5 and 6), and nothing at DEX 15 or 25; a character with one weapon
+(a quarterstaff) got nothing at DEX 1. The game rolled damage for every
+logged hit and none for the misses (46 attacks), including a d20 of 4 that
+only hit because of the +6. It looks like a sign slip in the game: AD&D uses
+the same DEX adjustment to make two-weapon fighting *harder* at low DEX.
 
 ### Character creation
 
