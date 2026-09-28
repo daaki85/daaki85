@@ -176,6 +176,56 @@ logged hit and none for the misses (46 attacks), including a d20 of 4 that
 only hit because of the +6. It looks like a sign slip in the game: AD&D uses
 the same DEX adjustment to make two-weapon fighting *harder* at low DEX.
 
+### Spells and effects
+
+What the log says about spells comes from the game's own spell records and
+code, checked by casting each spell in a fight. Where the game differs from the
+AD&D rules, the log follows the game.
+
+**Damage.** Each spell's record gives its dice: base dice plus dice (and a flat
+bonus) for each step of caster level, counted up to level 10. So Fireball and
+Lightning Bolt do at most 10d6, and Burning Hands 1d3 + 2 a level. A save halves
+the damage, or stops it all for spells such as Chill Touch. Some spells (Burning
+Hands, Fireball, Lightning Bolt, Cone of Cold, Flame Strike...) double the
+save's d20. A creature that is Out Cold gets no save and takes the most the
+dice can do.
+
+**How long.** A duration is (caster level × so much + dice) × a unit of time.
+A round is 60 game seconds. Some effects last a number of uses instead
+(charges):
+- Stoneskin: 1 a level + 1d4. Any damage uses a charge, even fire that gets
+  through, but only blows are stopped.
+- Ironskin: 1d6 blows stopped.
+- Mirror Image: 1 a level + 1d4 images. Each weapon attack has a 75% chance to
+  hit an image.
+- Invisibility: one attack or hostile spell ends it. Improved Invisibility is
+  timed instead, so attacking doesn't end it.
+- Minor Spell Turning: one spell turned back.
+
+Charm, Feeblemind, Web and a few others last until removed.
+
+**What effects do**, from the game's code:
+
+| Effect | In the game |
+|---|---|
+| Blessed / Cursed | +1 / −1 to hit (Bless also +1 on saves); each one cancels the other instead of being added |
+| Hasted / Slowed | Hasted: double movement and attacks, +2 initiative. Slowed: half movement and attacks, loses every other turn, −4 to hit, AC 4 worse, −2 initiative. Each cancels the other; Free Action and Protection from Paralysis stop Slow |
+| Paralyzed | Loses its turns, can't move, fails every saving throw. Free Action and Protection from Paralysis stop it |
+| Stuck (Grease, Web, Entangle, Solid Fog, Quicksand) | Can't move; Free Action stops it; some creatures are immune |
+| Afraid | The computer runs it; it can't attack or cast. Undead are immune, and Cloak of Bravery stops the next fear (and ends) |
+| Charmed | Joins the caster's side, run by the computer |
+| Confused | Each turn a d10: 1 runs off, 2–6 does nothing, 7–9 fights for a side picked with a d2, 10 acts normally (the log shows the rolls) |
+| Berserk | Fights for a side picked at random each turn; can't cast |
+| Can't Attack (Stinking Cloud) | Can't attack or cast harmful spells |
+| No spell use, Feeblemind | Can't cast spells |
+| Blind | AC 4 worse, −2 initiative, can't cast spells that need sight |
+| Acid (Acid Arrow) | 2d4 acid damage each round |
+| Poisoned | Fatal (1000 damage) if time passes out of combat, for instance resting, before it wears off or is cured |
+| Cloak of Fear | Whoever hits the wearer has Cause Fear cast on them, once |
+
+The spell's area catches its caster too. Cilla's Scare made her Afraid, and her
+Fireball, cast at a Slig next to her, killed her.
+
 ### Character creation
 
 Every click of the die on the creation screen (and every change of race or sex)
