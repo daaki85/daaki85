@@ -46,6 +46,7 @@ CREATURE_NAME = 0x28
 # +1Ch: the character's condition, as the party screen shows it (the game shows the most
 # important active effect instead of "Okay")
 CREATURE_STATUS = 0x1C
+OUT_COLD = 3
 STATUS_NAMES = {1: "Okay", 2: "Stunned", 3: "Out Cold", 4: "Dying", 5: "Dead", 6: "Animated",
                 7: "Petrified", 8: "Gone"}
 PARTY_SIZE = 4  # the party are the first creatures in the table

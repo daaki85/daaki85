@@ -270,6 +270,31 @@ class SaveTests(unittest.TestCase):
         self.assertEqual(log.describe(e), ["Hold Person damage: 1d3 = [2] +20 = 22 (1d3 + 2 for each caster level: "
                                            "10 at caster level 20, which counts as 10)"])
 
+    def test_missile_damage(self):
+        """Flame Arrow, Minute Meteors, Magic Missile: rolled behind the overlay manager, with
+        the spell in the dice routine's own arguments; the steps come from the dice."""
+        log = make_game()
+        self.damage_formula(log, FIREBALL, 0x20, 0x01, 0x06)  # 1d6 a caster level
+        dice = [entry(raw_for(f, 6), dicelog.DICE_SITE, words(0, 0, 3, 6, 0, FIREBALL), words(0, 0, FIREBALL, -748),
+                      parent_code=dicelog.OVERLAY_TRAP + bytes(8)) for f in (1, 2, 3)]
+        lines = sum((log.describe(d) for d in dice), [])
+        self.assertEqual(lines, ["Fireball damage: 3d6 = [1 + 2 + 3] = 6 (1d6 for each caster level, counted up "
+                                 "to level 10: 3)"])
+
+    def test_out_cold_takes_the_most(self):
+        log = make_game()
+        m = log.guest.mem
+        stalker = CREATURES + STALKER * game.CREATURE_SIZE
+        struct.pack_into("<h", m, stalker, 30)
+        m[stalker + game.CREATURE_STATUS] = game.OUT_COLD
+        log.hp_changes(0.5)
+        e = entry(raw_for(3, 6), dicelog.DICE_SITE, words(0, 0, 1, 6), words(0, 0, FIREBALL, 3),
+                  parent_code=dicelog.SPELL_DAMAGE_RETURN)
+        log.describe(e, now=1.0)
+        struct.pack_into("<h", m, stalker, 24)
+        self.assertEqual(log.hp_changes(1.5), ["    Mountain Stalker takes 6 from Fireball (HP 30 -> 24) "
+                                               "(Out Cold: the most the dice can do)"])
+
     def test_charges(self):
         """A negative duration unit: the effect lasts that many uses (Stoneskin: 1 a level + 1d4)."""
         log = make_game()

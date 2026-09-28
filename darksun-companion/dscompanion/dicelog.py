@@ -231,6 +231,7 @@ class DiceLog:
         self.ac_detail: Dict[int, AcDetail] = {}  # creature index -> how that AC was made up
         self._dice: Dict[Tuple[int, int, int, int], List[int]] = {}
         self._pending: List[PendingDice] = []
+        self._out_cold: Dict[int, bool] = {}  # creature index -> Out Cold when last looked at
         self._save_rolls: Dict[Tuple[int, int], int] = {}  # (SS, save frame BP) -> natural d20
         self._effects: Optional[Counter] = None
         self._party: Optional[bytes] = None
@@ -367,12 +368,16 @@ class DiceLog:
                 continue
             hp = struct.unpack_from("<h", rec, 0)[0]
             current[index] = hp
+            was_out_cold = self._out_cold.get(index, False)
+            self._out_cold[index] = rec[game.CREATURE_STATUS] == game.OUT_COLD
             before = self._hp.get(index)
             if before is None or before == hp or now > self._spell_until:
                 continue
             who = self.game.creature_name(index)
             if hp < before:
-                out.append(f"    {who} takes {before - hp} from {self._spell_name} (HP {before} -> {hp})")
+                # the game's damage code gives a creature that was Out Cold the most the dice can do
+                out_cold = " (Out Cold: the most the dice can do)" if was_out_cold else ""
+                out.append(f"    {who} takes {before - hp} from {self._spell_name} (HP {before} -> {hp}){out_cold}")
             else:
                 out.append(f"    {who} regains {hp - before} HP from {self._spell_name} (HP {before} -> {hp})")
         self._hp = current
@@ -684,6 +689,10 @@ class DiceLog:
             if e.parent_code.startswith(SPELL_DAMAGE_RETURN):
                 self._spell_cast(e.parent_arg(6), now)
                 return self.flush(now, force=True) + [self._spell_damage(e, count, sides, faces)]
+            steps = self._missile_steps(e, count, sides)
+            if steps is not None:
+                self._spell_cast(e.parent_arg(6), now)
+                return self.flush(now, force=True) + [self._spell_damage(e, count, sides, faces, steps)]
             if sides > 1:  # the game sometimes "rolls" 1d1
                 pending = PendingDice(f"{count}d{sides} = {faces_text} = {sum(faces)}", now,
                                       damage=e.parent_code.startswith(SPELL_DAMAGE_RETURN))
@@ -748,7 +757,24 @@ class DiceLog:
                     f"(caster level {level}: {how}; dice {dice})"]
         return []  # permanent until removed
 
-    def _spell_damage(self, e: Entry, count: int, sides: int, faces: List[int]) -> str:
+    def _missile_steps(self, e: Entry, count: int, sides: int) -> Optional[int]:
+        """Magic Missile, Flame Arrow, Minute Meteors: their damage is rolled by another routine,
+        whose return address the overlay manager has taken, but the dice routine's own
+        arguments name the spell (as does its caller's first). The steps of caster level the
+        roll stands for, when the dice fit the spell's formula; else None."""
+        if not e.parent_code.startswith(OVERLAY_TRAP):
+            return None
+        spell = e.arg(0x0C)
+        if spell is None or spell != e.parent_arg(6) or not 1 <= spell <= game.SPELL_COUNT:
+            return None
+        rule = self.game.spell_damage(spell)
+        if rule is None or rule.sides != sides or sides < 2 or not rule.step_dice:
+            return None
+        steps, extra = divmod(count - rule.base_dice, rule.step_dice)
+        return steps if steps >= 1 and not extra else None
+
+    def _spell_damage(self, e: Entry, count: int, sides: int, faces: List[int],
+                      missile_steps: Optional[int] = None) -> str:
         """A spell's damage dice, rolled by the routine whose arguments are (spell, caster level):
         the game adds a flat bonus for each step of caster level."""
         g = self.game
@@ -758,7 +784,7 @@ class DiceLog:
         rule = g.spell_damage(spell) if spell is not None else None
         if rule is None or rule.sides != sides:
             return f"{text} = {sum(faces)}"
-        steps = rule.steps(level)
+        steps = rule.steps(level) if missile_steps is None else missile_steps
         bonus = rule.step_bonus * steps
         if bonus:
             text += f" {signed(bonus)}"
@@ -774,6 +800,8 @@ class DiceLog:
         if rule.adjust:
             how += f" (counting {signed(rule.adjust)})"
         base = f"{rule.base_dice}d{sides} + " if rule.base_dice else ""
+        if missile_steps is not None:  # the caster's level isn't in this routine's arguments
+            return f"{text} ({base}{how}, counted up to level {game.SPELL_LEVEL_CAP}: {steps})"
         cap = f", which counts as {game.SPELL_LEVEL_CAP}" if level > game.SPELL_LEVEL_CAP else ""
         return f"{text} ({base}{how}: {steps} at caster level {level}{cap})" if counted >= 0 else text
 
