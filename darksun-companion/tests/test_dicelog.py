@@ -270,6 +270,12 @@ class SaveTests(unittest.TestCase):
         self.assertEqual(log.describe(e), ["Hold Person damage: 1d3 = [2] +20 = 22 (1d3 + 2 for each caster level: "
                                            "10 at caster level 20, which counts as 10)"])
 
+    def test_spell_handler_dice(self):
+        log = make_game()
+        e = [entry(raw_for(f, 8), dicelog.DICE_SITE, words(0, 0, 2, 8), words(0, 0, 0, 0x29, 0, 0, HOLD_PERSON),
+                   parent_code=dicelog.SPELL_HANDLER_RETURNS[0][0]) for f in (3, 5)]
+        self.assertEqual(log.describe(e[0]) + log.describe(e[1]), ["Hold Person: 2d8 = [3 + 5] +1 = 9"])
+
     def test_hp_after_a_spell(self):
         log = make_game()
         m = log.guest.mem

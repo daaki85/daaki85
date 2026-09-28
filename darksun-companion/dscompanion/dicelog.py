@@ -84,6 +84,14 @@ CREATION_ABILITY_TRIES = 4
 LEVEL_HP_RETURN = bytes.fromhex("83c4048bc8c45efc268a")
 CREATION_HP_CALLER = 0x0232
 CREATION_HP_WAIT = 0.3  # seconds after the last hit point roll before the total is shown
+# ... and in the handler for spells with rules of their own (its arguments: caster, target, ...,
+# spell at +0Eh): code after its dice calls -> what the roll is and what the game adds
+SPELL_HANDLER_RETURNS = (
+    (bytes.fromhex("83c40440e988"), 1),  # Cure Serious Wounds: 2d8 + 1
+    (bytes.fromhex("83c404050300eb"), 3),  # Cure Critical Wounds: 3d8 + 3
+    (bytes.fromhex("83c4045057900e"), 0),  # Cure Light Wounds 1d8, Blood Flow 2d6 (healing)
+    (bytes.fromhex("83c40450ff7608"), 0),  # Aid 1d8, Vampiric Touch (level / 2)d6, drains
+)
 # ... and a name picked at random from the game's lists (the code after the dice call)
 RANDOM_NAME_RETURNS = (bytes.fromhex("83c40448eb11"), bytes.fromhex("83c4040563008b"),
                        bytes.fromhex("83c40405c700eb"))
@@ -425,7 +433,10 @@ class DiceLog:
             name = EFFECT_NAMES.get(eid, f"effect {eid}")
             targets = ", ".join(self._name(o) for o in owners)
             rule = f": {EFFECT_RULES[eid]}" if eid in EFFECT_RULES else ""
-            out.append(f"{self._name(caster)} gives {name} to {targets}{rule}")
+            if owners == [caster] * len(owners):  # on itself (or from a spell on the ground)
+                out.append(f"{name} on {targets}{rule}")
+            else:
+                out.append(f"{self._name(caster)} gives {name} to {targets}{rule}")
         by_end: Dict[int, List[int]] = {}
         for eff in ended.elements():
             by_end.setdefault(eff.id, []).append(eff.owner)
@@ -652,6 +663,14 @@ class DiceLog:
                 level_up = self._level_hp(e, sides, faces[0])
                 if level_up:
                     return level_up
+            handler = next((bonus for code, bonus in SPELL_HANDLER_RETURNS if e.parent_code.startswith(code)), None)
+            if handler is not None and e.parent_arg(0x0E) is not None:
+                spell = e.parent_arg(0x0E)
+                self._spell_cast(spell, now)
+                total = sum(faces) + handler
+                return self.flush(now, force=True) + [
+                    f"{self.game.spell_name(spell)}: {count}d{sides} = [" + " + ".join(map(str, faces)) + "]"
+                    + (f" {signed(handler)}" if handler else "") + f" = {total}"]
             if e.parent_code.startswith(SPELL_DURATION_RETURN):
                 return self._spell_duration(e, count, sides, faces)
             if e.parent_code.startswith(SPELL_DAMAGE_RETURN):
