@@ -219,6 +219,27 @@ Limitations:
   were seen in play, but no weapon happened to break during testing; the
   game's own "is broken !" message is logged either way.
 
+## Accessibility
+
+Templar's Ledger aims at the AODA's standard for software people read,
+WCAG 2.0 level AA:
+
+- **Contrast:** every colour used for text has at least 4.5:1 contrast with
+  its background (the game's lighter stone is kept for bevels, not behind
+  text). `tests/test_theme.py` checks each pair.
+- **Colour is never the only signal:** log lines say `HIT`, `miss`, `saves`
+  and so on in words, and changed bytes in the record view are underlined as
+  well as highlighted.
+- **Text size:** **A+** / **A-** at the top, or **Ctrl +**, **Ctrl -** and
+  **Ctrl 0** (back to normal), enlarge or shrink all text up to 2.5 times.
+- **Keyboard:** Tab and Shift+Tab move between controls, and the one with the
+  keyboard focus is outlined in yellow. **Ctrl+Tab** switches tabs, as do
+  **Alt+L** (Dice log), **Alt+I** (Dialogue) and **Alt+M** (Memory tools).
+- **Screen readers:** tkinter's windows are not read well by screen readers.
+  **Save...** on the Dice log and Dialogue tabs writes the log to a text file,
+  and `python -m dscompanion dicelog` prints the same log (dialogue included) in
+  a command prompt, which screen readers do read.
+
 ## Using the viewer
 
 For Shattered Lands the party is found automatically. The steps below are for
