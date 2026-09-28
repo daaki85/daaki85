@@ -1,10 +1,11 @@
-"""The look of Templar's Ledger: the colours of Shattered Lands' own screens.
+"""The look of Templar's Ledger: widgets styled like Shattered Lands' own screens.
 
-Every colour here was sampled from the game (GOG release, in DOSBox): the grey
-stone of its panels and buttons, the amber of dialogue text, the yellow of the
-character screen's numbers, the dark red rock of the arena walls and the sand.
-No artwork of the game's is copied; the banner's rock is drawn from those
-colours at start-up.
+The colours are in palette.py. No artwork of the game's is copied; the
+banner's rock is drawn from those colours at start-up.
+
+Accessibility (AODA, whose standard is WCAG 2.0 level AA): text colours meet
+4.5:1 contrast (see palette.py), keyboard focus is drawn in bright yellow, and
+all text can be enlarged (Ctrl + / Ctrl -).
 """
 
 import random
@@ -13,38 +14,13 @@ from tkinter import font as tkfont
 from tkinter import ttk
 from typing import Tuple
 
-NAME = "Templar's Ledger"
-SUBTITLE = "a companion for Dark Sun: Shattered Lands"
+from .palette import (AMBER, BUTTON, BUTTON_LIT, DARK, DEEP, EDGE_LIT, FOCUS, LOG_COLOURS, NAME, PALE,  # noqa: F401
+                      PANEL, PSI_BLUE, ROCK, SAND, SHADOW, STONE, SUBTITLE, YELLOW)
 
-# Stone, darkest to lightest (panels, buttons, frames)
-SHADOW = "#202038"  # outlines and text shadows
-DEEP = "#30304D"  # recessed panels: the character screen's stats box
-DARK = "#454561"
-PANEL = "#4D4D69"
-STONE = "#595971"
-BUTTON = "#71718A"
-BUTTON_LIT = "#7D7D96"
-EDGE_LIT = "#A6A6BE"
-PALE = "#D7D7E3"  # light text and bevel highlights
-# Text colours
-AMBER = "#FFA600"  # dialogue text
-YELLOW = "#E7EB18"  # the character screen's numbers
-PSI_BLUE = "#6F9BFF"
-GREEN = "#8FD16A"
-# Arena rock and sand
-ROCK = ("#380C00", "#450C00", "#510C00", "#5D0C00", "#690400", "#750400", "#820000")
-SAND = "#D3A28A"
-SAND_DARK = "#B26D55"
-
-# Dice log line kinds -> colour on the dark stone
-LOG_COLOURS = {
-    "hit": GREEN,
-    "miss": BUTTON_LIT,
-    "damage": AMBER,
-    "save": PSI_BLUE,
-    "detail": EDGE_LIT,
-    "other": YELLOW,
-}
+# Named fonts, so Ctrl + / Ctrl - can enlarge all text at once
+BASE_SIZES = {"TkDefaultFont": 10, "TkTextFont": 10, "TkFixedFont": 10, "TkHeadingFont": 10,
+              "TkMenuFont": 10, "LedgerHeading": 10, "LedgerTitle": 20, "LedgerSmall": 9}
+_scale = 1.0
 
 
 def _family(*preferred: str) -> str:
@@ -52,34 +28,64 @@ def _family(*preferred: str) -> str:
     return next((f for f in preferred if f in available), preferred[-1])
 
 
-def fonts() -> Tuple[tuple, tuple, tuple]:
-    """(title, heading, text) fonts: a heavy serif like the game's screen titles."""
+def make_fonts(root: tk.Misc) -> None:
     serif = _family("Georgia", "Times New Roman", "DejaVu Serif", "Liberation Serif", "Times")
-    return (serif, 20, "bold"), (serif, 10, "bold"), ("TkFixedFont",)
+    for name, family, weight, slant in (("LedgerHeading", serif, "bold", "roman"),
+                                        ("LedgerTitle", serif, "bold", "roman"),
+                                        ("LedgerSmall", "TkDefaultFont", "normal", "italic")):
+        if name not in tkfont.names(root):
+            family = tkfont.nametofont("TkDefaultFont").actual("family") if family == "TkDefaultFont" else family
+            tkfont.Font(root, name=name, family=family, weight=weight, slant=slant, size=BASE_SIZES[name])
+    set_scale(root, _scale)
+
+
+def set_scale(root: tk.Misc, scale: float) -> float:
+    """Make all text `scale` times its usual size (0.8 to 2.5)."""
+    global _scale
+    _scale = min(max(scale, 0.8), 2.5)
+    for name, size in BASE_SIZES.items():
+        try:
+            tkfont.nametofont(name).configure(size=round(size * _scale))
+        except tk.TclError:
+            pass
+    style = ttk.Style(root)
+    style.configure("Treeview", rowheight=round(20 * _scale))
+    return _scale
+
+
+def scale() -> float:
+    return _scale
+
+
+def fonts() -> Tuple[str, str, str]:
+    """(title, heading, text) fonts: a heavy serif like the game's screen titles."""
+    return "LedgerTitle", "LedgerHeading", "TkFixedFont"
 
 
 def apply(root: tk.Tk) -> None:
     """Style the ttk widgets like the game's stone panels and buttons."""
     root.configure(background=STONE)
+    make_fonts(root)
     style = ttk.Style(root)
     style.theme_use("clam")  # the theme whose bevels can be coloured
     _, heading, _ = fonts()
-    bevel = dict(background=BUTTON, foreground=PALE, lightcolor=EDGE_LIT, darkcolor=DARK,
-                 bordercolor=SHADOW, focuscolor=BUTTON_LIT)
+    # the game's stone buttons, a shade darker behind the text so it stays readable;
+    # the lighter stone is kept for the bevel
+    bevel = dict(background=DARK, foreground=PALE, lightcolor=EDGE_LIT, darkcolor=SHADOW,
+                 bordercolor=SHADOW, focuscolor=FOCUS)
     style.configure(".", background=STONE, foreground=PALE, fieldbackground=DEEP, troughcolor=SHADOW,
-                    selectbackground=BUTTON, selectforeground=YELLOW, insertcolor=PALE,
+                    selectbackground=PANEL, selectforeground=YELLOW, insertcolor=PALE, focuscolor=FOCUS,
                     lightcolor=STONE, darkcolor=STONE, bordercolor=SHADOW, arrowcolor=PALE)
     style.configure("TFrame", background=STONE)
     style.configure("Panel.TFrame", background=PANEL)
     style.configure("TLabel", background=STONE, foreground=PALE)
-    style.configure("Panel.TLabel", background=PANEL, foreground=PALE)
     style.configure("Status.TLabel", background=STONE, foreground=YELLOW)
     style.configure("TButton", padding=(10, 3), **bevel)
-    style.map("TButton", background=[("pressed", DARK), ("active", BUTTON_LIT)],
-              foreground=[("active", YELLOW)],
-              lightcolor=[("pressed", DARK)], darkcolor=[("pressed", EDGE_LIT)])
+    style.map("TButton", background=[("pressed", DEEP), ("active", STONE)],
+              foreground=[("pressed", YELLOW), ("active", YELLOW)],
+              lightcolor=[("pressed", SHADOW)], darkcolor=[("pressed", EDGE_LIT)])
     style.configure("TCheckbutton", background=STONE, foreground=PALE, indicatorbackground=DEEP,
-                    indicatorforeground=YELLOW)
+                    indicatorforeground=YELLOW, focuscolor=FOCUS)
     style.map("TCheckbutton", background=[("active", STONE)], foreground=[("active", YELLOW)],
               indicatorbackground=[("active", DARK)])
     style.configure("TEntry", fieldbackground=DEEP, foreground=YELLOW, insertcolor=PALE)
@@ -89,14 +95,16 @@ def apply(root: tk.Tk) -> None:
               selectbackground=[("readonly", DEEP)], selectforeground=[("readonly", YELLOW)])
     root.option_add("*TCombobox*Listbox.background", DEEP)
     root.option_add("*TCombobox*Listbox.foreground", YELLOW)
-    root.option_add("*TCombobox*Listbox.selectBackground", BUTTON)
+    root.option_add("*TCombobox*Listbox.selectBackground", PANEL)
+    root.option_add("*TCombobox*Listbox.selectForeground", YELLOW)
     style.configure("TLabelframe", background=STONE, bordercolor=SHADOW, lightcolor=EDGE_LIT, darkcolor=DARK)
-    style.configure("TLabelframe.Label", background=STONE, foreground=AMBER, font=heading)
+    style.configure("TLabelframe.Label", background=STONE, foreground=YELLOW, font=heading)
     style.configure("TNotebook", background=STONE, bordercolor=SHADOW, tabmargins=(2, 4, 2, 0))
     style.configure("TNotebook.Tab", padding=(14, 4), font=heading, **bevel)
-    style.map("TNotebook.Tab", background=[("selected", BUTTON_LIT), ("active", BUTTON_LIT)],
+    # the open tab sinks into the dark panel below it, its name in the game's amber
+    style.map("TNotebook.Tab", background=[("selected", DEEP), ("active", STONE)],
               foreground=[("selected", AMBER), ("active", YELLOW)],
-              lightcolor=[("selected", PALE)])
+              lightcolor=[("selected", EDGE_LIT)])
     style.configure("TPanedwindow", background=SHADOW)
     style.configure("Sash", sashthickness=6, background=DARK, lightcolor=EDGE_LIT, bordercolor=SHADOW)
     style.configure("TScrollbar", background=BUTTON, troughcolor=SHADOW, lightcolor=EDGE_LIT,
@@ -104,17 +112,20 @@ def apply(root: tk.Tk) -> None:
     style.map("TScrollbar", background=[("active", BUTTON_LIT)])
     # the party table: yellow numbers on the dark stats panel, like the character screen
     style.configure("Treeview", background=DEEP, fieldbackground=DEEP, foreground=YELLOW,
-                    bordercolor=SHADOW, lightcolor=DEEP, darkcolor=DEEP, rowheight=20)
+                    bordercolor=SHADOW, lightcolor=DEEP, darkcolor=DEEP, rowheight=round(20 * _scale))
     style.map("Treeview", background=[("selected", DARK)], foreground=[("selected", AMBER)])
     style.configure("Treeview.Heading", font=heading, **bevel)
-    style.map("Treeview.Heading", background=[("active", BUTTON_LIT)], foreground=[("active", AMBER)])
+    style.map("Treeview.Heading", background=[("active", STONE)], foreground=[("active", YELLOW)])
 
 
 def style_text(widget: tk.Text) -> None:
-    """A log or list on the dark stone of the game's recessed panels."""
-    widget.configure(background=DEEP, foreground=PALE, insertbackground=PALE, selectbackground=BUTTON,
+    """A log or list on the dark stone of the game's recessed panels. The border turns
+    yellow while it has the keyboard focus."""
+    widget.configure(background=DEEP, foreground=PALE, insertbackground=PALE, selectbackground=PANEL,
                      selectforeground=YELLOW, relief="flat", borderwidth=0, highlightthickness=2,
-                     highlightbackground=SHADOW, highlightcolor=SHADOW, padx=8, pady=6)
+                     highlightbackground=SHADOW, highlightcolor=FOCUS)
+    if isinstance(widget, tk.Text):
+        widget.configure(padx=8, pady=6)
 
 
 def _rock(width: int, height: int, seed: int = 7) -> tk.PhotoImage:
@@ -161,4 +172,4 @@ class Banner(tk.Canvas):
         for dx, dy, colour in ((2, 2, SHADOW), (0, 0, AMBER)):
             self.create_text(14 + dx, 25 + dy, text=NAME.upper(), anchor="w", fill=colour, font=self.title_font)
         right = 14 + tkfont.Font(font=self.title_font).measure(NAME.upper()) + 14
-        self.create_text(right, 29, text=SUBTITLE, anchor="w", fill=SAND, font=("TkDefaultFont", 9, "italic"))
+        self.create_text(right, 29, text=SUBTITLE, anchor="w", fill=SAND, font="LedgerSmall")
