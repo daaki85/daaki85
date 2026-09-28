@@ -126,8 +126,34 @@ EFFECT_RULES = {
     60: "AC 5, 1 better per 3 caster levels above 5", 63: "higher STR", 64: "higher STR", 67: "higher STR",
     68: "lower STR",
     73: "+1 to hit and saves for the caster's side, -1 for the other",
+    # what the game's turn, movement, casting and damage code does with the rest
+    1: "2d4 acid damage each round",
+    3: "the computer controls it; can't cast spells",
+    9: "ends fear, and the next fear fails (which ends it)",
+    10: "joins the caster's side, the computer controlling it",
+    11: "the computer controls it",
+    17: "the computer controls it; can't attack or cast spells (undead are immune; Bravery stops it)",
+    18: "whoever hits the wearer has Cause Fear cast on them (once)",
+    19: "can't cast spells",
+    21: "can't be Paralyzed, Slowed or Stuck",
+    23: "ends when it attacks or casts at an enemy",
+    24: "ends when it attacks or casts at an enemy",
+    25: "each weapon attack has a 75% chance to hit an image instead, using one up",
+    29: "can't be Paralyzed or Slowed",
+    33: "can't attack or cast harmful spells",
+    34: "loses its turns, can't move, fails every saving throw",
+    35: "fatal (1000 damage) if time passes out of combat, such as resting, before it ends or is cured",
+    44: "turns spells cast at it back on their caster, one per charge",
+    48: "no damage from weapons; any damage uses up one charge",
+    50: "can't cast spells",
+    51: "can't move (Free Action prevents it; some creatures are immune)",
+    53: "no damage from weapons, using up one charge each time",
 }
-
+# Effects that change a rule already listed above, from the same code
+EFFECT_RULES[8] += "; can't cast spells that need sight"
+EFFECT_RULES[47] += ", half movement and attacks, loses every other turn; ends Haste (Free Action and " \
+                    "Protection from Paralysis prevent it)"
+EFFECT_RULES[22] = "double movement and attacks; ends Slow"
 # AD&D 2e strength damage adjustments (Dark Sun has no exceptional strength). The
 # game adds these after rolling melee damage; seen in play for STR 20 and 24.
 STR_DAMAGE = {1: -4, 2: -2, 3: -1, 4: -1, 5: -1, 16: 1, 17: 1, 18: 2, 19: 7, 20: 8, 21: 9,
@@ -231,6 +257,7 @@ class SpellDamage(NamedTuple):
 
 
 SPELL_LEVEL_CAP = 10  # damage stops growing at caster level 10
+PERMANENT = -9999  # a spell record's time unit for effects that last until removed
 
 
 class SpellRules(NamedTuple):
@@ -347,9 +374,26 @@ class GameData:
         rec = self.spell_record(spell)
         if len(rec) < SPELL_SIZE:
             return None
-        per_level, unit = struct.unpack_from("<Hh", rec, 5)
+        unit, = struct.unpack_from("<h", rec, 7)
         if unit <= 0:
-            return None  # not timed (-10000: permanent)
+            return None  # not timed: charges (see spell_charges), or -9999: permanent
+        return self._spell_amount(rec, spell, level, roll, unit)
+
+    def spell_charges(self, spell: int, level: int, roll: int) -> Optional[Tuple[int, str]]:
+        """(charges, how) for an effect that lasts a number of uses rather than a time: the
+        game stores a negative duration as that many charges (Stoneskin's blows, Mirror
+        Image's images, Invisibility's one attack)."""
+        rec = self.spell_record(spell)
+        if len(rec) < SPELL_SIZE:
+            return None
+        unit, = struct.unpack_from("<h", rec, 7)
+        if not PERMANENT < unit < 0:
+            return None
+        found = self._spell_amount(rec, spell, level, roll, -unit)
+        return (found[0], found[1]) if found[0] > 0 else None
+
+    def _spell_amount(self, rec: bytes, spell: int, level: int, roll: int, unit: int) -> Tuple[int, str]:
+        per_level, = struct.unpack_from("<H", rec, 5)
         rule = self.spell_damage(spell)
         per_levels, adjust = (rule.per_levels, rule.adjust) if rule else (1, 0)
         levels = (max(level, 1) + adjust) * per_level // per_levels

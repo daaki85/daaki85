@@ -270,6 +270,31 @@ class SaveTests(unittest.TestCase):
         self.assertEqual(log.describe(e), ["Hold Person damage: 1d3 = [2] +20 = 22 (1d3 + 2 for each caster level: "
                                            "10 at caster level 20, which counts as 10)"])
 
+    def test_charges(self):
+        """A negative duration unit: the effect lasts that many uses (Stoneskin: 1 a level + 1d4)."""
+        log = make_game()
+        self.damage_formula(log, FIREBALL, 0, 0x01, 0)  # divisor 1, no level adjustment
+        record = (LOAD_SEG + game.SPELLS_SEG) * 16 + game.SPELLS_OFF - 0x10 + FIREBALL * game.SPELL_SIZE
+        struct.pack_into("<Hh", log.guest.mem, record + 5, 1, -1)
+        e = entry(raw_for(3, 4), dicelog.DICE_SITE, words(0, 0, 1, 4), words(0, 0, FIREBALL, 5),
+                  parent_code=dicelog.SPELL_DURATION_RETURN)
+        self.assertEqual(log.describe(e), ["    Fireball has 8 charges (caster level 5: 1 for each caster level "
+                                           "= 5 + 3 from the dice; dice 1d4 = [3])"])
+        # the same roll with its return address taken by the overlay manager: known by the
+        # spell record's duration dice (1d4 here) and the (spell, level) arguments
+        log.guest.mem[record + 4] = 0x41
+        e = entry(raw_for(2, 4), dicelog.DICE_SITE, words(0, 0, 1, 4), words(0, 0, FIREBALL, 5),
+                  parent_code=dicelog.OVERLAY_TRAP + bytes(8))
+        self.assertEqual(log.describe(e), ["    Fireball has 7 charges (caster level 5: 1 for each caster level "
+                                           "= 5 + 2 from the dice; dice 1d4 = [2])"])
+
+    def test_acid_each_round(self):
+        log = make_game()
+        e = [entry(raw_for(f, 4), dicelog.DICE_SITE, words(0, 0, 2, 4), words(0, 0, 0x29, 1),
+                   parent_code=dicelog.ACID_TICK_RETURN) for f in (3, 1)]
+        self.assertEqual(log.describe(e[0]) + log.describe(e[1]),
+                         ["    Acid on Mountain Stalker: 2d4 = [3 + 1] = 4 acid damage"])
+
     def test_spell_handler_dice(self):
         log = make_game()
         e = [entry(raw_for(f, 8), dicelog.DICE_SITE, words(0, 0, 2, 8), words(0, 0, 0, 0x29, 0, 0, HOLD_PERSON),

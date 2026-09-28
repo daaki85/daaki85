@@ -58,6 +58,10 @@ SPELL_DAMAGE_RETURN = bytes.fromhex("83c4045a03d0")
 # ... and in the routine that works out a spell's duration (its arguments: spell, caster level);
 # the dice are often NdS with S = 1, a fixed number
 SPELL_DURATION_RETURN = bytes.fromhex("83c406660fbfc0665a66")
+# The acid effect's damage each round (Acid Arrow): the routine's arguments are (creature, effect)
+ACID_TICK_RETURN = bytes.fromhex("83c4048946fe8b4608")
+# What a return address shows when the overlay manager has redirected it (INT 3Fh)
+OVERLAY_TRAP = b"\xcd\x3f"
 # DSCLOG only records calls whose calling code starts like one of these, so
 # bursts of other randomness (animations) don't crowd out the rolls that
 # matter: the "rand()*N/32768" rolls (attacks, checks, saves, damage dice)
@@ -663,6 +667,10 @@ class DiceLog:
                 level_up = self._level_hp(e, sides, faces[0])
                 if level_up:
                     return level_up
+            if e.parent_code.startswith(ACID_TICK_RETURN):
+                return self.flush(now, force=True) + [
+                    f"    {EFFECT_NAMES[1]} on {self._name(e.parent_arg(6))}: {count}d{sides} = {faces_text} = "
+                    f"{sum(faces)} acid damage"]
             handler = next((bonus for code, bonus in SPELL_HANDLER_RETURNS if e.parent_code.startswith(code)), None)
             if handler is not None and e.parent_arg(0x0E) is not None:
                 spell = e.parent_arg(0x0E)
@@ -671,7 +679,7 @@ class DiceLog:
                 return self.flush(now, force=True) + [
                     f"{self.game.spell_name(spell)}: {count}d{sides} = [" + " + ".join(map(str, faces)) + "]"
                     + (f" {signed(handler)}" if handler else "") + f" = {total}"]
-            if e.parent_code.startswith(SPELL_DURATION_RETURN):
+            if e.parent_code.startswith(SPELL_DURATION_RETURN) or self._overlay_duration(e, count, sides):
                 return self._spell_duration(e, count, sides, faces)
             if e.parent_code.startswith(SPELL_DAMAGE_RETURN):
                 self._spell_cast(e.parent_arg(6), now)
@@ -710,6 +718,18 @@ class DiceLog:
             steps = f"({steps}) x{times} backstab"
         return [f"  {g.creature_name(attacker)} hits {g.combatant_name(e.glob[0])} for {total}: {steps}"]
 
+    def _overlay_duration(self, e: Entry, count: int, sides: int) -> bool:
+        """The duration routine's roll when the overlay manager has swapped its return address
+        for an INT 3Fh stub (so its code can't be matched): its arguments are still (spell,
+        caster level), and the dice are the spell record's duration dice."""
+        if not e.parent_code.startswith(OVERLAY_TRAP):
+            return False
+        spell, level = e.parent_arg(6), e.parent_arg(8)
+        if spell is None or level is None or not 1 <= spell <= game.SPELL_COUNT or not 1 <= level <= 40:
+            return False
+        rec = self.game.spell_record(spell)
+        return len(rec) > 4 and (rec[4] & 0x0F, rec[4] >> 4) == (count, sides)
+
     def _spell_duration(self, e: Entry, count: int, sides: int, faces: List[int]) -> List[str]:
         g = self.game
         spell, level = e.parent_arg(6), (e.parent_arg(8) or 0) & 0xFF
@@ -717,11 +737,16 @@ class DiceLog:
             return []
         dice = f"{count}d{sides}" + (f" = [{' + '.join(map(str, faces))}]" if sides > 1 else "")
         found = g.spell_duration(spell, level, sum(faces))
-        if found is None:
-            return []  # not a timed spell
-        units, how = found
-        return [f"    {g.spell_name(spell)} lasts {game.game_time(units)} (caster level {level}: {how}; "
-                f"dice {dice})"]
+        if found is not None:
+            units, how = found
+            return [f"    {g.spell_name(spell)} lasts {game.game_time(units)} (caster level {level}: {how}; "
+                    f"dice {dice})"]
+        charges = g.spell_charges(spell, level, sum(faces))
+        if charges is not None:  # lasts until used up (blows taken, images struck...)
+            count, how = charges
+            return [f"    {g.spell_name(spell)} has {count} charge{'' if count == 1 else 's'} "
+                    f"(caster level {level}: {how}; dice {dice})"]
+        return []  # permanent until removed
 
     def _spell_damage(self, e: Entry, count: int, sides: int, faces: List[int]) -> str:
         """A spell's damage dice, rolled by the routine whose arguments are (spell, caster level):
