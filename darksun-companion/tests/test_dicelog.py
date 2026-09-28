@@ -295,6 +295,15 @@ class SaveTests(unittest.TestCase):
         self.assertEqual(log.hp_changes(1.5), ["    Mountain Stalker takes 6 from Fireball (HP 30 -> 24) "
                                                "(Out Cold: the most the dice can do)"])
 
+    def test_confusion(self):
+        log = make_game()
+        e = entry(raw_for(8, 10), dicelog.DICE_SITE, words(0, 0, 1, 10), words(0, 0, 0x29),
+                  parent_code=dicelog.CONFUSION_ROLL_RETURN)
+        self.assertEqual(log.describe(e), ["Mountain Stalker is confused: d10 = 8 -> fights for a side picked at random"])
+        e = entry(raw_for(1, 2), dicelog.DICE_SITE, words(0, 0, 1, 2), words(0, 0, 0x29),
+                  parent_code=dicelog.RANDOM_SIDE_RETURN)
+        self.assertEqual(log.describe(e), ["    Mountain Stalker fights on the party's side this turn (d2 = 1)"])
+
     def test_charges(self):
         """A negative duration unit: the effect lasts that many uses (Stoneskin: 1 a level + 1d4)."""
         log = make_game()

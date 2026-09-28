@@ -129,15 +129,17 @@ EFFECT_RULES = {
     73: "+1 to hit and saves for the caster's side, -1 for the other",
     # what the game's turn, movement, casting and damage code does with the rest
     1: "2d4 acid damage each round",
-    3: "the computer controls it; can't cast spells",
+    3: "fights for a side picked at random each turn; can't cast spells",
     9: "ends fear, and the next fear fails (which ends it)",
     10: "joins the caster's side, the computer controlling it",
-    11: "the computer controls it",
+    11: "each turn a d10: 1 runs off, 2-6 does nothing, 7-9 fights for a random side, 10 acts normally",
     17: "the computer controls it; can't attack or cast spells (undead are immune; Bravery stops it)",
     18: "whoever hits the wearer has Cause Fear cast on them (once)",
     19: "can't cast spells",
     21: "can't be Paralyzed, Slowed or Stuck",
-    23: "ends when it attacks or casts at an enemy",
+    # attacking uses a charge, and only effects with charges end that way: Invisibility has
+    # one, Improved Invisibility (timed) has none
+    23: "attacking or casting at an enemy ends it, unless it is Improved Invisibility",
     24: "ends when it attacks or casts at an enemy",
     25: "each weapon attack has a 75% chance to hit an image instead, using one up",
     29: "can't be Paralyzed or Slowed",

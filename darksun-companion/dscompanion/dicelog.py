@@ -60,6 +60,13 @@ SPELL_DAMAGE_RETURN = bytes.fromhex("83c4045a03d0")
 SPELL_DURATION_RETURN = bytes.fromhex("83c406660fbfc0665a66")
 # The acid effect's damage each round (Acid Arrow): the routine's arguments are (creature, effect)
 ACID_TICK_RETURN = bytes.fromhex("83c4048946fe8b4608")
+# A confused creature's turn (its routine's first argument is the creature): d10, 1 it runs
+# off, 2-6 it does nothing, 7-9 it fights for a side picked with a d2 (as a berserk creature
+# always does), 10 it acts normally
+CONFUSION_ROLL_RETURN = bytes.fromhex("83c4048ad080fa0174da")
+RANDOM_SIDE_RETURN = bytes.fromhex("83c4048bde6bdb03ba")
+CONFUSION_RESULTS = ((1, "runs off"), (6, "does nothing"), (9, "fights for a side picked at random"),
+                     (10, "acts normally"))
 # What a return address shows when the overlay manager has redirected it (INT 3Fh)
 OVERLAY_TRAP = b"\xcd\x3f"
 # DSCLOG only records calls whose calling code starts like one of these, so
@@ -672,6 +679,13 @@ class DiceLog:
                 level_up = self._level_hp(e, sides, faces[0])
                 if level_up:
                     return level_up
+            if count == 1 and sides == 10 and e.parent_code.startswith(CONFUSION_ROLL_RETURN):
+                what = next(text for top, text in CONFUSION_RESULTS if faces[0] <= top)
+                return self.flush(now, force=True) + [
+                    f"{self._name(e.parent_arg(6))} is confused: d10 = {faces[0]} -> {what}"]
+            if count == 1 and sides == 2 and e.parent_code.startswith(RANDOM_SIDE_RETURN):
+                side = "the party's" if faces[0] == 1 else "the monsters'"
+                return [f"    {self._name(e.parent_arg(6))} fights on {side} side this turn (d2 = {faces[0]})"]
             if e.parent_code.startswith(ACID_TICK_RETURN):
                 return self.flush(now, force=True) + [
                     f"    {EFFECT_NAMES[1]} on {self._name(e.parent_arg(6))}: {count}d{sides} = {faces_text} = "
