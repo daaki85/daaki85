@@ -24,14 +24,39 @@ game.)*
 - Linux works too if you can read other processes' memory (root, or
   `kernel.yama.ptrace_scope=0`).
 
-## Running it
+## Running it (Windows)
 
-From this folder:
+The companion is a separate program that runs next to the game. You don't
+install anything into the game folder.
+
+**One-time setup**
+
+1. Install Python from <https://www.python.org/downloads/>. On the first
+   installer screen, tick **"Add python.exe to PATH"**.
+2. Download this project: on GitHub open the `claude/amazing-lovelace-gcqdap`
+   branch, click **Code → Download ZIP**, and unzip it anywhere.
+   The files you need are in the `darksun-companion` folder.
+
+**Every time you play**
+
+1. Start Shattered Lands the way you normally do (GOG/Steam or your own DOSBox)
+   and load your game.
+2. In the `darksun-companion` folder, double-click **`Start Companion.bat`**.
+   The viewer window opens next to the game. Its top line should say
+   "Connected to DOSBox…".
+3. Type one party member's name into the search box, press **Search**, select
+   the hit that shows the name followed by dots, and press **Assign**.
+   The party's stats fill in.
+
+**Checking a save file (no game needed):** drag a `SAVEnn.SAV` file from the
+game folder onto **`Show Save.bat`**.
+
+**From a command prompt**, the same things are:
 
 ```
-python -m dscompanion save C:\path\to\SAVE01.SAV   # show the party stored in a save
-python -m dscompanion processes                     # with the game running: is DOSBox found?
-python -m dscompanion view                          # open the party viewer
+python -m dscompanion view                          # the party viewer
+python -m dscompanion save C:\path\to\SAVE01.SAV   # the party stored in a save
+python -m dscompanion processes                     # is DOSBox found?
 ```
 
 If more than one DOSBox is running, add `--pid <number>` (from `processes`).
