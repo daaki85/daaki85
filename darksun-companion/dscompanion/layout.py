@@ -88,20 +88,31 @@ class Record:
                 for i, addr in enumerate(self.slots)]
 
 
-def find_linked(record: Record, other_base: int, snapshot: bytes) -> Optional[int]:
-    """Base address of the `record` that matches the other record at `other_base`."""
-    (mine0, theirs0, len0), rest = record.link.match[0], record.link.match[1:]
+def _links_to(record: Record, base: int, other_base: int, snapshot: bytes) -> bool:
+    """Whether a `record` at `base` shares the linking bytes of the other record at `other_base`."""
+    mine0, theirs0, _ = record.link.match[0]
+    return base >= 0 and base + mine0 != other_base + theirs0 and all(
+        len(mine := snapshot[base + m:base + m + n]) == n
+        and mine == snapshot[other_base + t:other_base + t + n]
+        for m, t, n in record.link.match)
+
+
+def find_linked(record: Record, other_base: int, snapshot: bytes,
+                prefer: Optional[int] = None) -> Optional[int]:
+    """Base address of the `record` that matches the other record at `other_base`.
+
+    Games keep stale copies of records around, so `prefer` (e.g. where the
+    party's stride says the record should be) wins when it matches."""
+    mine0, theirs0, len0 = record.link.match[0]
     pattern = snapshot[other_base + theirs0:other_base + theirs0 + len0]
     if len(pattern) < len0 or not any(pattern):  # zeros match anywhere: an empty slot
         return None
+    if prefer is not None and _links_to(record, prefer, other_base, snapshot):
+        return prefer
     pos = snapshot.find(pattern)
     while pos != -1:
-        base = pos - mine0
-        # pos == other_base + theirs0 is the pattern's own copy, not a linked record
-        if base >= 0 and pos != other_base + theirs0 and all(
-                snapshot[base + m:base + m + n] == snapshot[other_base + t:other_base + t + n]
-                for m, t, n in rest):
-            return base
+        if _links_to(record, pos - mine0, other_base, snapshot):
+            return pos - mine0
         pos = snapshot.find(pattern, pos + 1)
     return None
 
@@ -159,7 +170,9 @@ class Layout:
                 continue
             other = self.records[rec.link.to].addresses()[slot]
             if other is not None:
-                rec.slots[slot] = find_linked(rec, other, snapshot)
+                # where slot 1's record plus the stride puts it (None for slot 1 itself)
+                expected = rec.addresses()[slot]
+                rec.slots[slot] = find_linked(rec, other, snapshot, prefer=expected)
 
     def clear_slot(self, slot: int) -> None:
         for rec in self.records.values():

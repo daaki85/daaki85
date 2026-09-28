@@ -177,6 +177,21 @@ class LayoutTests(unittest.TestCase):
         _, _, rows = layout.decode_slot(0, lambda a, n: bytes(mem[a:a + n]))
         self.assertEqual(rows[-1], ("XP", "1234"))
 
+    def test_linking_prefers_the_stride_position_over_stale_copies(self):
+        raw = json.loads(json.dumps(self.RAW))
+        raw["records"]["main"]["slots"] = ["0x100", "0x180", None]
+        raw["records"]["extra"]["stride"] = "0x10"
+        layout = Layout(raw)
+        mem = bytearray(0x400)
+        mem[0x110:0x113] = b"\x01\x80\x05"  # slot 1 main record
+        mem[0x190:0x193] = b"\x02\x80\x06"  # slot 2 main record
+        mem[0x040:0x043] = b"\x02\x80\x06"  # stale copy of slot 2's extra record
+        mem[0x300:0x303] = b"\x01\x80\x05"  # slot 1's extra record
+        mem[0x310:0x313] = b"\x02\x80\x06"  # slot 2's, right after slot 1's
+        layout.link_slot(0, bytes(mem))
+        layout.link_slot(1, bytes(mem))
+        self.assertEqual(layout.records["extra"].slots[:2], [0x300, 0x310])
+
     def test_empty_slot_is_not_linked(self):
         layout = Layout(self.RAW)
         layout.link_slot(0, bytes(0x400))  # all zeros: the shared bytes match anywhere
@@ -249,6 +264,7 @@ class SaveFileTests(unittest.TestCase):
         self.assertEqual(name, "SADIRA")
         self.assertEqual((rows["HP"], rows["Max HP"], rows["XP"], rows["THAC0"]), ("21", "30", "4500", "18"))
         self.assertEqual(rows["Race"], "Elf (3)")
+        self.assertEqual(rows["Class 1"], "Preserver (11)")
         self.assertEqual(layout.decode_slot(1, mem.read)[0], "RIKUS")
         self.assertIsNone(layout.records["creature"].slots[2])
 

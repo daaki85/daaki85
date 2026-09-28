@@ -5,9 +5,8 @@ spirit of the Gold Box Companion. It reads the game's memory from outside
 DOSBox, so it never modifies the game, the emulator, or save files.
 
 This first version is the **party viewer**. Its layout of the character data
-was worked out from real save files (see [What is known](#what-is-known)). The
-game very likely uses the same structures in memory, but that still needs
-confirming against a running game.
+was worked out from real save files and checked against the game's own
+character screens while it ran (see [What is known](#what-is-known)).
 
 ![Viewer running against the fake-party test program](docs/viewer.png)
 
@@ -99,29 +98,33 @@ the party:
   the current region, party first.
 - **`SAVE` chunk 6, character sheets.** 71-byte records (`0x47`).
 
-Offsets are relative to the start of each record. The evidence comes from five
-save files covering three different parties.
+The game keeps the same records in memory, with the party's sheets one after
+another. Old copies of a record can linger elsewhere in memory, so the viewer
+prefers the sheet at the party's stride position. Offsets are relative to the
+start of each record. The evidence comes from five save files covering three
+parties, plus the in-game View Character screens.
 
 | Record | Offset | Type | Field | Evidence |
 |---|---|---|---|---|
 | creature | `+0x00` | s16 | Current HP | ≤ max HP everywhere; wounded characters lower |
 | creature | `+0x02` | s16 | Current PSP | ≤ max PSP everywhere |
 | creature | `+0x06` | u16 | Entity ID (`0x80nn` for the party) | same value in the sheet at `+0x10` |
-| creature | `+0x1a` | s8 | Base AC | 10 for humanoids, 5 for the thri-kreen (natural armour) |
+| creature | `+0x1a` | s8 | Base AC, before armour and DEX | 10 for humanoids, 5 for the thri-kreen; the AC the game shows is worked out from this |
 | creature | `+0x1b` | u8 | Movement | 12, 15 for the thri-kreen |
 | creature | `+0x1f` | u8 | THAC0 | matches the AD&D warrior table at levels 3, 4, 7 and 8 |
 | creature | `+0x22` | u8 ×6 | STR DEX CON INT WIS CHA | same as the sheet |
 | creature | `+0x28` | str 18 | Name | |
-| sheet | `+0x00` | u32 | XP | rises between saves |
+| sheet | `+0x00` | u32 | XP | matches the game |
+| sheet | `+0x04` | u32 | Unknown; usually equals XP | a recruited NPC kept the previous occupant's value |
 | sheet | `+0x08` | s16 | Max HP | |
 | sheet | `+0x0a` | s16 | HP before CON bonus (probably) | max − this = CON bonus × level for single-class characters |
 | sheet | `+0x0c` | s16 | Max PSP | |
 | sheet | `+0x10` | u16 | Entity ID | links the sheet to its creature record |
 | sheet | `+0x18` | u8 | Race: 1 Human, 3 Elf, 4 Half-elf, 5 Half-giant, 8 Thri-kreen | ability modifiers fit; 2, 6, 7 are unseen |
 | sheet | `+0x19` | u8 | Gender: 1 male, 2 female | |
-| sheet | `+0x1a` | u8 | Alignment (values 1, 5, 7 seen) | meaning not confirmed |
+| sheet | `+0x1a` | u8 | Alignment: 1 LG, 2 LN, 3 LE, 4 NG, 5 TN, 6 NE, 7 CG, 8 CN, 9 CE | 1, 5, 7 confirmed in game |
 | sheet | `+0x1b` | u8 ×6 | STR DEX CON INT WIS CHA | |
-| sheet | `+0x21` | u8 ×3 | Class ids, one per class | 9, 10, 13, 15 are warrior classes (by THAC0); names not confirmed |
+| sheet | `+0x21` | u8 ×3 | Class: 1–4 Cleric, 5–8 Druid, 9 Fighter, 10 Gladiator, 11 Preserver, 12 Psionicist, 13–16 Ranger, 17 Thief (0 = none) | 2, 7, 8, 9, 11, 12, 13, 14, 17 confirmed in game; the rest follow the pattern (four each, probably one per element) |
 | sheet | `+0x24` | u8 ×3 | Level in each class | |
 | sheet | `+0x37` | u8 ×5 | Saves: para/poison, rod/staff, petrify, breath, spell | match the AD&D warrior table exactly |
 
