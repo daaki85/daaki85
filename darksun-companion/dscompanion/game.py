@@ -438,7 +438,7 @@ class GameData:
         total = min((levels + roll) * unit, 0x7FFF)
         how = []
         if per_level:
-            how.append(f"{per_level} for each {'' if per_levels == 1 else f'{per_levels} '}caster level"
+            how.append(f"{per_level} for each " + ("caster level" if per_levels == 1 else f"{per_levels} caster levels")
                        + (f" ({signed_text(adjust)})" if adjust else "") + f" = {levels}")
         how.append(f"{roll} from the dice")
         return total, " + ".join(how)
