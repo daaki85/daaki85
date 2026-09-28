@@ -253,7 +253,8 @@ Some effects rule out a skill:
 - Fire Shield stops picking pockets and hiding; Mirror Image stops hiding.
 - Graft Weapon stops picking pockets, opening locks and climbing.
 - Feeblemind stops reading languages.
-- Enlarge makes hiding and climbing harder.
+- Enlarge changes two: hiding is divided by (100 + 10 × the spell's level)%, and
+  climbing is multiplied by it. A bigger thief hides worse and climbs better.
 
 The game gives the skills no names. The eight are AD&D's in AD&D's order (pick
 pockets, open locks, find/remove traps, move silently, hide in shadows, hear
