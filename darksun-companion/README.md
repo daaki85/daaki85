@@ -92,7 +92,7 @@ for both the party and the monsters.
 
 Every roll in the game goes through one function, Borland C++'s `rand()`.
 
-1. `dos\DSCLOG.EXE` is a tiny DOS program (8 KB of code and buffer; source in
+1. `dos\DSCLOG.EXE` is a tiny DOS program (about 17 KB with its buffer; source in
    `dos\dsclog.asm`). The launcher loads it into upper memory before the game
    starts, so the game loses no memory. It contains a replacement `rand()`
    that returns exactly the numbers the original would, and also records each
