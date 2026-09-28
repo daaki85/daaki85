@@ -142,8 +142,10 @@ def raw_for(face, sides):
 
 class AttackTests(unittest.TestCase):
     def attack(self, d20, thac0, ac, item, item_type, after_f1, hit_bonus, attacker=0, combatant=0, **flags):
-        # attack(): [BP+6] dword, THAC0, AC, attacker, sheet, item, item type, mode 1, attacker combatant
-        frame = words(0, 0, 0, 0, thac0, ac, attacker, 0, item, item_type, 1, combatant)
+        # attack(): [BP+6] dword, THAC0, AC, attacker, sheet, item, item type, mode 1, attacker combatant,
+        # two more, backstab, from behind
+        frame = words(0, 0, 0, 0, thac0, ac, attacker, 0, item, item_type, 1, combatant, 0, 0,
+                      1 if flags.get("m24") else 0, 1 if flags.get("m1a") else 0)
         parent_locals = locals_at(0x28, m20=after_f1, m8=hit_bonus, **flags)
         return entry(raw_for(d20, 20), dicelog.ATTACK_SITE, frame, glob=(0x29, 0, 0, 0), parent_locals=parent_locals)
 
@@ -161,8 +163,14 @@ class AttackTests(unittest.TestCase):
         # base 16 - 2 (rear) - 6 (STR) = 8; wooden -3 -> 11
         lines = log.describe(self.attack(5, 11, 2, 6, 10, after_f1=8, hit_bonus=-3, m1a=1))
         self.assertEqual(lines, [
-            "Dag attacks Mountain Stalker with Wooden Long Sword (1d8): d20 = 5, hits AC 6, target AC 2 -> miss",
+            "Dag attacks Mountain Stalker from behind with Wooden Long Sword (1d8): d20 = 5, hits AC 6, target AC 2 -> miss",
             "    THAC0 16, +2 from behind, +6 STR, -3 wooden = 11"])
+
+    def test_backstab_is_named(self):
+        log = make_game()
+        lines = log.describe(self.attack(12, 11, 4, 6, 10, after_f1=8, hit_bonus=-3, m1a=1, m24=1))
+        self.assertTrue(lines[0].startswith("Dag attacks Mountain Stalker BACKSTAB with Wooden Long Sword"))
+        self.assertEqual(lines[1], "    THAC0 16, +2 from behind, +2 backstab, +4 STR, -3 wooden = 11")
 
     def test_monster_natural_attack(self):
         log = make_game()

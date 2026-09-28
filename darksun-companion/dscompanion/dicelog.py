@@ -427,7 +427,9 @@ class DiceLog:
         weapon = g.weapon(item, item_type)
         with_what = f" with {g.weapon_name(weapon)} ({weapon.dice()})" if weapon else ""
         target = g.combatant_name(target_combatant)
-        head = (f"{g.creature_name(attacker)} attacks {target}{with_what}: d20 = {d20}{note}, "
+        # the attack's own arguments: [BP+1Eh] a backstab, [BP+20h] from behind
+        how = " BACKSTAB" if e.arg(0x1E) and e.arg(0x20) else " from behind" if e.arg(0x20) else ""
+        head = (f"{g.creature_name(attacker)} attacks {target}{how}{with_what}: d20 = {d20}{note}, "
                 f"hits AC {thac0 - d20}, target AC {ac} -> {'HIT' if hit else 'miss'}")
         return [head, "    " + self._thac0_breakdown(e, thac0, attacker, attacker_combatant,
                                                      target_combatant, weapon, mode)]
