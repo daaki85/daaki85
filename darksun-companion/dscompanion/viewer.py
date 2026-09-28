@@ -11,7 +11,7 @@ change. Click a byte to see it decoded as each value type.
 
 import time
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Dict, List, Optional, Tuple
 
 from . import game, theme, values
@@ -75,6 +75,14 @@ class Viewer:
         ttk.Button(top, text="Save layout", command=self.save_layout).pack(side="right")
         ttk.Button(top, text="Reload layout", command=self.reload_layout).pack(side="right", padx=4)
         ttk.Button(top, text="Reconnect", command=self.reconnect).pack(side="right")
+        # text size, also Ctrl + / Ctrl - / Ctrl 0
+        ttk.Button(top, text="A+", width=3, command=lambda: self.zoom(1.15)).pack(side="right", padx=(4, 12))
+        ttk.Button(top, text="A-", width=3, command=lambda: self.zoom(1 / 1.15)).pack(side="right")
+        ttk.Label(top, text="Text size").pack(side="right", padx=4)
+        for key, factor in (("<Control-plus>", 1.15), ("<Control-equal>", 1.15), ("<Control-KP_Add>", 1.15),
+                            ("<Control-minus>", 1 / 1.15), ("<Control-KP_Subtract>", 1 / 1.15),
+                            ("<Control-0>", None)):
+            self.root.bind_all(key, lambda _e, f=factor: self.zoom(f))
 
         panes = ttk.PanedWindow(self.root, orient="horizontal")
         panes.pack(fill="both", expand=True, padx=6, pady=(0, 6))
@@ -88,14 +96,17 @@ class Viewer:
 
         tabs = ttk.Notebook(panes)
         panes.add(tabs, weight=1)
+        tabs.enable_traversal()  # Ctrl+Tab between tabs, Alt + the underlined letter
 
         dice = ttk.Frame(tabs, padding=6)
-        tabs.add(dice, text="Dice log")
+        tabs.add(dice, text="Dice log", underline=5)
         row = ttk.Frame(dice)
         row.pack(fill="x")
         self.dice_status = tk.StringVar(value="Waiting for the game...")
         ttk.Label(row, textvariable=self.dice_status).pack(side="left")
         ttk.Button(row, text="Clear", command=lambda: self.dice_text.delete("1.0", "end")).pack(side="right")
+        ttk.Button(row, text="Save...", command=lambda: self.save_text(self.dice_text, "dice log")).pack(
+            side="right", padx=4)
         self.show_all = tk.BooleanVar(value=False)
         ttk.Checkbutton(row, text="Show unlabelled rolls", variable=self.show_all).pack(side="right", padx=8)
         box = ttk.Frame(dice)
@@ -110,14 +121,16 @@ class Viewer:
             self.dice_text.tag_configure(tag, foreground=colour)
 
         talk = ttk.Frame(tabs, padding=6)
-        tabs.add(talk, text="Dialogue")
+        tabs.add(talk, text="Dialogue", underline=1)
         row = ttk.Frame(talk)
         row.pack(fill="x")
         ttk.Label(row, text="What characters say, and the replies offered").pack(side="left")
         ttk.Button(row, text="Clear", command=lambda: self.talk_text.delete("1.0", "end")).pack(side="right")
+        ttk.Button(row, text="Save...", command=lambda: self.save_text(self.talk_text, "dialogue")).pack(
+            side="right", padx=4)
         box = ttk.Frame(talk)
         box.pack(fill="both", expand=True, pady=(6, 0))
-        self.talk_text = tk.Text(box, wrap="word", height=20, font=("TkDefaultFont", 10))
+        self.talk_text = tk.Text(box, wrap="word", height=20, font="TkTextFont")
         theme.style_text(self.talk_text)
         self.talk_text.configure(foreground=theme.AMBER)  # the game's dialogue text
         scroll = ttk.Scrollbar(box, command=self.talk_text.yview)
@@ -128,7 +141,7 @@ class Viewer:
         self.talk_text.tag_configure("reply", foreground=theme.PALE)
 
         tools = ttk.Frame(tabs, padding=6)
-        tabs.add(tools, text="Memory tools")
+        tabs.add(tools, text="Memory tools", underline=0)
 
         locate = ttk.LabelFrame(tools, text="Locate by name (or hex:14 16 12 for bytes)", padding=6)
         locate.pack(fill="x")
@@ -148,10 +161,9 @@ class Viewer:
         self.stride_text = tk.StringVar()
         ttk.Entry(row, textvariable=self.stride_text, width=8).pack(side="left")
         ttk.Button(row, text="Apply", command=self.apply_stride).pack(side="left", padx=4)
-        self.hit_list = tk.Listbox(locate, height=6, font="TkFixedFont", background=theme.DEEP,
-                                   foreground=theme.YELLOW, selectbackground=theme.BUTTON,
-                                   selectforeground=theme.AMBER, relief="flat", highlightthickness=2,
-                                   highlightbackground=theme.SHADOW, highlightcolor=theme.SHADOW)
+        self.hit_list = tk.Listbox(locate, height=6, font="TkFixedFont", foreground=theme.YELLOW)
+        theme.style_text(self.hit_list)
+        self.hit_list.configure(foreground=theme.YELLOW)
         self.hit_list.pack(fill="x", pady=(6, 0))
 
         hexframe = ttk.LabelFrame(tools, text="Record bytes (changed bytes light up)", padding=6)
@@ -170,7 +182,8 @@ class Viewer:
         self.hex = tk.Text(hexframe, font="TkFixedFont", height=20, wrap="none")
         theme.style_text(self.hex)
         self.hex.pack(fill="both", expand=True, pady=(6, 0))
-        self.hex.tag_configure("changed", background=theme.AMBER, foreground=theme.SHADOW)
+        # underlined as well as coloured, so a change doesn't depend on seeing the colour
+        self.hex.tag_configure("changed", background=theme.AMBER, foreground=theme.SHADOW, underline=True)
         self.hex.tag_configure("selected", background=theme.PSI_BLUE, foreground=theme.SHADOW)
         self.hex.bind("<Button-1>", self.on_hex_click)
 
@@ -202,6 +215,23 @@ class Viewer:
             self.table.column(f"slot{i}", width=118, anchor="center")
 
     # ---- actions ----------------------------------------------------------------
+
+    def zoom(self, factor: Optional[float]) -> None:
+        """Enlarge or shrink all text (None: back to the usual size)."""
+        theme.set_scale(self.root, 1.0 if factor is None else theme.scale() * factor)
+        width = round(118 * theme.scale())
+        for i in range(self.layout.count):
+            self.table.column(f"slot{i}", width=width)
+        self.table.column("field", width=round(150 * theme.scale()))
+
+    def save_text(self, widget: tk.Text, what: str) -> None:
+        """Save a log as a text file (to read with other tools, such as a screen reader)."""
+        path = filedialog.asksaveasfilename(title=f"Save the {what}", defaultextension=".txt",
+                                            initialfile=f"{what.replace(' ', '-')}.txt",
+                                            filetypes=[("Text", "*.txt"), ("All files", "*.*")])
+        if path:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(widget.get("1.0", "end-1c"))
 
     def reconnect(self, quiet: bool = False) -> None:
         self.ds = None
