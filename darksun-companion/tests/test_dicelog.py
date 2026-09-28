@@ -4,20 +4,25 @@ import os
 import struct
 import sys
 import unittest
+from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dscompanion import dicelog, game
-from dscompanion.dicelog import DiceLog, Entry
+from dscompanion.dicelog import DiceLog, Entry, KIND_AC, KIND_ROLL, KIND_SAVE
 
 LOAD_SEG = 0x1A2
-DS = 0x44F8
-CREATURES = 0x71000
+DS = LOAD_SEG + game.DGROUP
+CREATURES, SHEETS, ITEMS, ITEM_TYPES, NAMES = 0x71000, 0x70000, 0x6E000, 0x6D000, 0x72600
+TSR_SEG, HDR = 0xD000, 0xD0000
+STALKER = 7
+FIREBALL, HOLD_PERSON = 27, 30
 
 
 class FakeGuest:
     def __init__(self):
         self.mem = bytearray(0x110000)
+        self.size = len(self.mem)
 
     def read(self, addr, size):
         return bytes(self.mem[addr:addr + size])
@@ -26,36 +31,88 @@ class FakeGuest:
         self.mem[addr:addr + len(data)] = data
 
 
+def far(addr):
+    return struct.pack("<HH", addr & 0xF, addr >> 4)
+
+
 def make_game():
     guest = FakeGuest()
-    struct.pack_into("<HH", guest.mem, DS * 16 + game.CREATURES_PTR, CREATURES & 0xF, CREATURES >> 4)
-    for index, (name, strength) in enumerate([("Dag", 24), ("Daaki", 20)] + [("", 12)] * 5 + [("Mountain Stalker", 12)]):
+    m = guest.mem
+    for offset, addr in ((game.CREATURES_PTR, CREATURES), (game.SHEETS_PTR, SHEETS),
+                         (game.ITEMS_PTR, ITEMS), (game.ITEM_TYPES_PTR, ITEM_TYPES)):
+        m[DS * 16 + offset:DS * 16 + offset + 4] = far(addr)
+    struct.pack_into("<h", m, DS * 16 + game.DIFFICULTY, 1)
+    creatures = [("Dag", 16, 24, 1), ("Daaki", 16, 20, 1), ("Jellybelly", 15, 20, 1)] + [("", 20, 12, 0)] * 4 \
+        + [("Mountain Stalker", 11, 12, 2)]
+    for index, (name, thac0, strength, side) in enumerate(creatures):
         rec = CREATURES + index * game.CREATURE_SIZE
-        guest.mem[rec + game.CREATURE_NAME:rec + game.CREATURE_NAME + len(name)] = name.encode()
-        guest.mem[rec + dicelog.CREATURE_STR] = strength
-    seg, off, stride = dicelog.COMBATANTS
-    table = (LOAD_SEG + seg) * 16 + off
-    for combatant, creature in ((1, 0), (0x29, 7)):
-        struct.pack_into("<Bh", guest.mem, table + combatant * stride, 2, creature)
+        m[rec + game.CREATURE_THAC0] = thac0
+        m[rec + game.CREATURE_SIDE] = side
+        m[rec + game.CREATURE_ABILITIES] = strength
+        m[rec + game.CREATURE_NAME:rec + game.CREATURE_NAME + len(name)] = name.encode()
+    table = (LOAD_SEG + game.COMBATANTS_SEG) * 16 + game.COMBATANTS_OFF
+    for combatant, creature in ((0, 0), (1, 1), (2, 2), (0x29, STALKER)):
+        struct.pack_into("<Bh", m, table + combatant * 3, 2, creature)
+    # item names (GPLDATA's NAME list: 25-byte records, name at +3)
+    for i, name in enumerate(["Sling", "Staff Sling"] + ["x"] * 26 + ["Long Sword"]):
+        m[NAMES + i * 25 + 3:NAMES + i * 25 + 3 + len(name)] = name.encode()
+    # items 5 (metal long sword +1) and 6 (wooden long sword, plain); item type 9 = 1d8
+    for item, plus, item_type in ((5, 1, 9), (6, 0, 10)):
+        rec = ITEMS + item * game.ITEM_SIZE
+        struct.pack_into("<H", m, rec + 0x0A, item_type)
+        m[rec + 0x12], m[rec + 0x14] = 28, plus
+    for item_type, material in ((9, 4), (10, 0)):
+        typ = ITEM_TYPES + item_type * game.ITEM_TYPE_SIZE
+        m[typ + 0x08], m[typ + 0x0C], m[typ + 0x0D] = material, 8, 1
+    # spells: names, and the rules the saving throw reads (Fireball doubles the d20)
+    name = game.SPELL_NAMES
+    for spell, text, flags in ((FIREBALL, b"FIREBALL", 0x0202), (HOLD_PERSON, b"HOLD PERSON", 0)):
+        m[DS * 16 + name:DS * 16 + name + len(text)] = text
+        info = LOAD_SEG * 16 + game.SPELL_INFO_OFF + (spell - 1) * game.SPELL_INFO_SIZE
+        struct.pack_into("<BxxxxH", m, info, 3, name)
+        rules = (LOAD_SEG + game.SPELLS_SEG) * 16 + game.SPELLS_OFF + spell * game.SPELL_SIZE
+        struct.pack_into("<H", m, rules + 0x0A, flags)
+        name += len(text) + 1
     log = DiceLog(guest)
     log.rand_addr = LOAD_SEG * 16 + dicelog.RAND_IP
+    log.tsr_hdr = HDR
+    log.game = game.GameData(guest, DS)
     return log
 
 
-def entry(raw, code, frame=b"", parent=b"", glob=(0, 0, 0, 0), parent_code=b"", bp=0xFE00, locals_=b""):
+def set_effects(log, effects):
+    m = log.guest.mem
+    struct.pack_into("<h", m, DS * 16 + game.EFFECT_COUNT, len(effects))
+    base = (LOAD_SEG + game.EFFECTS_SEG) * 16 + game.EFFECTS_OFF
+    for i, (owner, caster, eid) in enumerate(effects):
+        struct.pack_into("<hhhB", m, base + i * 10, owner, caster, 0, eid)
+
+
+def words(*values):
+    return struct.pack(f"<{len(values)}h", *values)
+
+
+def entry(raw=0, code=b"", frame=b"", parent=b"", glob=(0, 0, 0, 0), locals_=b"", parent_code=b"",
+          parent_locals=b"", kind=KIND_ROLL, bp=0xFE00, parent_bp=0xFE40):
     data = bytearray(Entry.SIZE)
-    struct.pack_into("<8H", data, 0, 1, 0x10, 0x5000, raw, bp, DS, DS, 0xFE40)
+    struct.pack_into("<8H", data, 0, 1, 0x10, 0x5000, raw & 0xFFFF, bp, DS, DS, parent_bp)
     data[16:16 + len(frame)] = frame
     data[48:48 + len(parent)] = parent
-    struct.pack_into("<4H", data, 64, *glob)
-    data[72:72 + len(locals_)] = locals_
-    data[88:88 + len(code)] = code
-    data[112:112 + len(parent_code)] = parent_code
+    struct.pack_into("<4H", data, 80, *glob)
+    data[88:88 + len(locals_)] = locals_
+    data[104:104 + len(code)] = code
+    data[128:128 + len(parent_code)] = parent_code
+    data[144:144 + len(parent_locals)] = parent_locals
+    struct.pack_into("<H", data, 184, kind)
     return Entry.parse(bytes(data))
 
 
-def frame(*words_from_bp2):
-    return struct.pack(f"<{len(words_from_bp2)}h", *words_from_bp2)
+def locals_at(size, **at):
+    """`size` bytes of locals ending at BP, with words at the given negative offsets (e.g. m20=9 for [bp-20h])."""
+    data = bytearray(size)
+    for name, value in at.items():
+        struct.pack_into("<h", data, size - int(name[1:], 16), value)
+    return bytes(data)
 
 
 def raw_for(face, sides):
@@ -63,81 +120,192 @@ def raw_for(face, sides):
     return (face - 1) * 0x8000 // sides + 1
 
 
-class DescribeTests(unittest.TestCase):
-    def attack(self, d20, thac0=10, ac=4):
-        # frame from BP+2: return address (2 words), then [BP+6] dword, [BP+0Ah] THAC0, [BP+0Ch] AC, [BP+0Eh] attacker
-        return entry(raw_for(d20, 20), dicelog.ATTACK_SITE, frame(0, 0, 0, 0, thac0, ac, 0), glob=(0x29, 0, 0, 0))
+class AttackTests(unittest.TestCase):
+    def attack(self, d20, thac0, ac, item, item_type, after_f1, hit_bonus, attacker=0, combatant=0, **flags):
+        # attack(): [BP+6] dword, THAC0, AC, attacker, sheet, item, item type, mode 1, attacker combatant
+        frame = words(0, 0, 0, 0, thac0, ac, attacker, 0, item, item_type, 1, combatant)
+        parent_locals = locals_at(0x28, m20=after_f1, m8=hit_bonus, **flags)
+        return entry(raw_for(d20, 20), dicelog.ATTACK_SITE, frame, glob=(0x29, 0, 0, 0), parent_locals=parent_locals)
 
-    def test_attack_hit_and_miss(self):
+    def test_attack_with_weapon_and_breakdown(self):
         log = make_game()
-        self.assertEqual(log.describe(self.attack(18)),
-                         "Dag attacks Mountain Stalker: d20 = 18, needs 6 (THAC0 10 with bonuses, target AC 4) -> HIT")
-        self.assertTrue(log.describe(self.attack(5)).endswith("-> miss"))
-        self.assertIn("(natural 1)", log.describe(self.attack(1, thac0=1)))
-        self.assertTrue(log.describe(self.attack(20, thac0=30)).endswith("(natural 20), needs 26 "
-                                                                          "(THAC0 30 with bonuses, target AC 4) -> HIT"))
+        set_effects(log, [(0, 2, 7)])  # Dag is Blessed
+        lines = log.describe(self.attack(18, 8, 4, 5, 9, after_f1=9, hit_bonus=1))
+        self.assertEqual(lines, [
+            "Dag attacks Mountain Stalker with Long Sword +1 (1d8+1): d20 = 18, hits AC -10, target AC 4 -> HIT",
+            "    THAC0 16, +1 Blessed, +6 STR, +1 weapon = 8"])
+        self.assertEqual(log.last_ac, {STALKER: 4})  # the target's AC, for the viewer
 
-    def test_weapon_damage_groups_dice_and_adds_strength(self):
+    def test_material_penalty_rear_attack_and_miss(self):
         log = make_game()
-        # dice frame: return address, [BP+6] count, [BP+8] sides, [BP+0Ah] bonus;
-        # the attack's frame from BP+0Ah: THAC0, AC, attacker, sheet, weapon, item, mode
-        parent = frame(10, 4, 0, 0, 0, 0, 1)
-        dice = [entry(raw_for(face, 6), dicelog.DICE_SITE, frame(0, 0, 2, 6, 0), parent, (0x29, 0, 0, 0),
-                      dicelog.WEAPON_DAMAGE_RETURN) for face in (2, 5)]
-        self.assertIsNone(log.describe(dice[0]))  # waits for the second die
+        # base 16 - 2 (rear) - 6 (STR) = 8; wooden -3 -> 11
+        lines = log.describe(self.attack(5, 11, 2, 6, 10, after_f1=8, hit_bonus=-3, m1a=1))
+        self.assertEqual(lines, [
+            "Dag attacks Mountain Stalker with Wooden Long Sword (1d8): d20 = 5, hits AC 6, target AC 2 -> miss",
+            "    THAC0 16, +2 from behind, +6 STR, -3 wooden = 11"])
+
+    def test_monster_natural_attack(self):
+        log = make_game()
+        lines = log.describe(self.attack(20, 11, 1, -1, -1, after_f1=11, hit_bonus=0, attacker=STALKER,
+                                         combatant=0x29))
+        self.assertEqual(lines[0], "Mountain Stalker attacks Mountain Stalker: d20 = 20 (natural 20), "
+                                   "hits AC -9, target AC 1 -> HIT")
+        self.assertEqual(lines[1], "    THAC0 11 = 11")
+
+    def test_weapon_damage(self):
+        log = make_game()
+        parent = words(0, 0, 0, 0, 10, 4, 0, 0, 0, 0, 1)  # the attack's frame: ... [BP+0Eh] attacker, [BP+16h] mode
+        dice = [entry(raw_for(face, 8), dicelog.DICE_SITE, words(0, 0, 2, 8, 1), parent, (0x29, 0, 0, 0),
+                      parent_code=dicelog.WEAPON_DAMAGE_RETURN) for face in (2, 5)]
+        self.assertEqual(log.describe(dice[0]), [])  # waits for the second die
         self.assertEqual(log.describe(dice[1]),
-                         "  Dag hits Mountain Stalker for 19: 2d6 = [2 + 5] + 12 STR 24")
+                         ["  Dag hits Mountain Stalker for 20: 2d8 = [2 + 5] +1 weapon +12 STR 24"])
 
-    def test_missile_damage_has_no_strength_bonus(self):
-        log = make_game()
-        parent = frame(10, 4, 0, 0, 0, 0, 2)
-        e = entry(raw_for(3, 8), dicelog.DICE_SITE, frame(0, 0, 1, 8, 1), parent, (0x29, 0, 0, 0),
-                  dicelog.WEAPON_DAMAGE_RETURN)
-        self.assertEqual(log.describe(e), "  Dag hits Mountain Stalker for 4: 1d8+1 = [3] + 1")
 
-    def test_other_dice_only_when_showing_everything(self):
+class SaveTests(unittest.TestCase):
+    def save_roll(self, log, natural, target=0x29, caster=0, spell=HOLD_PERSON):
+        # the saving throw's frame: [BP+6] target, [BP+8] caster, [BP+0Ah] spell;
+        # locals: far pointer to the target at [BP-1Eh], save value at [BP-1], save index at [BP-6]
+        rec = CREATURES + STALKER * game.CREATURE_SIZE
+        parent_locals = bytearray(locals_at(0x28, m1e=rec & 0xF, m1c=rec >> 4, m6=5))
+        parent_locals[0x27] = 14
+        return entry(raw_for(natural, 20), dicelog.DICE_SITE, words(0, 0, 1, 20),
+                     words(0, 0, target, caster, spell), parent_locals=bytes(parent_locals), parent_bp=0xFD00)
+
+    def probe(self, total, needed=14, target=0x29, caster=0, spell=HOLD_PERSON):
+        return entry((needed << 8) | total, frame=words(0, 0, target, caster, spell),
+                     locals_=locals_at(0x10, m6=5), kind=KIND_SAVE, bp=0xFD00)
+
+    def magic_resistance(self, roll, target=0x29, spell=FIREBALL):
+        # its caller: (target, spell, caster level); the return address is the overlay manager's
+        return entry(raw_for(roll, 100), dicelog.DICE_SITE, words(0, 0, 1, 100), words(0, 0, target, spell, 9),
+                     parent_code=bytes.fromhex("cd3f3310"))
+
+    def test_spell_damage_then_save_with_probe(self):
         log = make_game()
-        e = entry(raw_for(4, 10), dicelog.DICE_SITE, frame(0, 0, 1, 10, 0))
-        self.assertIsNone(log.describe(e))
-        self.assertEqual(log.describe(e, show_all=True), "Dice: 1d10 = [4] = 4")
+        damage = [entry(raw_for(f, 6), dicelog.DICE_SITE, words(0, 0, 2, 6), words(0, 0, HOLD_PERSON),
+                        parent_code=dicelog.SPELL_DAMAGE_RETURN) for f in (6, 4)]
+        self.assertEqual(log.describe(damage[0], now=1.0) + log.describe(damage[1], now=1.0), [])
+        self.assertEqual(log.describe(self.save_roll(log, 13), now=1.1), ["Hold Person damage: 2d6 = [6 + 4] = 10"])
+        self.assertEqual(log.describe(self.probe(15)),
+                         ["Mountain Stalker saves vs Hold Person from Dag (spell): d20 = 13 +2 modifiers = 15, "
+                          "needs 14 -> saved"])
+
+    def test_doubled_roll(self):
+        log = make_game()
+        log.describe(self.save_roll(log, 7, spell=FIREBALL))
+        self.assertEqual(log.describe(self.probe(14, needed=15, spell=FIREBALL)),
+                         ["Mountain Stalker saves vs Fireball from Dag (spell): d20 = 7, doubled for this spell "
+                          "= 14, needs 15 -> failed"])
+
+    def test_modifiers_name_the_effects_that_count(self):
+        log = make_game()
+        set_effects(log, [(0x29, 0, 7), (0x29, 0, 58)])  # Blessed (saves), Displacement (AC only)
+        log.describe(self.save_roll(log, 7))
+        self.assertTrue(log.describe(self.probe(9))[0].endswith(
+            "d20 = 7 +2 modifiers (incl. Blessed) = 9, needs 14 -> failed"))
+
+    def test_natural_20_needs_no_probe(self):
+        log = make_game()
+        self.assertEqual(log.describe(self.save_roll(log, 20)),
+                         ["Mountain Stalker saves vs Hold Person from Dag (spell): d20 = 20 (natural 20) -> saved"])
+
+    def test_magic_resistance(self):
+        log = make_game()
+        log.describe(self.magic_resistance(40))
+        self.assertEqual(log.describe(self.save_roll(log, 20, spell=FIREBALL))[:-1], [])  # none: no line
+        sheet = SHEETS + 3 * game.SHEET_SIZE
+        struct.pack_into("<H", log.guest.mem, CREATURES + STALKER * game.CREATURE_SIZE + game.CREATURE_SHEET_INDEX, 3)
+        log.guest.mem[sheet + game.SHEET_MAGIC_RESISTANCE] = 50
+        self.assertEqual(log.describe(self.magic_resistance(60)), [])
+        self.assertEqual(log.describe(self.save_roll(log, 20, spell=FIREBALL))[0],
+                         "Mountain Stalker magic resistance 50% vs Fireball: d100 = 60 -> not resisted")
+        log.describe(self.magic_resistance(40), now=1.0)  # resisted: no saving throw follows
+        self.assertEqual(log.flush(2.5),
+                         ["Mountain Stalker magic resistance 50% vs Fireball: d100 = 40 -> resisted"])
+
+    def test_dice_without_a_spell_are_shown_after_a_while(self):
+        log = make_game()
+        log.describe(entry(raw_for(3, 8), dicelog.DICE_SITE, words(0, 0, 1, 8)), now=5.0)
+        log.describe(entry(raw_for(1, 1), dicelog.DICE_SITE, words(0, 0, 1, 1)), now=5.0)  # 1d1: not a roll
+        self.assertEqual(log.flush(5.5), [])
+        self.assertEqual(log.flush(6.1), ["Dice: 1d8 = [3] = 3"])
+
+
+class OtherTests(unittest.TestCase):
+    def test_ac_probe_remembers_the_ac(self):
+        log = make_game()
+        self.assertEqual(log.describe(entry(-2, frame=words(0, 0, 0x29, 0), kind=KIND_AC)), [])
+        self.assertEqual(log.last_ac, {STALKER: -2})
+
+    def test_effects_that_start_and_end(self):
+        log = make_game()
+        set_effects(log, [(0, 0, 46)])
+        self.assertEqual(log.effect_changes(10.0), [])  # what was active before is not news
+        set_effects(log, [(0, 0, 46), (0, 2, 7), (1, 2, 7)])
+        self.assertEqual(log.effect_changes(20.0),
+                         ["Jellybelly gives Blessed to Dag, Daaki: +1 to hit, +1 on saves"])
+        set_effects(log, [(0, 0, 46)])
+        self.assertEqual(log.effect_changes(21.0), ["Blessed ends on Dag, Daaki"])
+
+    def test_effects_of_a_loaded_game_are_not_news(self):
+        log = make_game()
+        self.assertEqual(log.effect_changes(10.0), [])
+        name = CREATURES + game.CREATURE_NAME
+        log.guest.mem[name:name + 3] = b"Tom"  # another party: a game was loaded
+        set_effects(log, [(0, 0, 63)])
+        self.assertEqual(log.effect_changes(20.0), [])
+        set_effects(log, [(0, 0, 63), (1, 0, 63)])  # the load settles over a moment
+        self.assertEqual(log.effect_changes(20.0 + dicelog.LOAD_SETTLE / 2), [])
+        set_effects(log, [(0, 0, 63), (1, 0, 63), (2, 0, 7)])
+        self.assertEqual(log.effect_changes(30.0), ["Tom gives Blessed to Jellybelly: +1 to hit, +1 on saves"])
+
+    def test_attach_needs_the_patched_game(self):
+        log = make_game()
+        m = log.guest.mem
+        m[HDR:HDR + 8] = dicelog.HDR_SIG
+        m[DS * 16 + game.BORLAND_SIG_OFFSET:DS * 16 + game.BORLAND_SIG_OFFSET + len(game.BORLAND_SIG)] = \
+            game.BORLAND_SIG
+        fresh = DiceLog(log.guest)
+        with self.assertRaisesRegex(dicelog.DiceLogError, "without the dice log"):
+            fresh.attach()
+        m[log.rand_addr:log.rand_addr + 2] = dicelog.RAND_PATCHED
+        self.assertEqual(fresh.attach(), "Dice log attached.")
+        self.assertTrue(fresh.still_patched())
+        m[log.rand_addr] = 0x8B  # the game was restarted without it
+        self.assertFalse(fresh.still_patched())
 
     def test_ability_check(self):
         log = make_game()
         rec = CREATURES + 1 * game.CREATURE_SIZE  # Daaki
-        log.guest.mem[rec + dicelog.CREATURE_ABILITIES + 1] = 16  # DEX
+        log.guest.mem[rec + game.CREATURE_ABILITIES + 1] = 16  # DEX
         seg, off = dicelog.CHECK_MODS
         log.guest.mem[(LOAD_SEG + seg) * 16 + off + 3] = 0xFE  # -2
-        # frame: return address, [BP+6] creature, [BP+8] modifier index, [BP+0Ah] ability
-        e = entry(raw_for(14, 20), dicelog.CHECK_SITE, frame(0, 0, 1, 3, 1))
-        self.assertEqual(log.describe(e),
-                         "Daaki DEX check: d20 = 14, needs 14 or less (DEX 16 - 2) -> success")
+        e = entry(raw_for(14, 20), dicelog.CHECK_SITE, words(0, 0, 1, 3, 1))
+        self.assertEqual(log.describe(e), ["Daaki DEX check: d20 = 14, needs 14 or less (DEX 16 -2) -> success"])
 
     def test_percentile_check(self):
         log = make_game()
-        locals_ = bytes(14) + struct.pack("<h", 35)  # [BP-2] = the chance
-        self.assertEqual(log.describe(entry(1234, dicelog.PERCENT_SITE, locals_=locals_)),
-                         "Percentile check: d100 = 35, needs 35 or less -> success")
+        self.assertEqual(log.describe(entry(1234, dicelog.PERCENT_SITE, locals_=locals_at(0x10, m2=35))),
+                         ["Percentile check: d100 = 35, needs 35 or less -> success"])
 
     def test_generic_shapes_when_showing_everything(self):
         log = make_game()
         d10 = bytes.fromhex("660fbfc0666bc00a66bb00800000669966f7fb40")
         range200 = bytes.fromhex("660fbfc06669c0c800000066bb00800000669966f7fb")
-        self.assertIsNone(log.describe(entry(raw_for(7, 10), d10)))
-        self.assertEqual(log.describe(entry(raw_for(7, 10), d10), show_all=True), "d10 = 7  (at 5000:0010)")
+        self.assertEqual(log.describe(entry(raw_for(7, 10), d10)), [])
+        self.assertEqual(log.describe(entry(raw_for(7, 10), d10), show_all=True), ["d10 = 7  (at 5000:0010)"])
         self.assertEqual(log.describe(entry(100 * 0x8000 // 200 + 1, range200), show_all=True),
-                         "0-199 = 100  (at 5000:0010)")
+                         ["0-199 = 100  (at 5000:0010)"])
 
-
-class PollTests(unittest.TestCase):
-    def test_new_entries_in_order_and_missed_ones_counted(self):
+    def test_poll_returns_new_entries_in_order_and_counts_missed_ones(self):
         log = make_game()
-        hdr = 0xD0000
         nent, esize, ring = 4, Entry.SIZE, 0x100
-        log.tsr_hdr, log.last_seq = hdr, 0
-        struct.pack_into("<5H", log.guest.mem, hdr + 8, 6, 2, nent, esize, ring)
-        struct.pack_into("<H", log.guest.mem, hdr + 20, 0)
+        log.last_seq = 0
+        struct.pack_into("<5H", log.guest.mem, HDR + 8, 6, 2, nent, esize, ring)
+        struct.pack_into("<H", log.guest.mem, HDR + 20, 0)
         for seq in (3, 4, 5, 6):  # 1 and 2 were overwritten
-            struct.pack_into("<H", log.guest.mem, hdr + ring + ((seq - 1) % nent) * esize, seq)
+            struct.pack_into("<H", log.guest.mem, HDR + ring + ((seq - 1) % nent) * esize, seq)
         self.assertEqual([e.seq for e in log.poll()], [3, 4, 5, 6])
         self.assertEqual(log.missed, 2)
         self.assertEqual(log.poll(), [])

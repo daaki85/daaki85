@@ -121,7 +121,15 @@ def cmd_dicelog(args) -> None:
     import time
     from .dicelog import DiceLog
     from .dicelog import DiceLogError
-    log = DiceLog(connect(args), show_all=args.all)
+    from .guestmem import GuestMemoryError
+    while True:  # DOSBox may still be starting
+        try:
+            guest = connect(args)
+            break
+        except (CliError, GuestMemoryError) as e:
+            print(f"{e} Waiting...", flush=True)
+            time.sleep(2)
+    log = DiceLog(guest, record_everything=args.raw)
 
     def attach() -> None:
         waiting = False
@@ -142,17 +150,13 @@ def cmd_dicelog(args) -> None:
                 print("The game restarted; attaching again.", flush=True)
                 log.detach()
                 attach()
-            for entry in log.poll():
-                line = log.describe(entry, show_all=args.all)
-                if line:
-                    print(line, flush=True)
+            for line in log.lines(show_all=args.all):
+                print(line, flush=True)
             time.sleep(0.02)
     except KeyboardInterrupt:
         pass
     finally:
         log.detach()
-        if log.missed:
-            print(f"({log.missed} rolls happened too fast to record)")
 
 
 def cmd_launch(args) -> None:
@@ -174,7 +178,9 @@ def cmd_launch(args) -> None:
         settings["game_dir"] = game_dir
         launch.save_settings(settings)
     print(f"Starting Shattered Lands from {game_dir}")
-    launch.launch(game_dir)
+    _, problem = launch.launch(game_dir)
+    if problem:
+        print(f"The dice log can't run with this copy of the game ({problem}); starting the game without it.")
     cmd_view(args)
 
 
@@ -202,6 +208,7 @@ def main(argv=None) -> int:
 
     s = sub.add_parser("dicelog", parents=[common], help="print the game's dice rolls as they happen")
     s.add_argument("--all", action="store_true", help="also show rolls the log can't label")
+    s.add_argument("--raw", action="store_true", help="record every rand() call, not just rolls (noisy)")
     s.set_defaults(func=cmd_dicelog)
 
     s = sub.add_parser("save", help="show the party stored in a save file (SAVEnn.SAV)")

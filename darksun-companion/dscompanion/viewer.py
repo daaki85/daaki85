@@ -93,8 +93,7 @@ class Viewer:
         ttk.Label(row, textvariable=self.dice_status).pack(side="left")
         ttk.Button(row, text="Clear", command=lambda: self.dice_text.delete("1.0", "end")).pack(side="right")
         self.show_all = tk.BooleanVar(value=False)
-        ttk.Checkbutton(row, text="Show unlabelled rolls", variable=self.show_all,
-                        command=self._show_all_changed).pack(side="right", padx=8)
+        ttk.Checkbutton(row, text="Show unlabelled rolls", variable=self.show_all).pack(side="right", padx=8)
         box = ttk.Frame(dice)
         box.pack(fill="both", expand=True, pady=(6, 0))
         self.dice_text = tk.Text(box, font="TkFixedFont", wrap="word", height=20)
@@ -106,6 +105,8 @@ class Viewer:
         self.dice_text.tag_configure("miss", foreground="#8c8c8c")
         self.dice_text.tag_configure("damage", foreground="#b35900")
         self.dice_text.tag_configure("other", foreground="#6f42c1")
+        self.dice_text.tag_configure("save", foreground="#0550ae")
+        self.dice_text.tag_configure("detail", foreground="#57606a")
 
         tools = ttk.Frame(tabs, padding=6)
         tabs.add(tools, text="Memory tools")
@@ -329,13 +330,6 @@ class Viewer:
 
     # ---- dice log ---------------------------------------------------------------
 
-    def _show_all_changed(self) -> None:
-        if self.dice and self.dice.attached:
-            try:
-                self.dice.set_show_all(self.show_all.get())
-            except ProcessError as e:
-                self._disconnected(e)
-
     def _dice_tick(self) -> None:
         try:
             self._dice_step()
@@ -351,7 +345,7 @@ class Viewer:
             if now < self.next_try:
                 return
             self.next_try = now + RETRY_SECONDS
-            self.dice = self.dice or DiceLog(self.guest, self.show_all.get())
+            self.dice = self.dice or DiceLog(self.guest)
             try:
                 self.dice_status.set(self.dice.attach())
             except DiceLogError as e:
@@ -363,24 +357,38 @@ class Viewer:
                 self.dice.detach()
                 self.dice_status.set("The game restarted; attaching again...")
                 return
-        lines = [line for e in self.dice.poll() if (line := self.dice.describe(e, self.show_all.get()))]
-        if self.dice.missed:
-            lines.append(f"({self.dice.missed} rolls came too fast to record)")
-            self.dice.missed = 0
+        lines = self.dice.lines(self.show_all.get())
         if lines:
             self._append_dice(lines)
 
     def _append_dice(self, lines: List[str]) -> None:
         at_end = self.dice_text.yview()[1] >= 0.999
         for line in lines:
-            tag = ("hit" if "-> HIT" in line else "miss" if "-> miss" in line
-                   else "damage" if line.startswith("  ") else "other")
+            tag = ("save" if " saves vs " in line or " magic resistance " in line else
+                   "hit" if "-> HIT" in line else
+                   "miss" if "-> miss" in line else
+                   "detail" if line.startswith("    ") else
+                   "damage" if line.startswith("  ") or " damage: " in line else "other")
             self.dice_text.insert("end", line + "\n", tag)
         excess = int(self.dice_text.index("end-1c").split(".")[0]) - MAX_LOG_LINES
         if excess > 0:
             self.dice_text.delete("1.0", f"{excess + 1}.0")
         if at_end:
             self.dice_text.see("end")
+
+    def _current_acs(self, slots) -> List[str]:
+        """The AC the game last worked out for each character in a fight (armour, DEX and
+        spells included), which the dice log's AC probe sees; "-" until then."""
+        if not (self.dice and self.dice.attached and self.ds is not None and "creature" in self.layout.records):
+            return ["-"] * len(slots)
+        table = game.far_pointer(self.guest, self.ds, game.CREATURES_PTR)
+        acs = []
+        for s in slots:
+            addr = s[1].get("creature")
+            index = (addr - table) // game.CREATURE_SIZE if addr is not None else None
+            ac = self.dice.last_ac.get(index)
+            acs.append("-" if ac is None else str(ac))
+        return acs
 
     def _refresh_table(self) -> None:
         slots = [self.layout.decode_slot(i, self.guest.read) for i in range(self.layout.count)]
@@ -389,6 +397,8 @@ class Viewer:
         rows.append(("Name", [s[0] for s in slots]))
         for i, f in enumerate(self.layout.fields):
             rows.append((f.label, [s[2][i][1] for s in slots]))
+            if f.label == "Base AC":
+                rows.append(("Current AC", self._current_acs(slots)))
 
         existing = self.table.get_children()
         if len(existing) != len(rows):

@@ -39,15 +39,26 @@ class Field:
     type: str = "u8"
     length: int = 16
     names: Dict[int, str] = field(default_factory=dict)  # value -> display name, e.g. race ids
+    format: str = ""  # "halves": the value counts halves, shown as 1, 3/2, 2...
+    base: Optional["Field"] = None  # shown in brackets when it differs, e.g. an unbuffed score
 
     @classmethod
     def from_json(cls, raw: dict, default_record: str) -> "Field":
         f = cls(label=raw["label"], offset=_opt_int(raw.get("offset")),
                 record=raw.get("record", default_record),
                 type=raw.get("type", "u8"), length=raw.get("length", 16),
-                names={values.parse_int(k): v for k, v in raw.get("values", {}).items()})
+                names={values.parse_int(k): v for k, v in raw.get("values", {}).items()},
+                format=raw.get("format", ""))
         values.type_size(f.type, f.length)  # validates the type
+        if "base" in raw:
+            b = raw["base"]
+            f.base = cls.from_json({"label": "base", "type": f.type, **b}, f.record)
         return f
+
+    def value(self, data: bytes, data_start: int):
+        if self.offset is None:
+            return None
+        return values.decode(data, self.offset - data_start, self.type, self.length)
 
     @property
     def size(self) -> int:
@@ -62,6 +73,8 @@ class Field:
             return "-"
         if v in self.names:
             return f"{self.names[v]} ({v})"
+        if self.format == "halves":
+            return str(v // 2) if v % 2 == 0 else f"{v}/2"
         return str(v)
 
 
@@ -180,7 +193,8 @@ class Layout:
 
     def window(self, record: str) -> Tuple[int, int]:
         """(start, end) offsets, relative to a record base, covering its mapped fields."""
-        mapped = [f for f in [self.name] + self.fields if f.record == record and f.offset is not None]
+        every = [self.name] + self.fields + [f.base for f in self.fields if f.base]
+        mapped = [f for f in every if f.record == record and f.offset is not None]
         start = min([0] + [f.offset for f in mapped])
         end = max([1] + [f.offset + f.size for f in mapped])
         return start, end
@@ -195,6 +209,13 @@ class Layout:
                 data[r] = (read(base + start, end - start), start)
 
         def show(f: Field) -> str:
-            return f.display(*data[f.record]) if f.record in data else ""
+            if f.record not in data:
+                return ""
+            text = f.display(*data[f.record])
+            if f.base and f.base.record in data:
+                base = f.base.value(*data[f.base.record])
+                if base is not None and base != f.value(*data[f.record]):
+                    text += f" (base {base})"
+            return text
 
         return show(self.name), bases, [(f.label, show(f)) for f in self.fields]

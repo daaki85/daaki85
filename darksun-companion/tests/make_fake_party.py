@@ -17,9 +17,9 @@ CODE_END = 0x10C  # the creature table starts right after the code below
 GAP = 0x40  # padding between the two tables, as they are separate arrays in the game
 
 
-def creature(name: bytes, entity: int, abilities, hp: int, psp: int, thac0: int) -> bytes:
+def creature(name: bytes, entity: int, abilities, hp: int, psp: int, thac0: int, sheet: int = 0) -> bytes:
     rec = bytearray(CREATURE)
-    struct.pack_into("<hhHH", rec, 0, hp, psp, 0, entity)
+    struct.pack_into("<hhHH", rec, 0, hp, psp, sheet, entity)
     rec[0x1A], rec[0x1B], rec[0x1F] = 10, 12, thac0
     rec[0x22:0x28] = bytes(abilities)
     rec[0x28:0x28 + len(name)] = name
@@ -51,8 +51,8 @@ def build() -> bytes:
     assert 0x100 + len(code) == CODE_END
     sadira = [14, 17, 13, 16, 12, 15]
     rikus = [20, 15, 18, 10, 11, 12]
-    creatures = (creature(b"SADIRA", 0x8001, sadira, 30, 40, 18)
-                 + creature(b"RIKUS", 0x8002, rikus, 52, 20, 17))
+    creatures = (creature(b"SADIRA", 0x8001, sadira, 30, 40, 18, sheet=0)
+                 + creature(b"RIKUS", 0x8002, rikus, 52, 20, 17, sheet=1))
     sheets = (sheet(0x8001, sadira, 4500, 30, 44, 3, [11, 0, 0], [4, 0, 0])
               + sheet(0x8002, rikus, 5200, 52, 20, 7, [10, 0, 0], [4, 0, 0]))
     return code + creatures + bytes(GAP) + sheets

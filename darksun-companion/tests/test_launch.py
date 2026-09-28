@@ -36,8 +36,22 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(lines[0], "[autoexec]")
         self.assertIn(r'mount C "..\cloud_saves" -t overlay', lines)
         self.assertIn(f'mount d "{launch.DOS_DIR}"', lines)
-        self.assertLess(lines.index(r"lh d:\dsclog.exe"), lines.index("darksun"))
+        self.assertLess(lines.index(r"lh d:\dsclog.exe"), lines.index(r"d:\dsunlog.exe"))
+        self.assertLess(lines.index("c:"), lines.index(r"d:\dsunlog.exe"))  # run from the game folder
         self.assertEqual(lines[-2:], ["exit", ""])
+
+    def test_without_the_dice_log_it_runs_the_game_as_usual(self):
+        with tempfile.TemporaryDirectory() as d:
+            game = make_game(d, cloud_saves=False)
+            with open(launch.write_conf(game, os.path.join(d, "test.conf"), dice_log=False)) as f:
+                text = f.read()
+        self.assertIn("darksun\n", text)
+        self.assertNotIn("dsclog", text)
+
+    def test_unknown_game_version_is_reported(self):
+        with tempfile.TemporaryDirectory() as d:
+            game = make_game(d, cloud_saves=False)
+            self.assertIn("GOG release", launch.prepare_patched_game(game))
 
     def test_no_overlay_mount_without_cloud_saves(self):
         with tempfile.TemporaryDirectory() as d:

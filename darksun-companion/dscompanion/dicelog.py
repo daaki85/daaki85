@@ -1,14 +1,16 @@
 """Dice log: shows the rolls Shattered Lands makes behind the scenes.
 
 How it works:
-  * DSCLOG.EXE (see dos/dsclog.asm), loaded before the game, keeps a ring
-    buffer and a replacement for the game's Borland rand() that gives the same
-    numbers but also records each call and the caller's stack frame.
-  * attach() finds DSCLOG and the game's rand() in DOSBox's memory and patches
-    rand() to jump to the replacement. detach() puts the original bytes back.
-  * poll() returns new ring entries; describe() turns them into text using
-    what the calling code does with the number (its dice size, and for known
-    places in the game, THAC0, AC, ability scores and so on).
+  * The launcher runs DSUNLOG.EXE, a copy of the game whose rand() and two
+    "probe" places (the end of the saving throw and of the AC calculation)
+    start with INT instructions (see gamepatch.py).
+  * DSCLOG.EXE (see dos/dsclog.asm), loaded before the game, answers those
+    interrupts. Its rand() gives the same numbers as the game's but also
+    records each call and the caller's stack frames in a ring buffer; the
+    probes record the game's final numbers there.
+  * attach() finds DSCLOG and the game in DOSBox's memory; lines() reads new
+    entries and turns them into text, using what the calling code does with
+    each number and the game's own data (names, THAC0, weapons, spell effects).
 
 Everything game-specific here was taken from the GOG release of Shattered
 Lands (DSUN.EXE, 611408 bytes).
@@ -16,34 +18,23 @@ Lands (DSUN.EXE, 611408 bytes).
 
 import re
 import struct
+import time
+from collections import Counter
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, NamedTuple, Optional, Tuple
 
-from .game import CONVENTIONAL_AND_UPPER, CREATURE_NAME, CREATURE_SIZE, CREATURES_PTR, far_pointer
+from . import game
+from .game import (CONVENTIONAL_AND_UPPER, CREATURE_ABILITIES, CREATURE_SIDE, CREATURE_THAC0, EFFECT_NAMES,
+                   EFFECT_RULES, MATERIAL_TO_HIT, MATERIALS, SAVE_NAMES, STR_DAMAGE, GameData)
 from .guestmem import GuestMemory
 
-HDR_SIG = b"DSCLOGv1"
-
-# Borland rand(): mov cx,[seed+2]; mov bx,[seed]; mov dx,015Ah; mov ax,4E35h; call LXMUL
-RAND_RE = re.compile(rb"\x8b\x0e(..)\x8b\x1e(..)\xba\x5a\x01\xb8\x35\x4e\xe8", re.S)
-# ... and after attach() has replaced its first 5 bytes with JMP FAR stub
-RAND_PATCHED_RE = re.compile(rb"\xea(..)(..)\x1e(..)\xba\x5a\x01\xb8\x35\x4e\xe8", re.S)
+HDR_SIG = b"DSCLOGv5"
+RAND_PATCHED = b"\xcd\x60"  # INT 60h at the start of rand() in DSUNLOG.EXE
 RAND_IP = 0x822  # rand()'s offset in the game's first code segment
+SEED = 0x4122  # DS offset of rand()'s 32-bit seed
 
-# Data the decoder reads from the game (DS offsets and load-segment-relative segments)
-CREATURE_ABILITIES = 0x22
-TARGET_GLOBAL = 0x494A  # combatant id of the current attack's target
-# Far data the overlays use. Their code says segment 0x360 / 0x358, but those
-# live 0x3612 paragraphs higher in memory (relative to the load segment).
-COMBATANTS = (0x3972, 0xC36, 3)  # combatant id -> type byte (2 = creature), creature index word
-CHECK_MODS = (0x396A, 4)  # ability check modifier table
-CREATURE_STR = 0x22
-
-# AD&D 2e strength damage adjustments (no exceptional strength in Dark Sun).
-# The attack code adds the attacker's bonus after rolling melee damage; seen
-# in play as +12 for STR 24.
-STR_DAMAGE = {1: -4, 2: -2, 3: -1, 4: -1, 5: -1, 16: 1, 17: 1, 18: 2, 19: 7, 20: 8, 21: 9,
-              22: 10, 23: 11, 24: 12, 25: 14}
+TARGET_GLOBAL = 0x494A  # DS word: combatant id of the current attack's target
+CHECK_MODS = (0x396A, 4)  # segment (relative to the load segment), offset: ability check modifiers
 
 ABILITIES = ("STR", "DEX", "CON", "INT", "WIS", "CHA")
 
@@ -54,9 +45,21 @@ CHECK_SITE = bytes.fromhex("660fbfc0666bc01466bb00800000669966f7fb8946fc3d13")
 PERCENT_SITE = bytes.fromhex("bb640099f7fb3b56fe")
 # Code right after the attack function's call to the dice function
 WEAPON_DAMAGE_RETURN = bytes.fromhex("83c4068946fc0bc07f05")
-# DSCLOG only records calls whose calling code starts like one of these (the
-# rolls describe() can label), so bursts of other randomness don't crowd them out
-FILTERS = (ATTACK_SITE[:8], DICE_SITE[:8], PERCENT_SITE[:8])  # the first also covers CHECK_SITE
+# ... and in the routine that adds up a spell's damage dice
+SPELL_DAMAGE_RETURN = bytes.fromhex("83c4045a03d0")
+# DSCLOG only records calls whose calling code starts like one of these, so
+# bursts of other randomness (animations) don't crowd out the rolls that
+# matter: the "rand()*N/32768" rolls (attacks, checks, saves, damage dice)
+# and the percentile check. The same list is built into DSCLOG.
+SCALED_ROLL = b"\x66\x0f\xbf\xc0"  # movsx eax, ax
+FILTERS = tuple(SCALED_ROLL + bytes.fromhex(h) for h in (
+    "666bc0", "6669c0", "66c1e0", "660fbf56")) + (PERCENT_SITE[:8],)
+
+KIND_ROLL, KIND_SAVE, KIND_AC = 0, 1, 2
+
+EFFECT_INTERVAL = 0.25  # seconds between looks at the active effects
+LOAD_SETTLE = 3.0  # seconds after the party changes (a game was loaded) when effects are not news
+PENDING_SECONDS = 1.0  # how long dice wait to learn which spell they belong to
 
 
 class DiceLogError(Exception):
@@ -74,31 +77,47 @@ class Entry:
     ds: int
     parent_bp: int
     frame: bytes  # from SS:BP+2 (return address, then arguments)
-    parent: bytes  # from SS:parentBP+0Ah
+    parent: bytes  # from SS:parentBP+2
     glob: Tuple[int, int, int, int]
     locals: bytes  # from SS:BP-10h
-    code: bytes  # the code right after this rand() call, copied when it ran
+    code: bytes  # the code right after this call, copied when it ran
     parent_code: bytes  # the code at the caller's own return address
+    parent_locals: bytes  # from SS:parentBP-28h
+    kind: int  # KIND_ROLL, KIND_SAVE or KIND_AC
+    extra: int = 0  # KIND_SAVE: the segment of the game's spell table
 
-    SIZE = 128
+    SIZE = 192
 
     @classmethod
     def parse(cls, data: bytes) -> "Entry":
         head = struct.unpack_from("<8H", data, 0)
-        return cls(*head, data[16:48], data[48:64], struct.unpack_from("<4H", data, 64), data[72:88],
-                   data[88:112], data[112:128])
+        return cls(*head, data[16:48], data[48:80], struct.unpack_from("<4H", data, 80), data[88:104],
+                   data[104:128], data[128:144], data[144:184], *struct.unpack_from("<2H", data, 184))
 
-    def arg(self, bp_offset: int) -> int:
-        """Signed word at [BP+bp_offset] in the caller's frame (bp_offset >= 2)."""
-        return struct.unpack_from("<h", self.frame, bp_offset - 2)[0]
+    @staticmethod
+    def _word(data: bytes, index: int) -> Optional[int]:
+        if 0 <= index <= len(data) - 2:
+            return struct.unpack_from("<h", data, index)[0]
+        return None
 
-    def parent_arg(self, bp_offset: int) -> int:
-        """Signed word at [BP+bp_offset] in the caller's caller's frame (bp_offset >= 0Ah)."""
-        return struct.unpack_from("<h", self.parent, bp_offset - 0x0A)[0]
+    def arg(self, bp_offset: int) -> Optional[int]:
+        """Signed word at [BP+bp_offset] in the caller's frame (2..20h), or None."""
+        return self._word(self.frame, bp_offset - 2)
 
-    def local(self, bp_offset: int) -> int:
-        """Signed word at [BP+bp_offset] for bp_offset in -10h..-2."""
-        return struct.unpack_from("<h", self.locals, bp_offset + 0x10)[0]
+    def parent_arg(self, bp_offset: int) -> Optional[int]:
+        """Signed word at [parentBP+bp_offset] (2..20h), or None."""
+        return self._word(self.parent, bp_offset - 2)
+
+    def local(self, bp_offset: int) -> Optional[int]:
+        """Signed word at [BP+bp_offset] for bp_offset in -10h..-2, or None."""
+        return self._word(self.locals, bp_offset + 0x10)
+
+    def local_byte(self, bp_offset: int) -> int:
+        return self.locals[bp_offset + 0x10]
+
+    def parent_local(self, bp_offset: int) -> Optional[int]:
+        """Signed word at [parentBP+bp_offset] for bp_offset in -28h..-2, or None."""
+        return self._word(self.parent_locals, bp_offset + 0x28)
 
 
 def scaled(raw: int, sides: int) -> int:
@@ -106,9 +125,13 @@ def scaled(raw: int, sides: int) -> int:
     return raw * sides // 0x8000
 
 
+def signed(n: int) -> str:
+    return f"+{n}" if n >= 0 else f"-{abs(n)}"
+
+
 def generic_roll(code: bytes, entry: Entry) -> Optional[Tuple[str, int]]:
     """(die, value), e.g. ("d20", 14) or ("0-9", 3), for the common 'rand()*N/32768 (+1)' shapes."""
-    if not code.startswith(b"\x66\x0f\xbf\xc0"):  # movsx eax, ax
+    if not code.startswith(SCALED_ROLL):
         return None
     rest = code[4:]
     if rest[:3] == b"\x66\x6b\xc0":  # imul eax, eax, imm8
@@ -121,7 +144,7 @@ def generic_roll(code: bytes, entry: Entry) -> Optional[Tuple[str, int]]:
         sides, rest = entry.arg(rest[4]), rest[9:]
     else:
         return None
-    if sides <= 0 or not rest.startswith(b"\x66\xbb\x00\x80\x00\x00\x66\x99\x66\xf7\xfb"):
+    if sides is None or sides <= 0 or not rest.startswith(b"\x66\xbb\x00\x80\x00\x00\x66\x99\x66\xf7\xfb"):
         return None
     face = scaled(entry.raw, sides)
     if rest[11:12] == b"\x40":  # inc ax: a 1..N die
@@ -129,59 +152,67 @@ def generic_roll(code: bytes, entry: Entry) -> Optional[Tuple[str, int]]:
     return f"0-{sides - 1}", face
 
 
+@dataclass
+class PendingDice:
+    """Dice from the general dice routine, waiting to learn which spell they belong to."""
+    text: str  # e.g. "9d6 = [4 + 3 + ...] = 29"
+    at: float
+    damage: bool = False  # rolled by the spell damage routine
+    # a 1d100 whose caller's arguments are (target, spell): the magic resistance check
+    # (its caller can't be told by its code: the overlay manager replaces that return address)
+    resistance: Optional[Tuple[int, int, int]] = None  # target, spell, roll
+
+
 class DiceLog:
-    def __init__(self, guest: GuestMemory, show_all: bool = False):
+    def __init__(self, guest: GuestMemory, record_everything: bool = False):
         self.guest = guest
-        self.show_all = show_all
+        self.record_everything = record_everything  # also rand() calls that aren't rolls (noisy)
         self.tsr_hdr: Optional[int] = None
         self.rand_addr: Optional[int] = None
-        self.original: Optional[bytes] = None
         self.last_seq: Optional[int] = None
         self.missed = 0
+        self.game: Optional[GameData] = None
+        self.last_ac: Dict[int, int] = {}  # creature index -> the AC the game last computed for it
         self._dice: Dict[Tuple[int, int, int, int], List[int]] = {}
+        self._pending: List[PendingDice] = []
+        self._save_rolls: Dict[Tuple[int, int], int] = {}  # (SS, save frame BP) -> natural d20
+        self._effects: Optional[Counter] = None
+        self._party: Optional[bytes] = None
+        self._party_changed_at = 0.0
+        self._next_effect_check = 0.0
 
     # ---- attaching ------------------------------------------------------------
 
     def attach(self) -> str:
-        """Find DSCLOG and the game's rand(), and patch rand(). Returns a status line."""
+        """Find DSCLOG and the game. Returns a status line."""
         low = self.guest.read(0, CONVENTIONAL_AND_UPPER)
         hdr = next((m.start() for m in re.finditer(re.escape(HDR_SIG), low) if m.start() % 16 == 0), None)
         if hdr is None:
+            if re.search(rb"DSCLOGv\d", low):
+                raise DiceLogError("An older DSCLOG is loaded. Restart the game with 'Start Game with Dice Log.bat'.")
             raise DiceLogError("DSCLOG is not loaded. Start the game with 'Start Game with Dice Log.bat'.")
-        stub_off, hdr_off = struct.unpack_from("<HH", low, hdr + 18)
-        if (hdr - hdr_off) % 16:
-            raise DiceLogError("DSCLOG header is misaligned")
-        tsr_seg = (hdr - hdr_off) // 16
-        jump = b"\xea" + struct.pack("<HH", stub_off, tsr_seg)
-
-        for m in RAND_PATCHED_RE.finditer(low):
-            if low[m.start():m.start() + 5] == jump and (m.start() - RAND_IP) % 16 == 0:
-                seed = struct.unpack("<H", m.group(3))[0]
-                self._attached(hdr, m.start(), b"\x8b\x0e" + struct.pack("<H", seed + 2) + b"\x8b", seed)
-                return "Dice log already attached."
-        found = [m for m in RAND_RE.finditer(low) if (m.start() - RAND_IP) % 16 == 0]
-        if not found:
-            raise DiceLogError("The game's rand() was not found. Is Shattered Lands running (past the intro)?")
-        m = found[0]
-        seed = struct.unpack("<H", m.group(2))[0]
-        if struct.unpack("<H", m.group(1))[0] != seed + 2:
-            raise DiceLogError("rand() does not look like Borland's")
-        self._attached(hdr, m.start(), low[m.start():m.start() + 5], seed)
-        self.guest.write(m.start(), jump)
+        ds = game.find_data_segment(self.guest, low)
+        if ds is None:
+            raise DiceLogError("Shattered Lands is not running yet.")
+        rand_addr = (ds - game.DGROUP) * 16 + RAND_IP
+        if low[rand_addr:rand_addr + 2] != RAND_PATCHED:
+            raise DiceLogError("The game was started without the dice log. "
+                               "Restart it with 'Start Game with Dice Log.bat'.")
+        self.tsr_hdr, self.rand_addr = hdr, rand_addr
+        self.guest.write(hdr + 22, struct.pack("<5H", SEED, TARGET_GLOBAL, 0, 0, 0))
+        self.game = GameData(self.guest, ds)
+        self.set_record_everything(self.record_everything)
+        self.last_seq = struct.unpack("<H", self.guest.read(hdr + 8, 2))[0]
+        self._effects = None
         return "Dice log attached."
 
-    def _attached(self, hdr: int, rand_addr: int, original: bytes, seed: int) -> None:
-        self.guest.write(hdr + 22, struct.pack("<5H", seed, TARGET_GLOBAL, 0, 0, 0))
-        self.tsr_hdr, self.rand_addr, self.original = hdr, rand_addr, original
-        self.set_show_all(self.show_all)
-        self.last_seq = struct.unpack("<H", self.guest.read(hdr + 8, 2))[0]
-
-    def set_show_all(self, show_all: bool) -> None:
-        """Record every rand() call, or (the default) only the kinds describe() can label."""
-        self.show_all = show_all
+    def set_record_everything(self, record_everything: bool) -> None:
+        """Record every rand() call, or (the default) only the ones shaped like rolls."""
+        self.record_everything = record_everything
         if self.tsr_hdr is not None:
-            filters = () if show_all else FILTERS
-            self.guest.write(self.tsr_hdr + 32, struct.pack("<H", len(filters)) + b"".join(filters))
+            filters = () if record_everything else FILTERS
+            packed = b"".join(bytes([len(f)]) + f.ljust(8, b"\0") for f in filters)
+            self.guest.write(self.tsr_hdr + 32, struct.pack("<H", len(filters)) + packed)
 
     @property
     def attached(self) -> bool:
@@ -192,13 +223,12 @@ class DiceLog:
         return (self.rand_addr - RAND_IP) // 16
 
     def still_patched(self) -> bool:
-        """False when the game was restarted (rand() is back to the original)."""
-        return self.guest.read(self.rand_addr, 5) != self.original
+        """False when the game has quit or been replaced by an unpatched one."""
+        sig = self.guest.read(self.game.ds * 16 + game.BORLAND_SIG_OFFSET, len(game.BORLAND_SIG))
+        return sig == game.BORLAND_SIG and self.guest.read(self.rand_addr, 2) == RAND_PATCHED
 
     def detach(self) -> None:
-        if self.attached and self.still_patched():
-            self.guest.write(self.rand_addr, self.original)
-        self.rand_addr = self.original = None
+        self.rand_addr = None
 
     # ---- reading ----------------------------------------------------------------
 
@@ -220,95 +250,324 @@ class DiceLog:
         self.last_seq = seq
         return [entries[s] for s in sorted(entries, key=lambda s: (s - seq - 1) & 0xFFFF)]
 
+    def lines(self, show_all: bool = False, now: Optional[float] = None) -> List[str]:
+        """Everything new since the last call, as log lines. Call it every few tens of ms."""
+        now = time.monotonic() if now is None else now
+        out: List[str] = []
+        for e in self.poll():
+            out += self.describe(e, show_all, now)
+        if now >= self._next_effect_check:
+            self._next_effect_check = now + EFFECT_INTERVAL
+            out += self.effect_changes(now)
+        out += self.flush(now)
+        if self.missed:
+            out.append(f"({self.missed} rolls came too fast to record)")
+            self.missed = 0
+        return out
+
+    # ---- effects (spells and powers on creatures) ------------------------------
+
+    def effect_changes(self, now: float = 0.0) -> List[str]:
+        """Lines for effects that started or ended since the last look."""
+        current = Counter(self.game.effects())
+        party = self.game.party_signature()
+        if party != self._party:  # a game was loaded: its effects are not news
+            self._party, self._party_changed_at = party, now
+        if self._effects is None or now - self._party_changed_at < LOAD_SETTLE:
+            self._effects = current  # the first look, or just loaded: remember what is active
+            return []
+        started, ended = current - self._effects, self._effects - current
+        self._effects = current
+        out = []
+        by_cast: Dict[Tuple[int, int], List[int]] = {}
+        for eff in started.elements():
+            by_cast.setdefault((eff.caster, eff.id), []).append(eff.owner)
+        for (caster, eid), owners in by_cast.items():
+            name = EFFECT_NAMES.get(eid, f"effect {eid}")
+            targets = ", ".join(self.game.combatant_name(o) for o in owners)
+            rule = f": {EFFECT_RULES[eid]}" if eid in EFFECT_RULES else ""
+            out.append(f"{self.game.combatant_name(caster)} gives {name} to {targets}{rule}")
+        by_end: Dict[int, List[int]] = {}
+        for eff in ended.elements():
+            by_end.setdefault(eff.id, []).append(eff.owner)
+        for eid, owners in by_end.items():
+            name = EFFECT_NAMES.get(eid, f"effect {eid}")
+            out.append(f"{name} ends on {', '.join(self.game.combatant_name(o) for o in owners)}")
+        return out
+
     # ---- describing -----------------------------------------------------------
 
-    def _far(self, ds: int, offset: int) -> int:
-        return far_pointer(self.guest, ds, offset)
+    def describe(self, e: Entry, show_all: bool = False, now: float = 0.0) -> List[str]:
+        """Log lines for `e` (none if it isn't worth showing, or completes later)."""
+        try:
+            return self._describe(e, show_all, now)
+        except Exception as err:  # an unexpected entry must never stop the log
+            if show_all:
+                return [f"rand() = {e.raw}  (at {e.cs:04x}:{e.ip:04x}; could not decode: {err})"]
+            return []
 
-    def creature_name(self, ds: int, index: int) -> str:
-        if not 0 <= index < 512:
-            return f"creature {index}"
-        rec = self._far(ds, CREATURES_PTR) + index * CREATURE_SIZE
-        name = self.guest.read(rec + CREATURE_NAME, 16).split(b"\0", 1)[0].decode("cp437", "replace")
-        return name or f"creature {index}"
+    def flush(self, now: float, force: bool = False) -> List[str]:
+        """Dice that waited long enough without a spell turning up."""
+        out = []
+        while self._pending and (force or now - self._pending[0].at >= PENDING_SECONDS):
+            p = self._pending.pop(0)
+            if p.resistance:
+                out += self._magic_resistance(*p.resistance)
+            else:
+                out.append(f"Dice: {p.text}")
+        return out
 
-    def combatant_name(self, ds: int, combatant: int) -> str:
-        seg, off, stride = COMBATANTS
-        if not 0 <= combatant < 256:
-            return "?"
-        kind, index = struct.unpack("<Bh", self.guest.read((self.load_seg + seg) * 16 + off + combatant * stride, 3))
-        return self.creature_name(ds, index) if kind == 2 else "?"
-
-    def strength(self, ds: int, index: int) -> int:
-        return self.guest.read(self._far(ds, CREATURES_PTR) + index * CREATURE_SIZE + CREATURE_STR, 1)[0]
-
-    def describe(self, e: Entry, show_all: bool = False) -> Optional[str]:
-        """A log line for `e`, or None if it isn't worth showing (or completes later)."""
+    def _describe(self, e: Entry, show_all: bool, now: float) -> List[str]:
+        if e.kind == KIND_SAVE:
+            return self._save(e)
+        if e.kind == KIND_AC:
+            return self._ac(e, show_all)
         code = e.code
         if code.startswith(ATTACK_SITE):
-            d20 = scaled(e.raw, 20) + 1
-            thac0, ac = e.arg(0x0A), e.arg(0x0C)
-            need = thac0 - ac
-            hit = d20 == 20 or (d20 != 1 and d20 >= need)
-            note = " (natural 20)" if d20 == 20 else " (natural 1)" if d20 == 1 else ""
-            return (f"{self.creature_name(e.ds, e.arg(0x0E))} attacks {self.combatant_name(e.ds, e.glob[0])}: "
-                    f"d20 = {d20}{note}, needs {need} (THAC0 {thac0} with bonuses, target AC {ac}) "
-                    f"-> {'HIT' if hit else 'miss'}")
+            return self.flush(now, force=True) + self._attack(e)
         if code.startswith(DICE_SITE):
-            return self._dice_roll(e, show_all)
+            return self._dice_roll(e, show_all, now)
         if code.startswith(CHECK_SITE):
-            d20 = scaled(e.raw, 20) + 1
-            ability = e.arg(0x0A)
-            if not 0 <= ability < 6:
-                return f"Check: d20 = {d20}" if show_all else None
-            base = self.guest.read(self._far(e.ds, CREATURES_PTR) + e.arg(6) * CREATURE_SIZE
-                                   + CREATURE_ABILITIES + ability, 1)[0]
-            seg, off = CHECK_MODS
-            mod = struct.unpack("<b", self.guest.read((self.load_seg + seg) * 16 + off + e.arg(8), 1))[0]
-            ok = d20 != 20 and d20 <= base + mod
-            mod_text = f" {'+' if mod >= 0 else '-'} {abs(mod)}" if mod else ""
-            return (f"{self.creature_name(e.ds, e.arg(6))} {ABILITIES[ability]} check: d20 = {d20}, "
-                    f"needs {base + mod} or less ({ABILITIES[ability]} {base}{mod_text}) "
-                    f"-> {'success' if ok else 'failure'}")
+            return self.flush(now, force=True) + self._check(e, show_all)
         if code.startswith(PERCENT_SITE):
             chance, roll = e.local(-2), e.raw % 100 + 1
-            return (f"Percentile check: d100 = {roll}, needs {chance} or less "
-                    f"-> {'success' if roll <= chance else 'failure'}")
+            return [f"Percentile check: d100 = {roll}, needs {chance} or less "
+                    f"-> {'success' if roll <= chance else 'failure'}"]
         if show_all:
             generic = generic_roll(code, e)
             where = f"{e.cs:04x}:{e.ip:04x}"
             if generic:
-                return f"{generic[0]} = {generic[1]}  (at {where})"
-            return f"rand() = {e.raw}  (at {where})"
-        return None
+                return [f"{generic[0]} = {generic[1]}  (at {where})"]
+            return [f"rand() = {e.raw}  (at {where})"]
+        return []
 
-    def _dice_roll(self, e: Entry, show_all: bool) -> Optional[str]:
-        count, sides, bonus = e.arg(6), e.arg(8), e.arg(0x0A)
+    # attacks ---------------------------------------------------------------------
+
+    def _attack(self, e: Entry) -> List[str]:
+        g = self.game
+        d20 = scaled(e.raw, 20) + 1
+        thac0, ac = e.arg(0x0A), e.arg(0x0C)
+        attacker, sheet_item, item, item_type, mode = e.arg(0x0E), e.arg(0x10), e.arg(0x12), e.arg(0x14), e.arg(0x16)
+        attacker_combatant, target_combatant = e.arg(0x18), e.glob[0]
+        need = thac0 - ac
+        hit = d20 == 20 or (d20 != 1 and d20 >= need)
+        note = " (natural 20)" if d20 == 20 else " (natural 1)" if d20 == 1 else ""
+
+        target_index = g.combatant_creature(target_combatant)
+        if target_index is not None:
+            self.last_ac[target_index] = ac
+        weapon = g.weapon(item, item_type)
+        with_what = f" with {g.weapon_name(weapon)} ({weapon.dice()})" if weapon else ""
+        target = g.combatant_name(target_combatant)
+        head = (f"{g.creature_name(attacker)} attacks {target}{with_what}: d20 = {d20}{note}, "
+                f"hits AC {thac0 - d20}, target AC {ac} -> {'HIT' if hit else 'miss'}")
+        return [head, "    " + self._thac0_breakdown(e, thac0, attacker, attacker_combatant,
+                                                     target_combatant, weapon, mode)]
+
+    def _thac0_breakdown(self, e: Entry, thac0: int, attacker: int, attacker_combatant: int,
+                         target_combatant: int, weapon, mode: int) -> str:
+        """'THAC0 16, +6 STR, +1 Blessed, ... = 9', from the attack setup's locals and the game's rules."""
+        g = self.game
+        base = g.creature(attacker)[CREATURE_THAC0]
+        after_f1, hit_bonus = e.parent_local(-0x20), e.parent_local(-8)
+        rear, backstab = e.parent_local(-0x1A), e.parent_local(-0x24)
+        parts: List[Tuple[str, int]] = []
+        if None in (after_f1, hit_bonus) or after_f1 - hit_bonus != thac0:
+            return f"THAC0 {base} base, {signed(base - thac0)} in bonuses = {thac0}"
+        if rear:
+            parts.append(("from behind", 2))
+        if backstab:
+            parts.append(("backstab", 2))
+        situational = base - after_f1 - 2 * bool(rear) - 2 * bool(backstab)
+        # the spell effects the game checks here (from its code)
+        effects = g.effects()
+        on = lambda combatant, eid: any(x.owner == combatant and x.id == eid for x in effects)
+        for eid, value in ((7, 1), (12, -1), (47, -4), (49, 1)):
+            if on(attacker_combatant, eid):
+                parts.append((EFFECT_NAMES[eid], value))
+                situational -= value
+        if on(target_combatant, 55):
+            parts.append(("target's Blur", -2))
+            situational += 2
+        prayer = next((x for x in effects if x.owner == attacker_combatant and x.id == 73), None)
+        if prayer:
+            caster = g.combatant_creature(prayer.caster)
+            same = caster is not None and g.creature(caster)[CREATURE_SIDE] == g.creature(attacker)[CREATURE_SIDE]
+            parts.append(("Prayer", 1 if same else -1))
+            situational -= 1 if same else -1
+        if situational:
+            parts.append(("STR" if mode <= 1 else "DEX", situational))
+        rest = hit_bonus
+        if weapon:
+            if weapon.plus:
+                parts.append(("weapon", weapon.plus))
+                rest -= weapon.plus
+            if not weapon.plus and not weapon.nonmagical_flag and weapon.material in MATERIAL_TO_HIT:
+                penalty = MATERIAL_TO_HIT[weapon.material]
+                parts.append((MATERIALS[weapon.material].lower(), penalty))
+                rest -= penalty
+        if attacker_combatant is not None and attacker_combatant >= 4:
+            difficulty = g.difficulty() - 1
+            if difficulty:
+                parts.append(("difficulty", difficulty))
+                rest -= difficulty
+        if rest:
+            parts.append(("off-hand and other", rest))
+        text = ", ".join(f"{signed(v)} {name}" for name, v in parts if v)
+        return f"THAC0 {base}" + (f", {text}" if text else "") + f" = {thac0}"
+
+    def _dice_roll(self, e: Entry, show_all: bool, now: float) -> List[str]:
+        weapon = e.parent_code.startswith(WEAPON_DAMAGE_RETURN)
+        # Two routines roll NdS with this code; only the weapon one takes a bonus argument
+        count, sides, bonus = e.arg(6), e.arg(8), e.arg(0x0A) if weapon else 0
         key = (e.ss, e.bp, e.cs, e.ip)
         faces = self._dice.setdefault(key, [])
         faces.append(scaled(e.raw, sides) + 1)
         if len(faces) < count:
-            return None
+            return []
         del self._dice[key]
-        weapon = e.parent_code.startswith(WEAPON_DAMAGE_RETURN)
-        if not weapon and not show_all:
-            return None
-        signed = lambda n: f"{'+' if n >= 0 else '-'} {abs(n)}"
-        rolled = f"{count}d{sides}" + (f"{signed(bonus).replace(' ', '')}" if bonus else "")
-        faces_text = " + ".join(map(str, faces))
-        parts = f"[{faces_text}]" + (f" {signed(bonus)}" if bonus else "")
-        total = max(sum(faces) + bonus, 1) if weapon else sum(faces) + bonus
+        faces_text = "[" + " + ".join(map(str, faces)) + "]"
         if not weapon:
-            return f"Dice: {rolled} = {parts} = {total}"
-        attacker = e.parent_arg(0x0E)
-        steps = f"{rolled} = {parts}"
+            if count == 1 and sides == 20 and self._is_save_roll(e):
+                return self._save_roll(e)
+            if sides > 1:  # the game sometimes "rolls" 1d1
+                pending = PendingDice(f"{count}d{sides} = {faces_text} = {sum(faces)}", now,
+                                      damage=e.parent_code.startswith(SPELL_DAMAGE_RETURN))
+                target, spell = e.parent_arg(6), e.parent_arg(8)
+                if count == 1 and sides == 100 and target is not None and 1 <= spell <= game.SPELL_COUNT \
+                        and self.game.combatant_creature(target) is not None:
+                    pending.resistance = (target, spell, faces[0])
+                self._pending.append(pending)
+            return []
+        g = self.game
+        attacker, mode = e.parent_arg(0x0E), e.parent_arg(0x16)
+        total = max(sum(faces) + bonus, 1)
+        steps = f"{count}d{sides} = {faces_text}" + (f" {signed(bonus)} weapon" if bonus else "")
         if sum(faces) + bonus < 1:
             steps += " (raised to the minimum of 1)"
-        if e.parent_arg(0x16) <= 1:  # melee: the game adds the attacker's STR bonus
-            strength = self.strength(e.ds, attacker)
+        if mode is not None and mode <= 1:  # melee: the game adds the attacker's STR bonus
+            strength = g.creature(attacker)[CREATURE_ABILITIES]
             str_bonus = STR_DAMAGE.get(strength, 0)
             if str_bonus:
                 steps += f" {signed(str_bonus)} STR {strength}"
                 total += str_bonus
-        return (f"  {self.creature_name(e.ds, attacker)} hits {self.combatant_name(e.ds, e.glob[0])} "
-                f"for {total}: {steps}")
+        return [f"  {g.creature_name(attacker)} hits {g.combatant_name(e.glob[0])} for {total}: {steps}"]
+
+    # saving throws -------------------------------------------------------------------
+
+    def _is_save_roll(self, e: Entry) -> bool:
+        """The dice routine's caller is the saving throw if its frame holds a far pointer to
+        the target's creature record at [BP-1Eh] (set just before it rolls)."""
+        target = e.parent_arg(6)
+        index = self.game.combatant_creature(target) if target is not None else None
+        off, seg = e.parent_local(-0x1E), e.parent_local(-0x1C)
+        if index is None or off is None or seg is None:
+            return False
+        table = game.far_pointer(self.guest, self.game.ds, game.CREATURES_PTR)
+        return (seg & 0xFFFF) * 16 + (off & 0xFFFF) == table + index * game.CREATURE_SIZE
+
+    def _save_roll(self, e: Entry) -> List[str]:
+        """The d20 of a saving throw. A natural 1 or 20 ends the save here; otherwise the
+        save probe reports the total."""
+        natural = scaled(e.raw, 20) + 1
+        spell, target, caster = e.parent_arg(0x0A), e.parent_arg(6), e.parent_arg(8)
+        needed = e.parent_locals[0x28 - 1]
+        index = e.parent_local(-6)
+        pending = self._flush_spell(spell)
+        if natural in (1, 20):
+            return pending + [self._save_line(target, caster, spell, index, natural, None, needed)]
+        self._save_rolls[(e.ss, e.parent_bp)] = natural
+        return pending
+
+    def _save(self, e: Entry) -> List[str]:
+        total, needed = e.raw & 0xFF, e.raw >> 8
+        natural = self._save_rolls.pop((e.ss, e.bp), None)
+        spell, target, caster = e.arg(0x0A), e.arg(6), e.arg(8)
+        return self._flush_spell(spell) + [
+            self._save_line(target, caster, spell, e.local(-6), natural, total, needed)]
+
+    def _magic_resistance(self, target: int, spell: int, roll: int) -> List[str]:
+        """The d100 the game rolls against a target's magic resistance before its saving throw."""
+        resistance = self.game.magic_resistance(target) or 0
+        if not resistance:  # the roll can't matter
+            return []
+        return [f"{self.game.combatant_name(target)} magic resistance {resistance}% vs "
+                f"{self.game.spell_name(spell)}: d100 = {roll} -> {'resisted' if roll < resistance else 'not resisted'}"]
+
+    def _flush_spell(self, spell: int) -> List[str]:
+        """Dice rolled just before a spell's saving throws belong to that spell."""
+        name = self.game.spell_name(spell)
+        out = []
+        for p in self._pending:
+            if p.resistance:
+                out += self._magic_resistance(*p.resistance)
+            else:
+                out.append(f"{name}{' damage' if p.damage else ''}: {p.text}")
+        self._pending.clear()
+        return out
+
+    def _save_line(self, target, caster, spell, index, natural, total, needed) -> str:
+        g = self.game
+        kind = SAVE_NAMES.get(index, "?")
+        who = f"{g.combatant_name(target)} saves vs {g.spell_name(spell)} from {g.combatant_name(caster)} ({kind})"
+        if total is None:
+            result = "saved" if natural == 20 else "failed"
+            return f"{who}: d20 = {natural} (natural {natural}) -> {result}"
+        if total >= 0x80:  # the game adds -100 / +100 for "can't save" / "always saves"
+            total -= 0x100
+        if total < -50:
+            return f"{who}: cannot save"
+        if total > 100:
+            return f"{who}: saves automatically"
+        rules = g.spell_rules(spell)
+        steps, rolled = "d20", None
+        if natural is not None:
+            steps, rolled = f"d20 = {natural}", natural
+            if rules and rules.doubles_roll:
+                rolled = natural * 2
+                steps += f", doubled for this spell = {rolled}"
+            parts = []
+            if rules and rules.save_modifier:
+                parts.append(f"{signed(rules.save_modifier)} spell")
+            rest = total - rolled - (rules.save_modifier if rules else 0)
+            if rest:
+                parts.append(f"{signed(rest)} {self._save_modifier_sources(target)}")
+            if parts:
+                steps += " " + " ".join(parts) + f" = {total}"
+        else:
+            steps += f" total {total}"
+        return f"{who}: {steps}, needs {needed} -> {'saved' if total >= needed else 'failed'}"
+
+    def _save_modifier_sources(self, target: int) -> str:
+        """'modifiers', naming the target's effects the game counts in saving throws."""
+        names = [EFFECT_NAMES[x.id] for x in self.game.effects()
+                 if x.owner == target and x.id in EFFECT_RULES and "saves" in EFFECT_RULES[x.id]]
+        return "modifiers" + (f" (incl. {', '.join(dict.fromkeys(names))})" if names else "")
+
+    # AC --------------------------------------------------------------------------------
+
+    def _ac(self, e: Entry, show_all: bool) -> List[str]:
+        target = e.arg(6)
+        index = self.game.combatant_creature(target) if target is not None else None
+        ac = e.raw if e.raw < 0x8000 else e.raw - 0x10000
+        if index is not None:
+            self.last_ac[index] = ac
+        if show_all:
+            return [f"AC of {self.game.combatant_name(target)} against {self.game.combatant_name(e.arg(8))}: {ac}"]
+        return []
+
+    # ability checks --------------------------------------------------------------------
+
+    def _check(self, e: Entry, show_all: bool) -> List[str]:
+        d20 = scaled(e.raw, 20) + 1
+        ability = e.arg(0x0A)
+        if not 0 <= ability < 6:
+            return [f"Check: d20 = {d20}"] if show_all else []
+        base = self.game.creature(e.arg(6))[CREATURE_ABILITIES + ability]
+        seg, off = CHECK_MODS
+        mod = struct.unpack("<b", self.guest.read((self.load_seg + seg) * 16 + off + e.arg(8), 1))[0]
+        ok = d20 != 20 and d20 <= base + mod
+        mod_text = f" {signed(mod)}" if mod else ""
+        return [f"{self.game.creature_name(e.arg(6))} {ABILITIES[ability]} check: d20 = {d20}, "
+                f"needs {base + mod} or less ({ABILITIES[ability]} {base}{mod_text}) "
+                f"-> {'success' if ok else 'failure'}"]

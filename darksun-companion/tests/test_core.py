@@ -247,10 +247,10 @@ class SaveFileTests(unittest.TestCase):
     def test_party_from_save(self):
         sadira = [14, 17, 13, 16, 12, 15]
         rikus = [20, 15, 18, 10, 11, 12]
-        creatures = (fake.creature(b"SADIRA", 0x8001, sadira, 21, 40, 18)
-                     + fake.creature(b"RIKUS", 0x8002, rikus, 52, 20, 17)
+        creatures = (fake.creature(b"SADIRA", 0x8001, sadira, 21, 40, 18, sheet=1)
+                     + fake.creature(b"RIKUS", 0x8002, rikus, 52, 20, 17, sheet=0)
                      + bytes(fake.CREATURE * 2))
-        # sheets stored in the other order, to prove they are matched by content
+        # sheets stored in the other order: found through each creature's sheet number
         sheets = (fake.sheet(0x8002, rikus, 5200, 52, 20, 7, [10, 0, 0], [4, 0, 0])
                   + fake.sheet(0x8001, sadira, 4500, 30, 44, 3, [11, 0, 0], [4, 0, 0]))
         with tempfile.TemporaryDirectory() as d:

@@ -4,16 +4,25 @@ A companion tool for **Dark Sun: Shattered Lands** (the GOG release) running in
 DOSBox, in the spirit of the Gold Box Companion. It has two parts:
 
 - **Party viewer:** every party member's stats, live, including numbers the
-  game doesn't show (THAC0, saving throws, class ids).
+  game doesn't show (THAC0, saving throws, attacks per round, the AC the game
+  uses in a fight, class ids).
 - **Dice log:** the rolls the game makes behind the scenes, with what they were
-  compared against. For example:
-  `Dag attacks Mountain Stalker: d20 = 18, needs 6 (THAC0 10 with bonuses, target AC 4) -> HIT`,
-  then `Dag hits Mountain Stalker for 14: 1d6 = [2] + 12 STR 24`.
+  compared against and where every bonus comes from. For example:
+
+  ```
+  Dag attacks Mountain Stalker with Long Sword +1 (1d8+1): d20 = 18, hits AC -10, target AC 4 -> HIT
+      THAC0 16, +1 Blessed, +6 STR, +1 weapon = 8
+    Dag hits Mountain Stalker for 20: 1d8 = [7] +1 weapon +12 STR 24
+  Fireball damage: 9d6 = [3 + 2 + 3 + 4 + 5 + 4 + 1 + 2 + 2] = 26
+  Red Slaad magic resistance 30% vs Fireball: d100 = 71 -> not resisted
+  Red Slaad saves vs Fireball from Daaki (petrification/polymorph): d20 = 6, doubled for this spell = 12, needs 11 -> saved
+  Jellybelly gives Blessed to Daaki: +1 to hit, +1 on saves
+  ```
 
 Nothing in the game folder or your save files is changed. The viewer only reads
-memory. The dice log briefly patches the running game in memory (see
-[How the dice log works](#how-the-dice-log-works)) and removes the patch when
-you close the companion.
+memory. For the dice log, the launcher runs a patched copy of the game that it
+keeps in the companion's own folder (see
+[How the dice log works](#how-the-dice-log-works)).
 
 ![The companion during a fight in Shattered Lands](docs/dicelog.png)
 
@@ -44,7 +53,8 @@ install anything into the game folder.
 
 Double-click **`Start Game with Dice Log.bat`** in the `darksun-companion`
 folder. It starts Shattered Lands (through GOG's own DOSBox) with the dice log
-helper loaded, and opens the companion next to it. The first time, it looks for
+helper loaded, and opens the companion next to it. Your saves are the same ones
+the game normally uses. The first time, it looks for
 the game in the usual GOG folders; if it can't find it, it asks you where the
 game is installed and remembers the answer.
 
@@ -52,7 +62,7 @@ Load your game. The party's stats fill in by themselves, and rolls appear in
 the **Dice log** tab as they happen.
 
 If you start the game the normal way instead, **`Start Companion.bat`** still
-shows the party, but the dice log will say the helper isn't loaded.
+shows the party, but the dice log will say the game was started without it.
 
 **Checking a save file (no game needed):** drag a `SAVEnn.SAV` file from the
 game folder onto **`Show Save.bat`**.
@@ -71,14 +81,18 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 
 ## The dice log
 
-Each line is one roll:
-
 | Line | Meaning |
 |---|---|
-| `X attacks Y: d20 = 14, needs 12 (THAC0 15 with bonuses, target AC 3) -> HIT` | An attack roll. The THAC0 already includes bonuses such as STR; the AC is the target's real AC, with armour and DEX. A natural 20 always hits and a natural 1 always misses. |
-| `  X hits Y for 14: 1d8 = [6] + 8 STR 20` | The damage of that hit: the dice, then the STR bonus the game adds for melee attacks. Damage is at least 1. |
+| `X attacks Y with Long Sword +1 (1d8+1): d20 = 14, hits AC 1, target AC 3 -> HIT` | An attack roll, the weapon and its damage dice. "Hits AC" is the lowest AC this roll hits (THAC0 − d20); the target AC is the one the game used, with armour, DEX and spells. A natural 20 always hits and a natural 1 always misses. |
+| `    THAC0 16, +1 Blessed, +6 STR, +1 weapon = 8` | Where the attacker's THAC0 for this attack comes from: STR (melee) or DEX (missiles), spells (Bless, Prayer, Slow, Graft Weapon, the target's Blur), attacking from behind, the weapon's plus, the penalty for non-metal weapons (wooden −3, bone −1, stone and obsidian −2), and the difficulty setting for monsters. |
+| `  X hits Y for 14: 1d8 = [6] +8 STR 20` | The damage of that hit: the dice, the weapon's bonus, and the STR bonus the game adds for melee. Damage is at least 1. |
+| `Fireball damage: 9d6 = [...] = 26` | A spell's damage roll, rolled for each target before its saving throw. |
+| `Y magic resistance 30% vs Fireball: d100 = 71 -> not resisted` | The magic resistance roll (only shown for targets that have some). |
+| `Y saves vs Fireball from X (petrification/polymorph): d20 = 6, doubled for this spell = 12 +1 modifiers (incl. Blessed) = 13, needs 11 -> saved` | A saving throw: which of the target's five saves it uses, the d20, the game's modifiers, and the number it had to reach. The game doubles the d20 for some spells (Burning Hands, Fireball, Cone of Cold, Flame Strike, Wall of Fire...). A natural 1 always fails and a natural 20 always saves. |
+| `X gives Blessed to Y, Z: +1 to hit, +1 on saves` / `Blessed ends on Y` | A spell or psionic effect starting or ending, with what it does in the game's code where that is known (to-hit, AC, saving throws). |
 | `X DEX check: d20 = 9, needs 16 or less (DEX 16) -> success` | An ability check. A natural 20 always fails. |
 | `Percentile check: d100 = 35, needs 40 or less -> success` | A percentage roll. What it's for isn't known yet. |
+| `Dice: 1d8 = [3] = 3` | Dice the log couldn't tie to anything (for example a spell with no saving throw). |
 
 **Show unlabelled rolls** also lists everything else the game randomises
 (creatures wandering, animations and so on), as raw numbers with where in the
@@ -86,22 +100,34 @@ game's code they came from. It's noisy, but useful for finding more rolls worth
 labelling.
 
 Tested in play: the attack and damage lines match the HP the game takes off,
-for both the party and the monsters.
+for both the party and the monsters, and every saving throw of a Fireball is
+logged.
+
+The viewer's **Current AC** row is the AC the game last used for each
+character in a fight (armour, DEX and spells included). It shows "-" until the
+game has needed it, typically when something first attacks that character.
 
 ### How the dice log works
 
 Every roll in the game goes through one function, Borland C++'s `rand()`.
 
-1. `dos\DSCLOG.EXE` is a tiny DOS program (about 17 KB with its buffer; source in
-   `dos\dsclog.asm`). The launcher loads it into upper memory before the game
-   starts, so the game loses no memory. It contains a replacement `rand()`
-   that returns exactly the numbers the original would, and also records each
-   call, what code called it, and that code's arguments (dice count and
-   sides, THAC0, AC...) in a small ring buffer.
-2. When the game is running, the companion replaces the first 5 bytes of the
-   game's `rand()` in memory with a jump to the replacement, and reads the
-   ring buffer every 50 ms. Closing the companion puts the 5 bytes back.
-3. To keep bursts of unimportant randomness from crowding out the rolls that
+1. When you start the game with the dice log, the launcher writes
+   `dos\DSUNLOG.EXE`: a copy of the game's `DSUN.EXE` with four small changes
+   (`dscompanion/gamepatch.py`). The start of `rand()`, the end of the saving
+   throw and the end of the AC calculation become `INT 60h`, `61h` and `62h`,
+   and the copy looks for its data files in the current folder rather than
+   next to itself. DOSBox runs it from the game folder, so it uses your saves
+   as usual.
+2. `dos\DSCLOG.EXE` (source in `dos\dsclog.asm`) is a tiny DOS program loaded
+   into upper memory before the game, so the game loses no memory. It answers
+   those interrupts. Its `rand()` returns exactly the numbers the original
+   would and also records each call, what code called it, and that code's
+   arguments (dice count and sides, THAC0, AC...) in a ring buffer. The other
+   two record the final saving throw total and the AC the game uses.
+3. The companion finds the buffer in DOSBox's memory and reads it every 50 ms.
+   It works out what each roll was for from the code that asked for it, and
+   reads the rest (names, weapons, spells, effects) from the game's own data.
+4. To keep bursts of unimportant randomness from crowding out the rolls that
    matter, the helper only records calls from code it knows how to label,
    unless **Show unlabelled rolls** is ticked.
 
@@ -109,15 +135,14 @@ Because the replacement produces identical numbers, the game plays exactly as
 it would without it.
 
 Limitations:
-- Only the GOG release has been checked. Another version of `DSUN.EXE` may
-  keep things at different addresses. The dice log then says it can't find
-  `rand()` rather than showing wrong numbers.
-- DOSBox must use its normal CPU core for the game, which is what GOG's
-  `core=auto` setting does for this game. With `core=dynamic` the patch might
-  not take effect.
-- Rolls made outside combat and ability checks (for example treasure or
-  random encounters) show up only with **Show unlabelled rolls**, as raw
-  numbers.
+- Only the GOG release (`DSUN.EXE` of 611,408 bytes) is supported. With
+  another version the launcher starts the game without the dice log and says
+  why.
+- Rolls made outside combat (for example treasure or random encounters) show
+  up only with **Show unlabelled rolls**, as raw numbers.
+- A save-file load from the main menu is recognised, so the spells already
+  active in it aren't reported as new. Loading a save of the same party in the
+  middle of play isn't, and its effects may be listed as if just cast.
 
 ## Using the viewer
 
@@ -188,6 +213,9 @@ parties, plus the in-game View Character screens.
 | sheet | `+0x1b` | u8 ×6 | STR DEX CON INT WIS CHA | |
 | sheet | `+0x21` | u8 ×3 | Class: 1–4 Cleric, 5–8 Druid, 9 Fighter, 10 Gladiator, 11 Preserver, 12 Psionicist, 13–16 Ranger, 17 Thief (0 = none) | 2, 7, 8, 9, 11, 12, 13, 14, 17 confirmed in game; the rest follow the pattern (four each, probably one per element) |
 | sheet | `+0x24` | u8 ×3 | Level in each class | |
+| sheet | `+0x27` | s8 | Base AC for the AC calculation | read by the game's AC code |
+| sheet | `+0x29` | u8 | Magic resistance (%) | read by the game's magic resistance check |
+| sheet | `+0x2a` | u8 | Attacks per round × 2 | read by the game's combat code |
 | sheet | `+0x37` | u8 ×5 | Saves: para/poison, rod/staff, petrify, breath, spell | match the AD&D warrior table exactly |
 
 In memory, the game reaches both tables through far pointers in its data
@@ -220,10 +248,10 @@ DOSBox keeps the emulated PC's RAM in one block of its own process memory. The
 tool finds that block by looking for the BIOS date string DOSBox writes at
 guest address `0xFFFF5` ("01/01/92"), and checks it against the interrupt
 table at guest address 0. After that, reading the game's memory is a plain
-`ReadProcessMemory` at `block + guest address`. Dark Sun runs under the DOS/4GW
-extender, whose flat 32-bit pointers are these same guest addresses. If
-detection fails on an unusual DOSBox build, you can pass the block's host
-address with `--host-base`.
+`ReadProcessMemory` at `block + guest address`. Dark Sun is a 16-bit real-mode
+program, so a `segment:offset` address is simply `segment × 16 + offset` in
+guest memory. If detection fails on an unusual DOSBox build, you can pass the
+block's host address with `--host-base`.
 
 ## Development
 

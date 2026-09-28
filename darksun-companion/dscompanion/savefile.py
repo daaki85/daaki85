@@ -7,6 +7,9 @@ the game:
   SAVE chunk 6: the party's character sheets (71-byte records)
 """
 
+import struct
+
+from . import game
 from .gff import GffError, read_gff
 from .layout import Layout
 
@@ -36,7 +39,9 @@ def load_party(path: str, layout: Layout) -> SaveMemory:
     if missing:
         raise GffError(f"{path} has no {' or '.join(f'{t} {i}' for t, i in missing)} chunk; "
                        "is it a Shattered Lands save?")
-    mem = SaveMemory(chunks[CREATURE_CHUNK] + chunks[SHEET_CHUNK])
+    creatures = chunks[CREATURE_CHUNK]
+    mem = SaveMemory(creatures + chunks[SHEET_CHUNK])
+    sheet = layout.records.get("sheet")
 
     creature = layout.name_record
     if not creature.stride:
@@ -47,5 +52,8 @@ def load_party(path: str, layout: Layout) -> SaveMemory:
         name = layout.name.display(mem.read(base, creature.stride), 0)
         if name and name not in ("?", "-"):
             creature.slots[slot] = base
+            if sheet is not None:  # the game's own link: the creature's sheet number
+                index = struct.unpack_from("<H", creatures, base + game.CREATURE_SHEET_INDEX)[0]
+                sheet.slots[slot] = len(creatures) + index * game.SHEET_SIZE
             layout.link_slot(slot, mem.data)
     return mem
