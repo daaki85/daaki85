@@ -142,6 +142,18 @@ CREATION_CLASS_NAMES = {1: "Cleric", 2: "Druid", 3: "Fighter", 4: "Gladiator", 5
 SMALL_WORDS = {"of", "from", "to", "the", "and", "or", "in"}
 
 
+def signed_text(n: int) -> str:
+    return f"+{n}" if n >= 0 else str(n)
+
+
+def game_time(seconds: int) -> str:
+    """Game time: seconds, 60 to a round (AD&D's one-minute round)."""
+    if seconds % 60 == 0:
+        rounds = seconds // 60
+        return f"{rounds} round{'' if rounds == 1 else 's'}"
+    return f"{seconds} seconds ({seconds / 60:.1f} rounds)"
+
+
 def title(text: str) -> str:
     """'CONE OF COLD' -> 'Cone of Cold'."""
     words = string.capwords(text).split(" ")
@@ -202,6 +214,23 @@ class LevelHp(NamedTuple):
     sides: int  # the hit die
     dice_levels: int  # levels up to this one roll it
     fixed: int  # hit points per level after that
+
+
+class SpellDamage(NamedTuple):
+    """A spell's damage, from its record (+0Ch..+0Eh): base dice, then per step some dice and a
+    flat bonus; steps = (caster level, at most 10, + adjust) // per_levels, at least 1."""
+    base_dice: int
+    step_dice: int
+    step_bonus: int
+    per_levels: int
+    adjust: int
+    sides: int
+
+    def steps(self, level: int) -> int:
+        return max(1, (min(level, SPELL_LEVEL_CAP) + self.adjust) // self.per_levels)
+
+
+SPELL_LEVEL_CAP = 10  # damage stops growing at caster level 10
 
 
 class SpellRules(NamedTuple):
@@ -304,6 +333,48 @@ class GameData:
             return None
         nibble = (rec[0x0F] >> 1) & 0x0F
         return SpellRules(bool(struct.unpack_from("<H", rec, 0x0A)[0] & 0x86), nibble - 16 if nibble & 8 else nibble)
+
+    def spell_record(self, spell: int) -> bytes:
+        """The spell's whole 32-byte record (it starts 10h before the fields SPELLS_OFF names)."""
+        if not 0 <= spell < 256:
+            return b""
+        return self.guest.read((self.load_seg + SPELLS_SEG) * 16 + SPELLS_OFF - 0x10 + spell * SPELL_SIZE,
+                               SPELL_SIZE)
+
+    def spell_duration(self, spell: int, level: int, roll: int) -> Optional[Tuple[int, str]]:
+        """(game seconds, how) for a spell cast at `level` whose duration dice came up `roll`:
+        ((level + adjust) * per_level // per_levels + dice) * unit. 60 seconds are a round."""
+        rec = self.spell_record(spell)
+        if len(rec) < SPELL_SIZE:
+            return None
+        per_level, unit = struct.unpack_from("<Hh", rec, 5)
+        if unit <= 0:
+            return None  # not timed (-10000: permanent)
+        rule = self.spell_damage(spell)
+        per_levels, adjust = (rule.per_levels, rule.adjust) if rule else (1, 0)
+        levels = (max(level, 1) + adjust) * per_level // per_levels
+        total = min((levels + roll) * unit, 0x7FFF)
+        how = []
+        if per_level:
+            how.append(f"{per_level} for each {'' if per_levels == 1 else f'{per_levels} '}caster level"
+                       + (f" ({signed_text(adjust)})" if adjust else "") + f" = {levels}")
+        how.append(f"{roll} from the dice")
+        return total, " + ".join(how)
+
+    def save_negates_damage(self, spell: int) -> bool:
+        """A successful save stops all the damage (else it halves it): flag 8000h of the word at +11h."""
+        rec = self.spell_record(spell)
+        return len(rec) >= SPELL_SIZE and bool(struct.unpack_from("<H", rec, 0x11)[0] & 0x8000)
+
+    def spell_damage(self, spell: int) -> Optional[SpellDamage]:
+        if not 0 <= spell < 256:
+            return None
+        rec = self.guest.read((self.load_seg + SPELLS_SEG) * 16 + SPELLS_OFF + spell * SPELL_SIZE, SPELL_SIZE)
+        if len(rec) < SPELL_SIZE:
+            return None
+        b0, b1, b2 = rec[0x0C], rec[0x0D], rec[0x0E]
+        adjust = (b2 >> 4) - 16 if b2 & 0x80 else b2 >> 4
+        return SpellDamage(b1 >> 3, b0 >> 5, b0 & 0x1F, (b1 & 7) or 1, adjust, b2 & 0x0F)
 
     def magic_resistance(self, combatant: int) -> Optional[int]:
         """The base magic resistance (percent) on a creature's character sheet."""

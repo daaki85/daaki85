@@ -55,6 +55,9 @@ WEAPON_DAMAGE_RETURN = bytes.fromhex("83c4068946fc0bc07f05")
 SPECIAL_EFFECT_RETURN = bytes.fromhex("83c4043d01007510")
 # ... and in the routine that adds up a spell's damage dice
 SPELL_DAMAGE_RETURN = bytes.fromhex("83c4045a03d0")
+# ... and in the routine that works out a spell's duration (its arguments: spell, caster level);
+# the dice are often NdS with S = 1, a fixed number
+SPELL_DURATION_RETURN = bytes.fromhex("83c406660fbfc0665a66")
 # DSCLOG only records calls whose calling code starts like one of these, so
 # bursts of other randomness (animations) don't crowd out the rolls that
 # matter: the "rand()*N/32768" rolls (attacks, checks, saves, damage dice)
@@ -91,6 +94,7 @@ THIEF = 17  # class number
 EFFECT_INTERVAL = 0.25  # seconds between looks at the active effects
 LOAD_SETTLE = 3.0  # seconds after the party changes (a game was loaded) when effects are not news
 PENDING_SECONDS = 1.0  # how long dice wait to learn which spell they belong to
+SPELL_WINDOW = 4.0  # seconds after a spell's roll in which HP changes are put down to the spell
 
 
 class DiceLogError(Exception):
@@ -231,6 +235,9 @@ class DiceLog:
         self._creation_hp: List[Tuple[int, int, int, str]] = []  # (sheet, class, hit points, text)
         self._creation_hp_at = 0.0
         self._creation_con: Optional[int] = None  # the CON just rolled
+        self._hp: Dict[int, int] = {}  # creature index -> HP at the last look
+        self._spell_until = 0.0  # HP changes before this are a spell's doing
+        self._spell_name = ""
         self.tracker: Optional[PartyTracker] = None
         self.text: Optional[TextBuffer] = None
         self.dialogue = Dialogue()
@@ -313,6 +320,7 @@ class DiceLog:
         out: List[str] = []
         for e in self.poll():
             out += self.describe(e, show_all, now)
+        out += self.hp_changes(now)
         for rec in self.text.poll():
             if rec.kind == KIND_MESSAGE:
                 if rec.text.strip():
@@ -334,6 +342,35 @@ class DiceLog:
             out.append(f"({self.missed} rolls came too fast to record)")
             self.missed = 0
         return out
+
+    def hp_changes(self, now: float) -> List[str]:
+        """While a spell is being cast, what it does to each combatant's HP (the damage after
+        saves, resistances and protections, or the healing)."""
+        combatants = self.game.combatants()
+        out = []
+        current = {}
+        for combatant, index in sorted(combatants.items()):
+            rec = self.game.creature(index)
+            if len(rec) < 2:
+                continue
+            hp = struct.unpack_from("<h", rec, 0)[0]
+            current[index] = hp
+            before = self._hp.get(index)
+            if before is None or before == hp or now > self._spell_until:
+                continue
+            who = self.game.creature_name(index)
+            if hp < before:
+                out.append(f"    {who} takes {before - hp} from {self._spell_name} (HP {before} -> {hp})")
+            else:
+                out.append(f"    {who} regains {hp - before} HP from {self._spell_name} (HP {before} -> {hp})")
+        self._hp = current
+        return out
+
+    def _spell_cast(self, spell: Optional[int], now: float) -> None:
+        """A spell is taking effect: HP changes for the next few seconds are its doing."""
+        if spell is not None:
+            self._spell_name = self.game.spell_name(spell)
+            self._spell_until = now + SPELL_WINDOW
 
     def speaker(self, portrait: Optional[int]) -> str:
         """Who a dialogue portrait belongs to, as far as is known."""
@@ -476,6 +513,7 @@ class DiceLog:
             return self._ac(e, show_all)
         code = e.code
         if code.startswith(ATTACK_SITE):
+            self._spell_until = 0.0
             return self.flush(now, force=True) + self._attack(e)
         if code.startswith(DICE_SITE):
             return self._dice_roll(e, show_all, now)
@@ -599,7 +637,7 @@ class DiceLog:
         faces_text = "[" + " + ".join(map(str, faces)) + "]"
         if not weapon:
             if count == 1 and sides == 20 and self._is_save_roll(e):
-                return self._save_roll(e)
+                return self._save_roll(e, now)
             if count == 1 and sides == 10 and e.parent_code.startswith(SPECIAL_EFFECT_RETURN):
                 target, attacker = e.parent_arg(6), e.parent_arg(8)
                 return [f"    {self._name(attacker)}'s special effect on {self._name(target)}: d10 = {faces[0]}, "
@@ -614,6 +652,11 @@ class DiceLog:
                 level_up = self._level_hp(e, sides, faces[0])
                 if level_up:
                     return level_up
+            if e.parent_code.startswith(SPELL_DURATION_RETURN):
+                return self._spell_duration(e, count, sides, faces)
+            if e.parent_code.startswith(SPELL_DAMAGE_RETURN):
+                self._spell_cast(e.parent_arg(6), now)
+                return self.flush(now, force=True) + [self._spell_damage(e, count, sides, faces)]
             if sides > 1:  # the game sometimes "rolls" 1d1
                 pending = PendingDice(f"{count}d{sides} = {faces_text} = {sum(faces)}", now,
                                       damage=e.parent_code.startswith(SPELL_DAMAGE_RETURN))
@@ -647,6 +690,48 @@ class DiceLog:
             total *= times
             steps = f"({steps}) x{times} backstab"
         return [f"  {g.creature_name(attacker)} hits {g.combatant_name(e.glob[0])} for {total}: {steps}"]
+
+    def _spell_duration(self, e: Entry, count: int, sides: int, faces: List[int]) -> List[str]:
+        g = self.game
+        spell, level = e.parent_arg(6), (e.parent_arg(8) or 0) & 0xFF
+        if spell is None:
+            return []
+        dice = f"{count}d{sides}" + (f" = [{' + '.join(map(str, faces))}]" if sides > 1 else "")
+        found = g.spell_duration(spell, level, sum(faces))
+        if found is None:
+            return []  # not a timed spell
+        units, how = found
+        return [f"    {g.spell_name(spell)} lasts {game.game_time(units)} (caster level {level}: {how}; "
+                f"dice {dice})"]
+
+    def _spell_damage(self, e: Entry, count: int, sides: int, faces: List[int]) -> str:
+        """A spell's damage dice, rolled by the routine whose arguments are (spell, caster level):
+        the game adds a flat bonus for each step of caster level."""
+        g = self.game
+        spell, level = e.parent_arg(6), (e.parent_arg(8) or 0) & 0xFF
+        name = g.spell_name(spell) if spell is not None else "Spell"
+        text = f"{name} damage: {count}d{sides} = [" + " + ".join(map(str, faces)) + "]"
+        rule = g.spell_damage(spell) if spell is not None else None
+        if rule is None or rule.sides != sides:
+            return f"{text} = {sum(faces)}"
+        steps = rule.steps(level)
+        bonus = rule.step_bonus * steps
+        if bonus:
+            text += f" {signed(bonus)}"
+        text += f" = {sum(faces) + bonus}"
+        per = (f"{rule.step_dice}d{sides}" if rule.step_dice else "") + \
+            (f"{signed(rule.step_bonus)}" if rule.step_dice and rule.step_bonus else
+             f"{rule.step_bonus}" if rule.step_bonus else "")
+        if not per:
+            return text
+        unit = "caster level" if rule.per_levels == 1 else f"{rule.per_levels} caster levels"
+        counted = min(level, game.SPELL_LEVEL_CAP) + rule.adjust
+        how = f"{per} for each {unit}"
+        if rule.adjust:
+            how += f" (counting {signed(rule.adjust)})"
+        base = f"{rule.base_dice}d{sides} + " if rule.base_dice else ""
+        cap = f", which counts as {game.SPELL_LEVEL_CAP}" if level > game.SPELL_LEVEL_CAP else ""
+        return f"{text} ({base}{how}: {steps} at caster level {level}{cap})" if counted >= 0 else text
 
     # weapons breaking and levels ------------------------------------------------------
 
@@ -813,11 +898,12 @@ class DiceLog:
         table = game.far_pointer(self.guest, self.game.ds, game.CREATURES_PTR)
         return (seg & 0xFFFF) * 16 + (off & 0xFFFF) == table + index * game.CREATURE_SIZE
 
-    def _save_roll(self, e: Entry) -> List[str]:
+    def _save_roll(self, e: Entry, now: float = 0.0) -> List[str]:
         """The d20 of a saving throw. A natural 1 or 20 ends the save here; otherwise the
         save probe reports the total."""
         natural = scaled(e.raw, 20) + 1
         spell, target, caster = e.parent_arg(0x0A), e.parent_arg(6), e.parent_arg(8)
+        self._spell_cast(spell, now)
         needed = e.parent_locals[0x28 - 1]
         index = e.parent_local(-6)
         pending = self._flush_spell(spell)
@@ -856,10 +942,11 @@ class DiceLog:
     def _save_line(self, target, caster, spell, index, natural, total, needed) -> str:
         g = self.game
         kind = SAVE_NAMES.get(index, "?")
-        who = f"{g.combatant_name(target)} saves vs {g.spell_name(spell)} from {g.combatant_name(caster)} ({kind})"
+        # a spell left on the ground (Grease, a cloud) makes its victims save with themselves as the caster
+        source = f" from {g.combatant_name(caster)}" if caster != target else ""
+        who = f"{g.combatant_name(target)} saves vs {g.spell_name(spell)}{source} ({kind})"
         if total is None:
-            result = "saved" if natural == 20 else "failed"
-            return f"{who}: d20 = {natural} (natural {natural}) -> {result}"
+            return f"{who}: d20 = {natural} (natural {natural}) -> {self._save_result(spell, natural == 20)}"
         if total >= 0x80:  # the game adds -100 / +100 for "can't save" / "always saves"
             total -= 0x100
         if total < -50:
@@ -883,7 +970,16 @@ class DiceLog:
                 steps += " " + " ".join(parts) + f" = {total}"
         else:
             steps += f" total {total}"
-        return f"{who}: {steps}, needs {needed} -> {'saved' if total >= needed else 'failed'}"
+        return f"{who}: {steps}, needs {needed} -> {self._save_result(spell, total >= needed)}"
+
+    def _save_result(self, spell: int, saved: bool) -> str:
+        """'saved' or 'failed', and what a save does to the spell's damage."""
+        if not saved:
+            return "failed"
+        rule = self.game.spell_damage(spell)
+        if rule is None or rule.sides < 2:  # no damage dice (1d1 is the game's "none")
+            return "saved"
+        return "saved: no damage" if self.game.save_negates_damage(spell) else "saved: half damage"
 
     def _save_modifier_sources(self, target: int) -> str:
         """'modifiers', naming the target's effects the game counts in saving throws."""

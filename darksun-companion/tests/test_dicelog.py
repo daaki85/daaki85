@@ -243,11 +243,46 @@ class SaveTests(unittest.TestCase):
         log = make_game()
         damage = [entry(raw_for(f, 6), dicelog.DICE_SITE, words(0, 0, 2, 6), words(0, 0, HOLD_PERSON),
                         parent_code=dicelog.SPELL_DAMAGE_RETURN) for f in (6, 4)]
-        self.assertEqual(log.describe(damage[0], now=1.0) + log.describe(damage[1], now=1.0), [])
-        self.assertEqual(log.describe(self.save_roll(log, 13), now=1.1), ["Hold Person damage: 2d6 = [6 + 4] = 10"])
+        # the damage routine's arguments name the spell, so the line needn't wait for the save
+        self.assertEqual(log.describe(damage[0], now=1.0) + log.describe(damage[1], now=1.0),
+                         ["Hold Person damage: 2d6 = [6 + 4] = 10"])
+        self.assertEqual(log.describe(self.save_roll(log, 13), now=1.1), [])
         self.assertEqual(log.describe(self.probe(15)),
                          ["Mountain Stalker saves vs Hold Person from Dag (spell): d20 = 13 +2 modifiers = 15, "
                           "needs 14 -> saved"])
+
+    def damage_formula(self, log, spell, b0, b1, b2):
+        rules = (LOAD_SEG + game.SPELLS_SEG) * 16 + game.SPELLS_OFF + spell * game.SPELL_SIZE
+        log.guest.mem[rules + 0x0C:rules + 0x0F] = bytes((b0, b1, b2))
+
+    def test_damage_formula(self):
+        log = make_game()
+        self.damage_formula(log, FIREBALL, 0x20, 0x01, 0x06)  # 1d6 a caster level
+        dice = [entry(raw_for(f, 6), dicelog.DICE_SITE, words(0, 0, 3, 6), words(0, 0, FIREBALL, 3),
+                      parent_code=dicelog.SPELL_DAMAGE_RETURN) for f in (1, 2, 3)]
+        lines = sum((log.describe(d) for d in dice), [])
+        self.assertEqual(lines, ["Fireball damage: 3d6 = [1 + 2 + 3] = 6 (1d6 for each caster level: 3 at caster "
+                                 "level 3)"])
+        # 1d3 + 2 a level (Burning Hands' numbers), from a 20th level caster: counted as 10
+        self.damage_formula(log, HOLD_PERSON, 0x02, 0x09, 0x03)
+        e = entry(raw_for(2, 3), dicelog.DICE_SITE, words(0, 0, 1, 3), words(0, 0, HOLD_PERSON, 20),
+                  parent_code=dicelog.SPELL_DAMAGE_RETURN)
+        self.assertEqual(log.describe(e), ["Hold Person damage: 1d3 = [2] +20 = 22 (1d3 + 2 for each caster level: "
+                                           "10 at caster level 20, which counts as 10)"])
+
+    def test_hp_after_a_spell(self):
+        log = make_game()
+        m = log.guest.mem
+        stalker = CREATURES + STALKER * game.CREATURE_SIZE
+        struct.pack_into("<h", m, stalker, 30)
+        self.assertEqual(log.hp_changes(0.5), [])  # the first look
+        e = entry(raw_for(3, 6), dicelog.DICE_SITE, words(0, 0, 1, 6), words(0, 0, FIREBALL, 3),
+                  parent_code=dicelog.SPELL_DAMAGE_RETURN)
+        log.describe(e, now=1.0)
+        struct.pack_into("<h", m, stalker, 27)
+        self.assertEqual(log.hp_changes(1.5), ["    Mountain Stalker takes 3 from Fireball (HP 30 -> 27)"])
+        struct.pack_into("<h", m, stalker, 20)  # long after: not the spell's doing
+        self.assertEqual(log.hp_changes(9.0), [])
 
     def test_doubled_roll(self):
         log = make_game()
