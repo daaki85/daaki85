@@ -67,11 +67,13 @@ class Viewer:
     # ---- layout of the window -------------------------------------------------
 
     def _build(self) -> None:
-        theme.Banner(self.root).pack(fill="x")
-        top = ttk.Frame(self.root, padding=6)
+        self.banner = theme.Banner(self.root)
+        self.banner.pack(fill="x")
+        top = ttk.Frame(self.root, padding=(6, 6, 6, 0))
         top.pack(fill="x")
         self.status = tk.StringVar(value="Not connected")
-        ttk.Label(top, textvariable=self.status, style="Status.TLabel").pack(side="left")
+        # on a line of its own, below the buttons, so it never pushes them off at larger text sizes
+        ttk.Label(self.root, textvariable=self.status, style="Status.TLabel", padding=(8, 2)).pack(fill="x")
         ttk.Button(top, text="Save layout", command=self.save_layout).pack(side="right")
         ttk.Button(top, text="Reload layout", command=self.reload_layout).pack(side="right", padx=4)
         ttk.Button(top, text="Reconnect", command=self.reconnect).pack(side="right")
@@ -84,13 +86,16 @@ class Viewer:
                             ("<Control-0>", None)):
             self.root.bind_all(key, lambda _e, f=factor: self.zoom(f))
 
-        panes = ttk.PanedWindow(self.root, orient="horizontal")
+        self.panes = panes = ttk.PanedWindow(self.root, orient="horizontal")
         panes.pack(fill="both", expand=True, padx=6, pady=(0, 6))
         # room for all four characters' columns before the logs take the rest
-        self.root.after(200, lambda: panes.sashpos(0, 150 + 118 * self.layout.count + 24))
+        self.root.after(200, self._fit_party)
 
         party = ttk.Frame(panes)
         self.table = ttk.Treeview(party, show="headings")
+        across = ttk.Scrollbar(party, orient="horizontal", command=self.table.xview)
+        self.table.configure(xscrollcommand=across.set)
+        across.pack(side="bottom", fill="x")
         self.table.pack(fill="both", expand=True)
         panes.add(party, weight=1)
 
@@ -102,13 +107,13 @@ class Viewer:
         tabs.add(dice, text="Dice log", underline=5)
         row = ttk.Frame(dice)
         row.pack(fill="x")
-        self.dice_status = tk.StringVar(value="Waiting for the game...")
-        ttk.Label(row, textvariable=self.dice_status).pack(side="left")
         ttk.Button(row, text="Clear", command=lambda: self.dice_text.delete("1.0", "end")).pack(side="right")
         ttk.Button(row, text="Save...", command=lambda: self.save_text(self.dice_text, "dice log")).pack(
             side="right", padx=4)
         self.show_all = tk.BooleanVar(value=False)
-        ttk.Checkbutton(row, text="Show unlabelled rolls", variable=self.show_all).pack(side="right", padx=8)
+        ttk.Checkbutton(dice, text="Show unlabelled rolls", variable=self.show_all).pack(anchor="w", pady=(4, 0))
+        self.dice_status = tk.StringVar(value="Waiting for the game...")
+        ttk.Label(dice, textvariable=self.dice_status).pack(fill="x", pady=(4, 0))
         box = ttk.Frame(dice)
         box.pack(fill="both", expand=True, pady=(6, 0))
         self.dice_text = tk.Text(box, font="TkFixedFont", wrap="word", height=20)
@@ -219,10 +224,18 @@ class Viewer:
     def zoom(self, factor: Optional[float]) -> None:
         """Enlarge or shrink all text (None: back to the usual size)."""
         theme.set_scale(self.root, 1.0 if factor is None else theme.scale() * factor)
-        width = round(118 * theme.scale())
+        self.banner.redraw()
+        self._fit_party()
+
+    def _fit_party(self) -> None:
+        """Columns wide enough for the text size, and the divider moved to fit them."""
+        field, slot = round(150 * theme.scale()), round(118 * theme.scale())
+        self.table.column("field", width=field, minwidth=field, stretch=False)
         for i in range(self.layout.count):
-            self.table.column(f"slot{i}", width=width)
-        self.table.column("field", width=round(150 * theme.scale()))
+            self.table.column(f"slot{i}", width=slot, minwidth=slot)
+        # at large text sizes the table scrolls sideways rather than squeezing the logs
+        wanted = field + slot * self.layout.count + 24
+        self.panes.sashpos(0, min(wanted, int(self.root.winfo_width() * 0.55)))
 
     def save_text(self, widget: tk.Text, what: str) -> None:
         """Save a log as a text file (to read with other tools, such as a screen reader)."""

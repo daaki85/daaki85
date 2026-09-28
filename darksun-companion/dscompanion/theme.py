@@ -21,6 +21,7 @@ from .palette import (AMBER, BUTTON, BUTTON_LIT, DARK, DEEP, EDGE_LIT, FOCUS, LO
 BASE_SIZES = {"TkDefaultFont": 10, "TkTextFont": 10, "TkFixedFont": 10, "TkHeadingFont": 10,
               "TkMenuFont": 10, "LedgerHeading": 10, "LedgerTitle": 20, "LedgerSmall": 9}
 _scale = 1.0
+_fonts = {}  # tkinter deletes a named font when its Font object goes, so keep them
 
 
 def _family(*preferred: str) -> str:
@@ -33,9 +34,10 @@ def make_fonts(root: tk.Misc) -> None:
     for name, family, weight, slant in (("LedgerHeading", serif, "bold", "roman"),
                                         ("LedgerTitle", serif, "bold", "roman"),
                                         ("LedgerSmall", "TkDefaultFont", "normal", "italic")):
-        if name not in tkfont.names(root):
+        if name not in _fonts:
             family = tkfont.nametofont("TkDefaultFont").actual("family") if family == "TkDefaultFont" else family
-            tkfont.Font(root, name=name, family=family, weight=weight, slant=slant, size=BASE_SIZES[name])
+            _fonts[name] = tkfont.Font(root, name=name, family=family, weight=weight, slant=slant,
+                                       size=BASE_SIZES[name])
     set_scale(root, _scale)
 
 
@@ -121,11 +123,11 @@ def apply(root: tk.Tk) -> None:
 def style_text(widget: tk.Text) -> None:
     """A log or list on the dark stone of the game's recessed panels. The border turns
     yellow while it has the keyboard focus."""
-    widget.configure(background=DEEP, foreground=PALE, insertbackground=PALE, selectbackground=PANEL,
+    widget.configure(background=DEEP, foreground=PALE, selectbackground=PANEL,
                      selectforeground=YELLOW, relief="flat", borderwidth=0, highlightthickness=2,
                      highlightbackground=SHADOW, highlightcolor=FOCUS)
-    if isinstance(widget, tk.Text):
-        widget.configure(padx=8, pady=6)
+    if isinstance(widget, tk.Text):  # a list has no insertion cursor or padding
+        widget.configure(insertbackground=PALE, padx=8, pady=6)
 
 
 def _rock(width: int, height: int, seed: int = 7) -> tk.PhotoImage:
@@ -161,15 +163,22 @@ class Banner(tk.Canvas):
         self.tile = _rock(96, self.HEIGHT)
         title, _, _ = fonts()
         self.title_font = title
-        self.bind("<Configure>", lambda _e: self._draw())
+        self.bind("<Configure>", lambda _e: self.redraw())
 
-    def _draw(self) -> None:
+    def redraw(self) -> None:
+        """Draw at the current text size (the strip grows with the title)."""
+        height = round(self.HEIGHT * _scale)
+        if int(self.cget("height")) != height:
+            self.configure(height=height)  # the <Configure> this causes draws again
         self.delete("all")
         width = max(self.winfo_width(), 1)
-        for x in range(0, width, self.tile.width()):
-            self.create_image(x, 0, image=self.tile, anchor="nw")
-        self.create_line(0, self.HEIGHT - 2, width, self.HEIGHT - 2, fill=SHADOW, width=3)
+        for y in range(0, height, self.tile.height()):
+            for x in range(0, width, self.tile.width()):
+                self.create_image(x, y, image=self.tile, anchor="nw")
+        self.create_line(0, height - 2, width, height - 2, fill=SHADOW, width=3)
+        middle = height // 2
         for dx, dy, colour in ((2, 2, SHADOW), (0, 0, AMBER)):
-            self.create_text(14 + dx, 25 + dy, text=NAME.upper(), anchor="w", fill=colour, font=self.title_font)
-        right = 14 + tkfont.Font(font=self.title_font).measure(NAME.upper()) + 14
-        self.create_text(right, 29, text=SUBTITLE, anchor="w", fill=SAND, font="LedgerSmall")
+            self.create_text(14 + dx, middle + dy, text=NAME.upper(), anchor="w", fill=colour, font=self.title_font)
+        right = 14 + tkfont.nametofont(self.title_font).measure(NAME.upper()) + 14
+        self.create_text(right, middle + round(4 * _scale), text=SUBTITLE, anchor="w", fill=SAND,
+                         font="LedgerSmall")
