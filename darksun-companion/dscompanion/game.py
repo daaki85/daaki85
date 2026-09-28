@@ -61,6 +61,10 @@ SHEET_MAGIC_RESISTANCE = 0x29
 SHEET_XP, SHEET_XP_VALUE, SHEET_MAX_HP = 0x00, 0x04, 0x08  # a monster's sheet holds its XP value at +4
 SHEET_RACE, SHEET_ABILITIES = 0x18, 0x1B
 SHEET_CLASSES, SHEET_LEVELS, SHEET_BASE_AC = 0x21, 0x24, 0x27
+# sheet +0x12: a word of flags, one bit per class the character has (druid 0x10, fighter
+# 0x20, gladiator 0x40, preserver 0x80, psionicist 0x100, ranger 0x200, thief 0x400)
+SHEET_FLAGS = 0x12
+SHEET_FLAG_RANGER = 0x200
 RACE_HALF_GIANT = 5
 # Hit points per level (segment relative to the load segment): +10h + class = the class's
 # group; group * 4 = (die, levels that roll it, fixed gain after that); +38h + CON = the

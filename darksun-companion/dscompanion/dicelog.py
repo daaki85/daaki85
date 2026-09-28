@@ -541,6 +541,19 @@ class DiceLog:
                 penalty = MATERIAL_TO_HIT[weapon.material]
                 parts.append((MATERIALS[weapon.material].lower(), penalty))
                 rest -= penalty
+        # With two weapons ready the game adjusts every melee attack by the DEX table it
+        # also uses for initiative, sign flipped and never below 0 (rangers excepted): a
+        # bonus at DEX 5 or less, nothing otherwise. The manual's off-hand penalty isn't there.
+        weapons_ready = e.parent_local(-0x16)
+        if mode <= 1 and weapons_ready is not None and weapons_ready >= 2:
+            sheet = g.sheet(attacker)
+            ranger = len(sheet) >= game.SHEET_FLAGS + 2 and \
+                struct.unpack_from("<H", sheet, game.SHEET_FLAGS)[0] & game.SHEET_FLAG_RANGER
+            dex = g.creature(attacker)[CREATURE_ABILITIES + 1]
+            two_weapons = 0 if ranger else max(0, -g.dex_initiative(dex))
+            if two_weapons:
+                parts.append((f"two weapons at DEX {dex}", two_weapons))
+                rest -= two_weapons
         if attacker_combatant is not None and attacker_combatant >= 4:
             difficulty = g.difficulty() - 1
             if difficulty:

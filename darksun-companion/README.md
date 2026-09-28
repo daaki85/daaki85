@@ -97,7 +97,7 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 | Line | Meaning |
 |---|---|
 | `X attacks Y with Long Sword +1 (1d8+1): d20 = 14, hits AC 1, target AC 3 -> HIT` | An attack roll, the weapon and its damage dice. `X attacks Y from behind ...` and `X attacks Y BACKSTAB ...` mark attacks from behind and backstabs (see below). "Hits AC" is the lowest AC this roll hits (THAC0 − d20); the target AC is the one the game used, with armour, DEX and spells. A natural 20 always hits and a natural 1 always misses. |
-| `    THAC0 16, +1 Blessed, +6 STR, +1 weapon = 8` | Where the attacker's THAC0 for this attack comes from: STR (melee) or DEX (missiles), spells (Bless, Prayer, Slow, Graft Weapon, the target's Blur), attacking from behind, the weapon's plus, the penalty for non-metal weapons (wooden −3, bone −1, stone and obsidian −2), and the difficulty setting for monsters. |
+| `    THAC0 16, +1 Blessed, +6 STR, +1 weapon = 8` | Where the attacker's THAC0 for this attack comes from: STR (melee) or DEX (missiles), spells (Bless, Prayer, Slow, Graft Weapon, the target's Blur), attacking from behind, the weapon's plus, the penalty for non-metal weapons (wooden −3, bone −1, stone and obsidian −2), the two-weapon adjustment (see below), and the difficulty setting for monsters. |
 | `  X hits Y for 14: 1d8 = [6] +8 STR 20` | The damage of that hit: the dice, the weapon's bonus, and the STR bonus the game adds for melee. Damage is at least 1. |
 | `  X hits Y for 51: (1d8 = [5] +12 STR 24) x3 backstab` | A backstab (see below) multiplies the whole damage, STR bonus included. |
 | `Fireball damage: 9d6 = [...] = 26` | A spell's damage roll, rolled for each target before its saving throw. |
@@ -149,6 +149,18 @@ The DEX adjustment has its own table: −6 at DEX 1, −4 at 2, −3 at 3, −2 
 highest score acts first; a second roll, 0-199, decides between equal scores
 (the log shows it only for those). Choosing Wait lowers the character's score
 to 10 (or by one, if it's 10 or less already) so they act later in the round.
+
+### Two weapons
+
+The manual says a character with two weapons ready uses the second "at a
+disadvantage", unless a ranger or dextrous. The game's code does something
+else: with two weapons ready (in melee), every attack, first hand and second
+alike, is adjusted by the DEX table used for initiative with its sign flipped
+and never below 0, and rangers are left out. That comes to a **bonus** of +6 at
+DEX 1, +4 at 2, +3 at 3, +2 at 4 and +1 at 5, and nothing at DEX 6 and up, so
+in practice there is no off-hand penalty at all: both weapons hit as well as a
+single one would. (Tested by lowering a two-weapon fighter's DEX to 4 in
+memory: both weapons got +2.) The log names it, e.g. `+2 two weapons at DEX 4`.
 
 ### Attacks from behind and backstabs
 

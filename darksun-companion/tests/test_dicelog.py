@@ -172,6 +172,23 @@ class AttackTests(unittest.TestCase):
         self.assertTrue(lines[0].startswith("Dag attacks Mountain Stalker BACKSTAB with Wooden Long Sword"))
         self.assertEqual(lines[1], "    THAC0 16, +2 from behind, +2 backstab, +4 STR, -3 wooden = 11")
 
+    def test_two_weapons(self):
+        log = make_game()
+        m = log.guest.mem
+        dex = CREATURES + game.CREATURE_ABILITIES + 1
+        # DEX 15 with two weapons ready: nothing changes
+        m[dex] = 15
+        lines = log.describe(self.attack(18, 9, 4, 5, 9, after_f1=10, hit_bonus=1, m16=2))
+        self.assertEqual(lines[1], "    THAC0 16, +6 STR, +1 weapon = 9")
+        # DEX 4: the game's table gives -2, which it turns into +2
+        m[dex], m[DS * 16 + game.DEX_INITIATIVE + 4] = 4, 0xFE
+        lines = log.describe(self.attack(18, 7, 4, 5, 9, after_f1=10, hit_bonus=3, m16=2))
+        self.assertEqual(lines[1], "    THAC0 16, +6 STR, +1 weapon, +2 two weapons at DEX 4 = 7")
+        # a ranger gets nothing either way (the rest shows as unexplained)
+        struct.pack_into("<H", m, SHEETS + game.SHEET_FLAGS, game.SHEET_FLAG_RANGER)
+        lines = log.describe(self.attack(18, 9, 4, 5, 9, after_f1=10, hit_bonus=1, m16=2))
+        self.assertEqual(lines[1], "    THAC0 16, +6 STR, +1 weapon = 9")
+
     def test_monster_natural_attack(self):
         log = make_game()
         lines = log.describe(self.attack(20, 11, 1, -1, -1, after_f1=11, hit_bonus=0, attacker=STALKER,
