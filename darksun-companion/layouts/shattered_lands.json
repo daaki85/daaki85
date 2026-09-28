@@ -1,0 +1,37 @@
+{
+  "game": "Dark Sun: Shattered Lands",
+  "_notes": [
+    "Offsets are relative to a party member's record base, in hex (\"0x1c\") or decimal, and may be negative.",
+    "null means 'not discovered yet'; the viewer shows those as '?'.",
+    "Slots are guest addresses found with the viewer's 'Locate by name' or the find-text command.",
+    "Types: u8 s8 u16 s16 u32 s32 (little-endian) and str (needs a length).",
+    "A field can map raw numbers to names with \"values\": {\"0\": \"Human\", ...}."
+  ],
+  "party": {
+    "count": 4,
+    "slots": [null, null, null, null],
+    "stride": null,
+    "name_offset": 0,
+    "name_length": 16,
+    "hex_before": 64,
+    "hex_after": 256
+  },
+  "fields": [
+    {"label": "Race", "offset": null, "type": "u8", "values": {}},
+    {"label": "Class", "offset": null, "type": "u8", "values": {}},
+    {"label": "Level", "offset": null, "type": "u8"},
+    {"label": "XP", "offset": null, "type": "u32"},
+    {"label": "HP", "offset": null, "type": "s16"},
+    {"label": "Max HP", "offset": null, "type": "s16"},
+    {"label": "PSP", "offset": null, "type": "s16"},
+    {"label": "Max PSP", "offset": null, "type": "s16"},
+    {"label": "AC", "offset": null, "type": "s8"},
+    {"label": "THAC0", "offset": null, "type": "u8"},
+    {"label": "STR", "offset": null, "type": "u8"},
+    {"label": "DEX", "offset": null, "type": "u8"},
+    {"label": "CON", "offset": null, "type": "u8"},
+    {"label": "INT", "offset": null, "type": "u8"},
+    {"label": "WIS", "offset": null, "type": "u8"},
+    {"label": "CHA", "offset": null, "type": "u8"}
+  ]
+}
