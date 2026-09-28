@@ -53,7 +53,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGv5'          ; +0
+sig      db 'DSCLOGv6'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -91,10 +91,11 @@ probe_text_off dw probe_text    ; +132 offset of PROBE_TEXT in this segment
 probe_msg_off dw probe_msg      ; +134 offset of PROBE_MSG in this segment
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
-;   byte 0FEh, byte kind (0 = a reply to choose, 1 = a portrait, 2 = text,
-;   3 = a message box),
-;   dword first argument (the text's far pointer, for 0 and 2), word second argument,
-;   word length, then that many bytes of text (for kinds 0 and 2).
+;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
+;   first of a list being its title; 1 = a portrait; 2 = text; 3 = show the
+;   replies; 4 = clear. 16 = a message box),
+;   dword first argument (the text's far pointer, for 0, 2 and 16), word second
+;   argument, word length, then that many bytes of text (for kinds 0, 2 and 16).
 ; A record is complete once TPOS counts it.
 
 ; ENTRY LAYOUT (ESIZE bytes, all words little-endian)
@@ -370,10 +371,10 @@ probe_text:
         jmp text_leave
 
 ; PROBE_MSG: the same for the game's message box routine (far pointer to the
-; message), recorded as kind 3.
+; message), recorded as kind 16.
 probe_msg:
         call text_enter
-        mov cl, 3
+        mov cl, 16
         lds si, [bp+16]
         xor dx, dx
         jmp text_leave
@@ -408,8 +409,13 @@ text_leave:                     ; record CL = kind, DS:SI = dword, DX = word, th
         mov ax, dx
         call tputw
         xor ax, ax
-        cmp cl, 1
-        je .len                 ; a portrait: no text
+        cmp cl, 0
+        je .text
+        cmp cl, 2
+        je .text
+        cmp cl, 16
+        jne .len                ; the other kinds have no text (and no pointer)
+.text:
         mov ax, ds
         or ax, si
         jz .len

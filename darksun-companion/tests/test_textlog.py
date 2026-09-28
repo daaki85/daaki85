@@ -5,8 +5,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dscompanion.textlog import (KIND_MESSAGE, KIND_PORTRAIT, KIND_REPLY, KIND_TEXT, Dialogue, TextBuffer,
-                                 TextRecord, parse_records)
+from dscompanion.textlog import (KIND_MESSAGE, KIND_PORTRAIT, KIND_REPLY, KIND_SHOW_REPLIES, KIND_TEXT, Dialogue,
+                                 TextBuffer, TextRecord, parse_records)
 
 
 def record(kind, text="", value=0, pointer=0):
@@ -48,11 +48,22 @@ class DialogueTests(unittest.TestCase):
         d = Dialogue()
         d.add(TextRecord(KIND_PORTRAIT, 0, 7, ""), 1.0)
         d.add(TextRecord(KIND_TEXT, 0, 115, "Who goes there?"), 1.0)
+        d.add(TextRecord(KIND_REPLY, 0, 0, "Answer"), 1.0)  # the list's title comes first
         d.add(TextRecord(KIND_REPLY, 0, 0, "A friend"), 1.0)
         d.add(TextRecord(KIND_REPLY, 0, 0, "Leave us alone"), 1.0)
         self.assertEqual(d.idle(1.5), [])
         (entry,) = d.idle(3.0)
-        self.assertEqual((entry.portrait, entry.text, entry.replies), (7, "Who goes there?", ["A friend", "Leave us alone"]))
+        self.assertEqual((entry.portrait, entry.text, entry.title, entry.replies),
+                         (7, "Who goes there?", "Answer", ["A friend", "Leave us alone"]))
+
+    def test_showing_the_replies_completes_the_entry(self):
+        d = Dialogue()
+        d.add(TextRecord(KIND_PORTRAIT, 0, 0, ""), 1.0)
+        d.add(TextRecord(KIND_TEXT, 0, 98, "Yell something back at the Announcer?"), 1.0)
+        for text in ("Answer Yes or No", "Yes", "No"):
+            d.add(TextRecord(KIND_REPLY, 0, 0, text), 1.0)
+        (entry,) = d.add(TextRecord(KIND_SHOW_REPLIES, 0, 0, ""), 1.0)
+        self.assertEqual((entry.title, entry.replies), ("Answer Yes or No", ["Yes", "No"]))
 
 
 if __name__ == "__main__":

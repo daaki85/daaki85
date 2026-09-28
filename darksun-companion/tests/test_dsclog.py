@@ -57,7 +57,7 @@ class HeaderTests(unittest.TestCase):
     def test_built_in_filters_match_the_companion(self):
         image = load_image()
         hdr = struct.unpack_from("<H", image, 20)[0]
-        self.assertEqual(image[hdr:hdr + 8], b"DSCLOGv5")
+        self.assertEqual(image[hdr:hdr + 8], b"DSCLOGv6")
         n = struct.unpack_from("<H", image, hdr + 32)[0]
         built_in = tuple(image[hdr + 34 + i * 9 + 1:hdr + 34 + i * 9 + 1 + image[hdr + 34 + i * 9]]
                          for i in range(n))
@@ -241,7 +241,10 @@ class StubTests(unittest.TestCase):
         recs = call(VEC_TEXT, struct.pack("<HHHH", 2, 0x100, GAME_DS, 115), 0x110)
         self.assertEqual([(x.kind, x.value, x.text) for x in recs], [(2, 115, "Do not worry, ")])
         recs = call(VEC_MSG, struct.pack("<HH", 0x200, GAME_DS), 0x120)
-        self.assertEqual([(x.kind, x.text) for x in recs], [(3, "Long Sword is broken !")])
+        self.assertEqual([(x.kind, x.text) for x in recs], [(16, "Long Sword is broken !")])
+        # "show the replies" passes no pointer: whatever lies above its arguments is not text
+        recs = call(VEC_TEXT, struct.pack("<HHHH", 3, 0x100, GAME_DS, 0), 0x130)
+        self.assertEqual([(x.kind, x.text) for x in recs], [(3, "")])
 
 
 if __name__ == "__main__":

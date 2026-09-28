@@ -103,6 +103,7 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 | `Slig is killed (270 XP)` | A creature dying, with the XP it's worth (from its character sheet). |
 | `XP: Gerakis +67, K'ratchek +22, ... (for Slig 270)` | Experience the party got, and for which kills. The game gives it right after the kill: an equal share to each character, split again between a multi-class character's classes (the sheet counts XP per class, so a three-class thri-kreen shows a third of the share). |
 | `Cilla is now a 3rd level Ranger` / `    max HP 15 -> 21 (+6)` | A level gained, and the new maximum HP. |
+| `    no hit point roll: that comes only when the highest class level rises (still 3rd)` | A multi-class character's level in one class went up without raising their highest level: the game gives no hit points for it. |
 | `Cilla's 3rd Ranger level: hit points d10 = 2, raised to 3 for CON 21` | The hit point roll for a new level: the class's die (d8 clerics and druids, d10 fighters, gladiators and rangers, d4 preservers, d6 psionicists and thieves), never less than 2, 3 or 4 with CON 20, 21-22 or 23+, and doubled for half-giants. After level 9 or 10 there's no roll, just a fixed gain. |
 | `Dice: 1d8 = [3] = 3` | Dice the log couldn't tie to anything (for example a spell with no saving throw). |
 
@@ -133,9 +134,12 @@ a half-giant's 20 + 4 shows as 24.
 From the game's code:
 
 - An attack is **from behind** when the attacker stands in the square directly
-  behind the way the target is facing (one of eight directions; a creature
-  turns to face whoever it attacks). It gets +2 to hit, and the target loses
-  its DEX bonus and its shield.
+  behind the way the target is facing. A creature faces nowhere in particular
+  at the start of each round; the first attack on it in the round turns it
+  to face that attacker (one of eight directions), and it keeps facing that
+  way for the rest of the round. So a second attacker on the far side, later
+  in the same round, attacks from behind. (Its own attacks don't turn it.)
+  It gets +2 to hit, and the target loses its DEX bonus and its shield.
 - A **backstab** is an attack from behind by a thief, in melee, with a weapon
   that isn't too heavy (the game's weight value at most 40; a long sword's
   is 20). It gets another +2 to hit (+4 in all), and on the thief's first
@@ -145,9 +149,11 @@ From the game's code:
 ### The Dialogue tab
 
 Everything the game shows in its dialogue window, one entry per window of
-text, with the replies offered numbered underneath. The game only says which
-portrait goes with the text, so speakers show as `Portrait 119` and so on
-(119 is the arena announcer); the text itself often names who's speaking.
+text, with the replies offered numbered underneath (and the list's title,
+such as "Answer Yes or No", above them). The game only says which portrait
+goes with the text, so speakers show as `Portrait 119` and so on (119 is the
+arena announcer); the text itself often names who's speaking. Text shown
+without a face (the emblem instead) is `Narration`.
 
 ### How the dice log works
 

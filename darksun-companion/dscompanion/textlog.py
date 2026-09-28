@@ -4,14 +4,17 @@ DSCLOG copies everything the game sends to its dialogue window, and every
 message box, into a text buffer (see dos/dsclog.asm). A dialogue arrives in
 pieces: the speaker's portrait, then the text a phrase at a time (names are
 separate pieces), then "END" when the window's text is complete and "CLOSE"
-when the window closes. Replies to choose from arrive one by one.
+when the window closes. Replies to choose from arrive one by one, the first
+being the list's title ("Answer Yes or No"), then the window is told to show
+them.
 """
 
 import struct
 from dataclasses import dataclass, field
 from typing import Callable, List, NamedTuple, Optional
 
-KIND_REPLY, KIND_PORTRAIT, KIND_TEXT, KIND_MESSAGE = 0, 1, 2, 3
+KIND_REPLY, KIND_PORTRAIT, KIND_TEXT, KIND_SHOW_REPLIES, KIND_CLEAR = 0, 1, 2, 3, 4  # the dialogue window's
+KIND_MESSAGE = 16  # a message box
 RECORD_MARK = 0xFE
 HEADER = 10  # mark, kind, dword, word, length
 BUTTONS = {"END", "CLOSE", "MORE"}  # the window's buttons, sent like text
@@ -79,6 +82,7 @@ class DialogueEntry:
     portrait: Optional[int]
     text: str = ""
     replies: List[str] = field(default_factory=list)
+    title: str = ""  # of the replies, e.g. "Answer Yes or No"
 
 
 class Dialogue:
@@ -98,6 +102,8 @@ class Dialogue:
             self.portrait = rec.value
         elif rec.kind == KIND_REPLY:
             self.replies.append(rec.text)
+        elif rec.kind == KIND_SHOW_REPLIES:
+            out += self.flush()
         elif rec.kind == KIND_TEXT:
             if rec.text in BUTTONS:
                 out += self.flush()
@@ -109,7 +115,8 @@ class Dialogue:
 
     def flush(self) -> List[DialogueEntry]:
         text = "".join(self.pieces).strip()
-        entry = DialogueEntry(self.portrait, text, self.replies) if text or self.replies else None
+        title, replies = (self.replies[0], self.replies[1:]) if self.replies else ("", [])
+        entry = DialogueEntry(self.portrait, text, replies, title) if text or self.replies else None
         self.pieces, self.replies = [], []
         return [entry] if entry else []
 

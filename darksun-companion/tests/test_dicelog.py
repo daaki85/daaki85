@@ -398,17 +398,34 @@ class NewLinesTests(unittest.TestCase):
         self.assertEqual(tracker.check(2.2), [])  # waits for the others' XP
         self.assertEqual(tracker.check(3.0), ["XP: Dag +125 (for Mountain Stalker 500)"])
 
+    def test_level_up_without_hit_points(self):
+        log = make_game()
+        tracker, m = log.tracker, log.guest.mem
+        m[SHEETS + game.SHEET_CLASSES:SHEETS + game.SHEET_CLASSES + 3] = bytes((10, 11, 0))
+        m[SHEETS + game.SHEET_LEVELS:SHEETS + game.SHEET_LEVELS + 3] = bytes((3, 1, 0))
+        self.assertEqual(tracker.check(1.0), [])
+        m[SHEETS + game.SHEET_LEVELS + 1] = 2  # Preserver 2nd, still a 3rd level Gladiator
+        self.assertEqual(tracker.check(2.0), ["Dag is now a 2nd level Preserver",
+                                              "    no hit point roll: that comes only when the highest class "
+                                              "level rises (still 3rd)"])
+        m[SHEETS + game.SHEET_LEVELS] = 4
+        struct.pack_into("<h", m, SHEETS + game.SHEET_MAX_HP, struct.unpack_from("<h", m, SHEETS + 8)[0] + 5)
+        self.assertEqual(tracker.check(3.0)[0], "Dag is now a 4th level Gladiator")
+
     def test_messages_and_dialogue_from_the_text_buffer(self):
         log = make_game()
         data = b""
-        for kind, value, text in ((KIND_MESSAGE, 0, b"Long Sword is broken !"), (KIND_PORTRAIT, 119, b""),
+        for kind, value, text in ((KIND_MESSAGE, 0, b"Long Sword is broken !"), (KIND_MESSAGE, 0, b""),
+                                  (KIND_PORTRAIT, 119, b""),
                                   (KIND_TEXT, 115, b"Watch and enjoy! "), (KIND_TEXT, 115, b"END")):
             data += bytes((0xFE, kind)) + struct.pack("<IHH", 0, value, len(text)) + text
         log.guest.mem[HDR + 0x800:HDR + 0x800 + len(data)] = data
         struct.pack_into("<H", log.guest.mem, HDR + 126, len(data))
-        self.assertIn("Message: Long Sword is broken !", log.lines(now=100.0))
+        messages = [line for line in log.lines(now=100.0) if line.startswith("Message:")]
+        self.assertEqual(messages, ["Message: Long Sword is broken !"])  # an empty box is left out
         (said,) = log.take_dialogue()
         self.assertEqual((log.speaker(said.portrait), said.text), ("Portrait 119", "Watch and enjoy!"))
+        self.assertEqual(log.speaker(0), "Narration")
 
 
 if __name__ == "__main__":

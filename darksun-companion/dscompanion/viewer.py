@@ -386,6 +386,8 @@ class Viewer:
             self.talk_text.insert("end", self.dice.speaker(entry.portrait) + "\n", "speaker")
             if entry.text:
                 self.talk_text.insert("end", entry.text + "\n")
+            if entry.title:
+                self.talk_text.insert("end", f"  ({entry.title})\n", "reply")
             for n, reply in enumerate(entry.replies, 1):
                 self.talk_text.insert("end", f"  {n}. {reply}\n", "reply")
             self.talk_text.insert("end", "\n")

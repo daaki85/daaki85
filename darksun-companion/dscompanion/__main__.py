@@ -154,6 +154,8 @@ def cmd_dicelog(args) -> None:
                 print(line, flush=True)
             for entry in log.take_dialogue():
                 print(f"[{log.speaker(entry.portrait)}] {entry.text}", flush=True)
+                if entry.title:
+                    print(f"    ({entry.title})", flush=True)
                 for n, reply in enumerate(entry.replies, 1):
                     print(f"    {n}. {reply}", flush=True)
             time.sleep(0.02)

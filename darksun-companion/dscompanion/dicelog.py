@@ -30,7 +30,7 @@ from .guestmem import GuestMemory
 from .textlog import KIND_MESSAGE, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGv5"
+HDR_SIG = b"DSCLOGv6"
 RAND_PATCHED = b"\xcd\x60"  # INT 60h at the start of rand() in DSUNLOG.EXE
 RAND_IP = 0x822  # rand()'s offset in the game's first code segment
 SEED = 0x4122  # DS offset of rand()'s 32-bit seed
@@ -285,7 +285,8 @@ class DiceLog:
             out += self.describe(e, show_all, now)
         for rec in self.text.poll():
             if rec.kind == KIND_MESSAGE:
-                out.append(f"Message: {' '.join(rec.text.split())}")
+                if rec.text.strip():
+                    out.append(f"Message: {' '.join(rec.text.split())}")
             else:
                 self._dialogue += self.dialogue.add(rec, now)
         self._dialogue += self.dialogue.idle(now)
@@ -304,6 +305,8 @@ class DiceLog:
         """Who a dialogue portrait belongs to, as far as is known."""
         if portrait is None:
             return "(no portrait)"
+        if portrait == 0:
+            return "Narration"  # the window shows an emblem, not a face
         return f"Portrait {portrait}"
 
     def take_dialogue(self) -> List[DialogueEntry]:

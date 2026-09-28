@@ -111,6 +111,10 @@ class PartyTracker:
                 out.append(f"{new.name} is now a {ordinal(new.levels[slot])} level {cls}")
         if new.max_hp != old.max_hp and out:
             out.append(f"    max HP {old.max_hp} -> {new.max_hp} ({new.max_hp - old.max_hp:+d})")
+        elif out and max(new.levels) <= max(old.levels):
+            # the game rolls hit points only when the highest of the class levels goes up
+            out.append(f"    no hit point roll: that comes only when the highest class level rises "
+                       f"(still {ordinal(max(new.levels))})")
         return out
 
     def _xp_line(self, before: List[Optional[Member]], after: List[Optional[Member]]) -> List[str]:
