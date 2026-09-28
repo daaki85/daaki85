@@ -8,6 +8,7 @@ from . import values
 from .guestmem import GuestMemory, locate
 from .layout import Layout
 from .process import ProcessMemory, find_dosbox_processes
+from .savefile import load_party
 from .search import OPS, SearchSession
 
 DEFAULT_LAYOUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -101,6 +102,21 @@ def cmd_next(args) -> None:
     _print_candidates(session, args.limit)
 
 
+def cmd_save(args) -> None:
+    layout = Layout.load(args.layout)
+    mem = load_party(args.file, layout)
+    slots = [layout.decode_slot(i, mem.read) for i in range(layout.count)]
+    slots = [s for s in slots if s[0]]
+    if not slots:
+        raise CliError("No party members found in this save.")
+    rows = [("Name", [s[0] for s in slots])]
+    rows += [(label, [s[2][i][1] for s in slots]) for i, (label, _) in enumerate(slots[0][2])]
+    width = max(len(label) for label, _ in rows) + 2
+    cols = [max(len(r[1][c]) for r in rows) + 2 for c in range(len(slots))]
+    for label, cells in rows:
+        print(label.ljust(width) + "".join(cell.ljust(w) for cell, w in zip(cells, cols)))
+
+
 def cmd_view(args) -> None:
     from .viewer import run  # tkinter is only needed here
     run(Layout.load(args.layout), lambda: connect(args))
@@ -117,6 +133,11 @@ def main(argv=None) -> int:
     s = sub.add_parser("view", parents=[common], help="open the party viewer window")
     s.add_argument("--layout", default=DEFAULT_LAYOUT, help="layout JSON file")
     s.set_defaults(func=cmd_view)
+
+    s = sub.add_parser("save", help="show the party stored in a save file (SAVEnn.SAV)")
+    s.add_argument("file")
+    s.add_argument("--layout", default=DEFAULT_LAYOUT, help="layout JSON file")
+    s.set_defaults(func=cmd_save)
 
     s = sub.add_parser("processes", help="list DOSBox processes and where their guest RAM is")
     s.set_defaults(func=cmd_processes)
