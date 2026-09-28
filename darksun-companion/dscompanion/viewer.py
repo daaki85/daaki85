@@ -1,4 +1,4 @@
-"""The party viewer window (tkinter).
+"""Templar's Ledger's window (tkinter), in the colours of the game's own screens.
 
 Left: one column per party slot showing the fields mapped in the layout. For
 Shattered Lands the party is found automatically; other layouts locate a
@@ -14,7 +14,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Callable, Dict, List, Optional, Tuple
 
-from . import game, values
+from . import game, theme, values
 from .dicelog import DiceLog, DiceLogError
 from .guestmem import GuestMemory
 from .layout import Layout
@@ -55,8 +55,9 @@ class Viewer:
         self.dice: Optional[DiceLog] = None
         self.next_try = 0.0  # when to retry connecting / attaching
 
-        root.title(f"Dark Sun Companion - {layout.game or 'party viewer'}")
-        root.geometry("1240x720")
+        root.title(f"{theme.NAME} - {layout.game or 'party viewer'}")
+        root.geometry("1320x780")
+        theme.apply(root)
         root.protocol("WM_DELETE_WINDOW", self.close)
         self._build()
         self.reconnect()
@@ -66,16 +67,19 @@ class Viewer:
     # ---- layout of the window -------------------------------------------------
 
     def _build(self) -> None:
+        theme.Banner(self.root).pack(fill="x")
         top = ttk.Frame(self.root, padding=6)
         top.pack(fill="x")
         self.status = tk.StringVar(value="Not connected")
-        ttk.Label(top, textvariable=self.status).pack(side="left")
+        ttk.Label(top, textvariable=self.status, style="Status.TLabel").pack(side="left")
         ttk.Button(top, text="Save layout", command=self.save_layout).pack(side="right")
         ttk.Button(top, text="Reload layout", command=self.reload_layout).pack(side="right", padx=4)
         ttk.Button(top, text="Reconnect", command=self.reconnect).pack(side="right")
 
         panes = ttk.PanedWindow(self.root, orient="horizontal")
         panes.pack(fill="both", expand=True, padx=6, pady=(0, 6))
+        # room for all four characters' columns before the logs take the rest
+        self.root.after(200, lambda: panes.sashpos(0, 150 + 118 * self.layout.count + 24))
 
         party = ttk.Frame(panes)
         self.table = ttk.Treeview(party, show="headings")
@@ -97,16 +101,13 @@ class Viewer:
         box = ttk.Frame(dice)
         box.pack(fill="both", expand=True, pady=(6, 0))
         self.dice_text = tk.Text(box, font="TkFixedFont", wrap="word", height=20)
+        theme.style_text(self.dice_text)
         scroll = ttk.Scrollbar(box, command=self.dice_text.yview)
         self.dice_text.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
         self.dice_text.pack(side="left", fill="both", expand=True)
-        self.dice_text.tag_configure("hit", foreground="#1a7f37")
-        self.dice_text.tag_configure("miss", foreground="#8c8c8c")
-        self.dice_text.tag_configure("damage", foreground="#b35900")
-        self.dice_text.tag_configure("other", foreground="#6f42c1")
-        self.dice_text.tag_configure("save", foreground="#0550ae")
-        self.dice_text.tag_configure("detail", foreground="#57606a")
+        for tag, colour in theme.LOG_COLOURS.items():
+            self.dice_text.tag_configure(tag, foreground=colour)
 
         talk = ttk.Frame(tabs, padding=6)
         tabs.add(talk, text="Dialogue")
@@ -116,13 +117,15 @@ class Viewer:
         ttk.Button(row, text="Clear", command=lambda: self.talk_text.delete("1.0", "end")).pack(side="right")
         box = ttk.Frame(talk)
         box.pack(fill="both", expand=True, pady=(6, 0))
-        self.talk_text = tk.Text(box, wrap="word", height=20)
+        self.talk_text = tk.Text(box, wrap="word", height=20, font=("TkDefaultFont", 10))
+        theme.style_text(self.talk_text)
+        self.talk_text.configure(foreground=theme.AMBER)  # the game's dialogue text
         scroll = ttk.Scrollbar(box, command=self.talk_text.yview)
         self.talk_text.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
         self.talk_text.pack(side="left", fill="both", expand=True)
-        self.talk_text.tag_configure("speaker", font="TkDefaultFont 9 bold")
-        self.talk_text.tag_configure("reply", foreground="#0550ae")
+        self.talk_text.tag_configure("speaker", font=theme.fonts()[1], foreground=theme.YELLOW)
+        self.talk_text.tag_configure("reply", foreground=theme.PALE)
 
         tools = ttk.Frame(tabs, padding=6)
         tabs.add(tools, text="Memory tools")
@@ -145,7 +148,10 @@ class Viewer:
         self.stride_text = tk.StringVar()
         ttk.Entry(row, textvariable=self.stride_text, width=8).pack(side="left")
         ttk.Button(row, text="Apply", command=self.apply_stride).pack(side="left", padx=4)
-        self.hit_list = tk.Listbox(locate, height=6, font="TkFixedFont")
+        self.hit_list = tk.Listbox(locate, height=6, font="TkFixedFont", background=theme.DEEP,
+                                   foreground=theme.YELLOW, selectbackground=theme.BUTTON,
+                                   selectforeground=theme.AMBER, relief="flat", highlightthickness=2,
+                                   highlightbackground=theme.SHADOW, highlightcolor=theme.SHADOW)
         self.hit_list.pack(fill="x", pady=(6, 0))
 
         hexframe = ttk.LabelFrame(tools, text="Record bytes (changed bytes light up)", padding=6)
@@ -156,12 +162,16 @@ class Viewer:
         self.hex_record.pack(side="left")
         ttk.Label(row, text="slot").pack(side="left", padx=(6, 2))
         self.hex_slot = self._slot_box(row)
+        self.show_addresses = tk.BooleanVar(value=False)
+        ttk.Checkbutton(row, text="Record addresses in the party table",
+                        variable=self.show_addresses).pack(side="right")
         self.inspect = tk.StringVar(value="Click a byte to decode it.")
         ttk.Label(row, textvariable=self.inspect, font="TkFixedFont").pack(side="left", padx=8)
         self.hex = tk.Text(hexframe, font="TkFixedFont", height=20, wrap="none")
+        theme.style_text(self.hex)
         self.hex.pack(fill="both", expand=True, pady=(6, 0))
-        self.hex.tag_configure("changed", background="#ffb347", foreground="black")
-        self.hex.tag_configure("selected", background="#7ab8ff", foreground="black")
+        self.hex.tag_configure("changed", background=theme.AMBER, foreground=theme.SHADOW)
+        self.hex.tag_configure("selected", background=theme.PSI_BLUE, foreground=theme.SHADOW)
         self.hex.bind("<Button-1>", self.on_hex_click)
 
         self._apply_layout()
@@ -189,7 +199,7 @@ class Viewer:
         self.table.column("field", width=150, anchor="w", stretch=False)
         for i in range(self.layout.count):
             self.table.heading(f"slot{i}", text=f"Slot {i + 1}")
-            self.table.column(f"slot{i}", width=100, anchor="center")
+            self.table.column(f"slot{i}", width=118, anchor="center")
 
     # ---- actions ----------------------------------------------------------------
 
@@ -430,10 +440,18 @@ class Viewer:
     def _refresh_table(self) -> None:
         slots = [self.layout.decode_slot(i, self.guest.read) for i in range(self.layout.count)]
         rows = [(f"{r} @", [f"{s[1][r]:#x}" if s[1][r] is not None else "" for s in slots])
-                for r in self.layout.records]
-        rows.append(("Name", [s[0] for s in slots]))
+                for r in self.layout.records] if self.show_addresses.get() else []
+        for i, s in enumerate(slots):  # the game shows names in capitals
+            self.table.heading(f"slot{i}", text=s[0].upper() if s[0] else f"Slot {i + 1}")
+        labels = [f.label for f in self.layout.fields]
         for i, f in enumerate(self.layout.fields):
-            rows.append((f.label, [s[2][i][1] for s in slots]))
+            cells = [s[2][i][1] for s in slots]
+            if f"Max {f.label}" in labels:  # "54/54", as the game shows HP and PSP
+                top = labels.index(f"Max {f.label}")
+                cells = [f"{c}/{s[2][top][1]}" if c != "" else "" for c, s in zip(cells, slots)]
+            elif f.label.startswith("Max ") and f.label[4:] in labels:
+                continue
+            rows.append((f.label, cells))
             if f.label == "Base AC":
                 rows += self._ac_rows(slots)
 

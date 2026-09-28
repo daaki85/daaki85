@@ -1,7 +1,9 @@
-# Dark Sun Companion
+# Templar's Ledger
 
-A companion tool for **Dark Sun: Shattered Lands** (the GOG release) running in
-DOSBox, in the spirit of the Gold Box Companion. It has three parts:
+A companion for **Dark Sun: Shattered Lands** (the GOG release) running in
+DOSBox, in the spirit of the Gold Box Companion. In Draj the templars keep the
+records; this ledger keeps the ones the game doesn't show you. It has three
+parts:
 
 - **Party viewer:** every party member's stats, live, including numbers the
   game doesn't show (THAC0, saving throws, attacks per round, the AC the game
@@ -25,10 +27,16 @@ DOSBox, in the spirit of the Gold Box Companion. It has three parts:
 
 Nothing in the game folder or your save files is changed. The viewer only reads
 memory. For the dice log, the launcher runs a patched copy of the game that it
-keeps in the companion's own folder (see
+keeps in its own folder (see
 [How the dice log works](#how-the-dice-log-works)).
 
-![The companion during a fight in Shattered Lands](docs/dicelog.png)
+The window is dressed in the game's own colours: its grey stone panels, the
+amber of its dialogue, the yellow of its character screen and the red rock of
+the arena, all sampled from the game (no game artwork is copied).
+
+![Templar's Ledger during a fight in the arena](docs/dicelog.png)
+
+![The Dialogue tab](docs/dialogue.png)
 
 ## Requirements
 
@@ -42,7 +50,7 @@ keeps in the companion's own folder (see
 
 ## Running it (Windows)
 
-The companion is a separate program that runs next to the game. You don't
+Templar's Ledger is a separate program that runs next to the game. You don't
 install anything into the game folder.
 
 **One-time setup**
@@ -57,7 +65,7 @@ install anything into the game folder.
 
 Double-click **`Start Game with Dice Log.bat`** in the `darksun-companion`
 folder. It starts Shattered Lands (through GOG's own DOSBox) with the dice log
-helper loaded, and opens the companion next to it. Your saves are the same ones
+helper loaded, and opens Templar's Ledger next to it. Your saves are the same ones
 the game normally uses. The first time, it looks for
 the game in the usual GOG folders; if it can't find it, it asks you where the
 game is installed and remembers the answer.
@@ -65,13 +73,14 @@ game is installed and remembers the answer.
 Load your game. The party's stats fill in by themselves, and rolls appear in
 the **Dice log** tab as they happen.
 
-If you start the game the normal way instead, **`Start Companion.bat`** still
+If you start the game the normal way instead, **`Start Templar's Ledger.bat`** still
 shows the party, but the dice log will say the game was started without it.
 
 **Checking a save file (no game needed):** drag a `SAVEnn.SAV` file from the
 game folder onto **`Show Save.bat`**.
 
-**From a command prompt**, the same things are:
+**From a command prompt**, the same things are (`dscompanion` is the program's
+internal name):
 
 ```
 python -m dscompanion launch                        # start the game with the dice log, and the viewer
@@ -186,7 +195,7 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    arguments (dice count and sides, THAC0, AC...) in a ring buffer. The others
    record the final saving throw total, the AC the game uses, and the text
    of dialogues and messages (in a second buffer).
-3. The companion finds the buffer in DOSBox's memory and reads it every 50 ms.
+3. Templar's Ledger finds the buffer in DOSBox's memory and reads it every 50 ms.
    It works out what each roll was for from the code that asked for it, and
    reads the rest (names, weapons, spells, effects) from the game's own data.
 4. To keep bursts of unimportant randomness from crowding out the rolls that

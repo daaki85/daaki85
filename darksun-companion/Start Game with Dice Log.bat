@@ -1,5 +1,5 @@
 @echo off
-rem Starts Dark Sun with the dice log helper loaded, then opens the companion.
+rem Starts Dark Sun with the dice log helper loaded, then opens Templar's Ledger.
 cd /d "%~dp0"
 set "PY="
 where py >nul 2>nul && set "PY=py -3"

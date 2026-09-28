@@ -1,5 +1,5 @@
 @echo off
-rem Opens the party viewer. Start the game in DOSBox first.
+rem Opens Templar's Ledger. Start the game in DOSBox first.
 cd /d "%~dp0"
 set "PY="
 where py >nul 2>nul && set "PY=py -3"

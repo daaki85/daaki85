@@ -200,7 +200,7 @@ def main(argv=None) -> int:
     common.add_argument("--pid", type=int, help="DOSBox process id (default: the only DOSBox running)")
     common.add_argument("--host-base", help="skip auto-detection: host address of guest RAM")
 
-    p = argparse.ArgumentParser(prog="dscompanion", description="Dark Sun companion: party viewer and memory tools")
+    p = argparse.ArgumentParser(prog="dscompanion", description="Templar's Ledger: party viewer, dice log and memory tools for Dark Sun: Shattered Lands")
     sub = p.add_subparsers(dest="command", required=True)
 
     s = sub.add_parser("view", parents=[common], help="open the party viewer window")
