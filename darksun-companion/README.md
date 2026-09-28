@@ -296,7 +296,8 @@ WCAG 2.0 level AA:
   **Ctrl 0** (back to normal), enlarge or shrink all text up to 2.5 times.
 - **Keyboard:** Tab and Shift+Tab move between controls, and the one with the
   keyboard focus is outlined in yellow. **Ctrl+Tab** switches tabs, as do
-  **Alt+L** (Dice log), **Alt+I** (Dialogue) and **Alt+M** (Memory tools).
+  **Alt+L** (Dice log), **Alt+I** (Dialogue) and **Alt+M** (Memory tools),
+  and on the party side **Alt+C** (Characters) and **Alt+A** (All fields).
 - **The game's font** is only used for the title: it's a 9-pixel bitmap
   font, fine enlarged as a heading but harder to read than ordinary text,
   so everything else is in the system's fonts.
@@ -306,6 +307,21 @@ WCAG 2.0 level AA:
   a command prompt, which screen readers do read.
 
 ## Using the viewer
+
+The party pane has two tabs:
+
+- **Characters** (Alt+C): a card for each character, laid out like the game's
+  View Character screen. It shows the figure for their race and sex (the one
+  on the character creation screen, read from your install) and their name.
+  Then HP and PSP as the game shows them (PSP in blue). Then their condition
+  (the game's Okay, Stunned, Out Cold, Dying, Dead, Animated, Petrified or
+  Gone, followed by any spells and effects on them). Then the character
+  sheet: scores, sex, race and alignment, classes and levels, experience,
+  AC, THAC0, movement and attacks. AC is the one the game last used in a
+  fight, with the base AC beside it; before the first fight only the base AC
+  is known. Scroll with the mouse wheel, or Tab to the cards and use the
+  arrow and Page keys.
+- **All fields** (Alt+A): every field the layout maps, in a table (as before).
 
 For Shattered Lands the party is found automatically. The steps below are for
 mapping new fields, or for other layouts:

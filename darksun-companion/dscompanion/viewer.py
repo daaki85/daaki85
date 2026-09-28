@@ -14,7 +14,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Dict, List, Optional, Tuple
 
-from . import art, game, launch, theme, values
+from . import art, game, launch, partyview, theme, values
 from .dicelog import DiceLog, DiceLogError
 from .guestmem import GuestMemory
 from .layout import Layout
@@ -96,13 +96,20 @@ class Viewer:
         # room for all four characters' columns before the logs take the rest
         self.root.after(200, self._fit_party)
 
-        party = ttk.Frame(panes)
+        party_tabs = ttk.Notebook(panes)
+        party_tabs.enable_traversal()
+        panes.add(party_tabs, weight=1)
+        # the party as the game's View Character screen shows it
+        self.cards = partyview.PartyCards(party_tabs, self.layout.count)
+        party_tabs.add(self.cards, text="Characters", underline=0)
+        # every field the layout maps, in a table
+        party = ttk.Frame(party_tabs)
+        party_tabs.add(party, text="All fields", underline=0)
         self.table = ttk.Treeview(party, show="headings")
         across = ttk.Scrollbar(party, orient="horizontal", command=self.table.xview)
         self.table.configure(xscrollcommand=across.set)
         across.pack(side="bottom", fill="x")
         self.table.pack(fill="both", expand=True)
-        panes.add(party, weight=1)
 
         tabs = ttk.Notebook(panes)
         panes.add(tabs, weight=1)
@@ -513,12 +520,33 @@ class Viewer:
             if f.label == "Base AC":
                 rows += self._ac_rows(slots)
 
+        self._refresh_cards(slots)
         existing = self.table.get_children()
         if len(existing) != len(rows):
             self.table.delete(*existing)
             existing = [self.table.insert("", "end") for _ in rows]
         for item, (label, cells) in zip(existing, rows):
             self.table.item(item, values=[label] + cells)
+
+    def _refresh_cards(self, slots) -> None:
+        """The Characters tab: each slot's card, with its condition and current AC."""
+        gd = game.GameData(self.guest, self.ds) if self.ds is not None else None
+        effects = gd.effects() if gd else []
+        combatants = gd.combatants() if gd else {}
+        table = game.far_pointer(self.guest, self.ds, game.CREATURES_PTR) if gd else None
+        for card, (name, bases, fields) in zip(self.cards.cards, slots):
+            status, ac = "", None
+            addr = bases.get("creature")
+            if gd and addr is not None and table is not None:
+                index = (addr - table) // game.CREATURE_SIZE
+                code = self.guest.read(addr + game.CREATURE_STATUS, 1)[0]
+                status = game.STATUS_NAMES.get(code, "")
+                mine = [c for c, i in combatants.items() if i == index]
+                names = sorted({game.EFFECT_NAMES.get(e.id, f"effect {e.id}") for e in effects if e.owner in mine})
+                if names:
+                    status += (", " if status else "") + ", ".join(names)
+                ac = self.dice.last_ac.get(index) if self.dice and self.dice.attached else None
+            card.show(name, dict(fields), status, ac, self.art)
 
     def _hex_base(self) -> Optional[int]:
         record = self.layout.records.get(self.hex_record.get())

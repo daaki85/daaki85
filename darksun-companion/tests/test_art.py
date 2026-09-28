@@ -13,8 +13,11 @@ from dscompanion import art
 def picture(width, height, rows):
     """A one-frame picture chunk; `rows` maps y to its run bytes."""
     body = struct.pack("<HH", width, height)
-    for y, data in rows.items():
-        body += struct.pack("<HBBB", y, 0x80, width, len(data)) + bytes(data)
+    for y, spans in rows.items():
+        body += bytes([y])
+        for i, (x, data) in enumerate(spans):
+            last = 0x80 if i == len(spans) - 1 else 0
+            body += struct.pack("<BBBB", x, last, width, len(data)) + bytes(data)
     body += b"\xff"
     head = struct.pack("<IHI", 10 + len(body), 1, 10)
     return head + body
@@ -24,12 +27,13 @@ class PictureTests(unittest.TestCase):
     def test_runs_and_literals(self):
         # row 0: 3 x colour 7 (c=5: odd, (5>>1)+1 = 3), then 1 literal (c=0): 9
         # row 1: 2 literals (c=2): 1, 2, then 2 x colour 3 (c=3)
-        chunk = picture(4, 3, {0: [5, 7, 0, 9], 1: [2, 1, 2, 3, 3]})
+        chunk = picture(4, 4, {0: [(0, [5, 7, 0, 9])], 1: [(0, [2, 1, 2, 3, 3])], 2: [(0, [0, 6]), (2, [3, 8])]})
         width, height, rows = art.decode_frame(chunk)
-        self.assertEqual((width, height), (4, 3))
+        self.assertEqual((width, height), (4, 4))
         self.assertEqual(rows[0], [7, 7, 7, 9])
         self.assertEqual(rows[1], [1, 2, 3, 3])
-        self.assertEqual(rows[2], [None] * 4)  # a row the chunk leaves out stays clear
+        self.assertEqual(rows[2], [6, None, 8, 8])  # two spans: x = 0 and x = 2
+        self.assertEqual(rows[3], [None] * 4)  # a row the chunk leaves out stays clear
 
     def test_palette(self):
         pal = bytes([63, 0, 32] + [0] * 765)
@@ -73,6 +77,13 @@ class RangedGffTests(unittest.TestCase):
 
 
 class GameArtTests(unittest.TestCase):
+    def test_figure_ids(self):
+        self.assertEqual(art.figure_id(1, 1), 20000)  # human male
+        self.assertEqual(art.figure_id(5, 2), 20009)  # half-giant female
+        self.assertEqual(art.figure_id(7, 2), 20012)  # mul (one figure)
+        self.assertEqual(art.figure_id(8, 1), 20013)  # thri-kreen
+        self.assertIsNone(art.figure_id(0, 1))
+
     def test_no_install(self):
         missing = art.GameArt(None)
         self.assertIsNone(missing.font)

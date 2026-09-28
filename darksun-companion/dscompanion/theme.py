@@ -107,6 +107,14 @@ def apply(root: tk.Tk) -> None:
     style.map("TNotebook.Tab", background=[("selected", DEEP), ("active", STONE)],
               foreground=[("selected", AMBER), ("active", YELLOW)],
               lightcolor=[("selected", EDGE_LIT)])
+    # the character cards: the character screen's dark stats panel
+    style.configure("Card.TFrame", background=DEEP, relief="groove", borderwidth=2)
+    style.configure("CardBody.TFrame", background=DEEP)
+    style.configure("Card.TLabel", background=DEEP, foreground=PALE)
+    style.configure("CardName.TLabel", background=DEEP, foreground=YELLOW, font=heading)
+    style.configure("CardStat.TLabel", background=DEEP, foreground=YELLOW)
+    style.configure("CardPsp.TLabel", background=DEEP, foreground=PSI_BLUE)  # PSP in blue, as in the game
+    style.configure("CardStatus.TLabel", background=DEEP, foreground=AMBER)
     style.configure("TPanedwindow", background=SHADOW)
     style.configure("Sash", sashthickness=6, background=DARK, lightcolor=EDGE_LIT, bordercolor=SHADOW)
     style.configure("TScrollbar", background=BUTTON, troughcolor=SHADOW, lightcolor=EDGE_LIT,
