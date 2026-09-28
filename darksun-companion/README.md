@@ -115,6 +115,9 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 | `Cilla is now a 3rd level Ranger` / `    max HP 15 -> 21 (+6)` | A level gained, and the new maximum HP. |
 | `    no hit point roll: that comes only when the highest class level rises (still 3rd)` | A multi-class character's level in one class went up without raising their highest level: the game gives no hit points for it. |
 | `Cilla's 3rd Ranger level: hit points d10 = 2, raised to 3 for CON 21` | The hit point roll for a new level: the class's die (d8 clerics and druids, d10 fighters, gladiators and rangers, d4 preservers, d6 psionicists and thieves), never less than 2, 3 or 4 with CON 20, 21-22 or 23+, and doubled for half-giants. After level 9 or 10 there's no roll, just a fixed gain. |
+| `Character creation, STR 17: best of four 4d4 (7, 11, 9, 10) = 11, +4, +1 dwarf = 16, raised to 17 (the Fighter's prime requisite)` | An ability score rolled on the character creation screen (see below). |
+| `Character creation, hit points 15: Fighter d10 per level: 7 + 9; Thief d6 per level: 5 + 1 = 22, / 2 classes = 11, +4 CON 16 = 15` | The new character's hit points: a die for every level of every class, divided by the number of classes, plus CON's bonus (see below). |
+| `Character creation: a name picked at random, 1d33 = 6` | The game picks a new name from its lists when the sex or race changes. |
 | `Dice: 1d8 = [3] = 3` | Dice the log couldn't tie to anything (for example a spell with no saving throw). |
 
 **Show unlabelled rolls** also lists everything else the game randomises
@@ -161,6 +164,39 @@ DEX 1, +4 at 2, +3 at 3, +2 at 4 and +1 at 5, and nothing at DEX 6 and up, so
 in practice there is no off-hand penalty at all: both weapons hit as well as a
 single one would. (Tested by lowering a two-weapon fighter's DEX to 4 in
 memory: both weapons got +2.) The log names it, e.g. `+2 two weapons at DEX 4`.
+
+### Character creation
+
+Every click of the die on the creation screen (and every change of race or sex)
+rolls a new character. From the game's code, and checked against the screen:
+
+* **Abilities.** Each score is rolled four times as 4d4 + 4 + the race's
+  adjustment, and the best of the four counts. That's 8 to 20 before the race's
+  adjustment. The score is then raised, if need be, to the least that the
+  classes allow: 17 in the class's prime requisite (STR for fighters and
+  gladiators, WIS for clerics, druids, psionicists and rangers, INT for
+  preservers, DEX for thieves), and otherwise 9 (clerics, fighters, preservers,
+  thieves), 12 (druids, psionicists), 13 (gladiators) or 14 (rangers). A
+  multi-class character takes the highest of their classes' minimums.
+* **Race adjustments** (STR, DEX, CON, INT, WIS, CHA): dwarf +1 −1 +2 0 0 −2;
+  elf 0 +2 −2 +1 −1 0; half-elf 0 +1 −1 0 0 0; half-giant +4 −5 +2 −5 −3 −3;
+  halfling −2 +2 −1 0 +2 −1; mul +2 0 +1 −1 0 −2; thri-kreen 0 +2 0 −1 +1 −2.
+  Humans have none.
+* **Hit points.** One die for every level of every class (d8 clerics and
+  druids, d10 fighters, gladiators and rangers, d4 preservers, d6 psionicists
+  and thieves), doubled for half-giants. The total is divided by the number of
+  classes (rounded down), and then CON's bonus is added for every level: a
+  warrior's full bonus (+1 at CON 15, +2 at 16, +3 at 17, +4 at 18, +5 at
+  19-20, +6 at 21-23, +7 at 24-25; −1 at 4-6, −2 at 2-3, −3 at 0-1), and at
+  most +2 for levels in the other classes. There is no automatic maximum at
+  first level: the first level rolls like the rest.
+* **Choices without dice.** Raising a score to a new class's minimum (adding
+  Thief raises DEX to 17) and PSP aren't rolled, so they don't appear in the
+  log. The creation screen's other random numbers only choose pictures.
+
+Changing sex or race can make the game roll hit points twice, once with the
+old scores and once with the new: the last hit point line is the one that
+counts.
 
 ### Attacks from behind and backstabs
 

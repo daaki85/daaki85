@@ -481,5 +481,72 @@ class InitiativeTests(unittest.TestCase):
                                    "    Dag 27 = 20 + 3 (0-9 roll) +2 DEX +2 Hasted"])
 
 
+CREATION = 0x6C000  # the character being made
+
+
+def make_creation():
+    """A dwarf Fighter/Thief on the creation screen; sheet 1 holds a Fighter/Thief whose hit points roll."""
+    log = make_game()
+    m = log.guest.mem
+    m[DS * 16 + game.CREATION_SHEET_PTR:DS * 16 + game.CREATION_SHEET_PTR + 4] = far(CREATION)
+    m[CREATION + game.SHEET_RACE] = 2
+    m[CREATION + game.SHEET_CLASSES:CREATION + game.SHEET_CLASSES + 2] = bytes((3, 8))  # creation numbering
+    tables = (LOAD_SEG + game.CREATION_SEG) * 16
+    m[tables + game.CREATION_RACE_OFF + 2 * 6:tables + game.CREATION_RACE_OFF + 3 * 6] = \
+        struct.pack("6b", 1, -1, 2, 0, 0, -2)
+    for cls, prime, least in ((3, 0, 9), (8, 1, 9)):
+        struct.pack_into("<hB", m, tables + game.CREATION_CLASS_OFF + cls * 3, prime, least)
+    sheet = SHEETS + 1 * game.SHEET_SIZE
+    m[sheet + game.SHEET_RACE], m[sheet + game.SHEET_ABILITIES + 2] = 2, 10
+    m[sheet + game.SHEET_CLASSES:sheet + game.SHEET_CLASSES + 2] = bytes((9, 17))
+    hp = (LOAD_SEG + game.LEVEL_HP_SEG) * 16  # thieves roll d6; CON 17: +3 a level
+    m[hp + 0x10 + 17], m[hp + 12:hp + 15], m[hp + game.LEVEL_HP_CON_BONUS + 17] = 3, bytes((6, 9, 2)), 3
+    m[CREATURES + 1 * game.CREATURE_SIZE + game.CREATURE_ABILITIES + 2] = 17
+    return log
+
+
+def ability_rolls(log, ability, tries):
+    """The four 4d4 rolls for an ability; returns the lines from the last die."""
+    out = []
+    parent = words(0x04BB, 0x54FA, 3, ability, 1, 10, 2)
+    for faces in tries:
+        for face in faces:
+            out = log.describe(entry(raw_for(face, 4), dicelog.DICE_SITE, words(0, 0, 4, 4), parent,
+                                     parent_code=dicelog.CREATION_ABILITY_RETURN))
+    return out
+
+
+class CreationTests(unittest.TestCase):
+    def test_abilities(self):
+        log = make_creation()
+        # best of 7, 11, 9, 10 = 11, +4, +1 dwarf = 16: a Fighter's STR is at least 17
+        self.assertEqual(ability_rolls(log, 0, [(1, 2, 2, 2), (4, 4, 2, 1), (3, 3, 2, 1), (4, 3, 2, 1)]),
+                         ["Character creation, STR 17: best of four 4d4 (7, 11, 9, 10) = 11, +4, +1 dwarf = 16, "
+                          "raised to 17 (the Fighter's prime requisite)"])
+        # CON: +2 dwarf, above the classes' least of 9
+        self.assertEqual(ability_rolls(log, 2, [(4, 4, 4, 1), (1, 1, 1, 1), (2, 2, 2, 2), (3, 3, 3, 3)]),
+                         ["Character creation, CON 19: best of four 4d4 (13, 4, 8, 12) = 13, +4, +2 dwarf = 19"])
+        # CHA: 4 + 4 - 2 dwarf = 6, raised to the least the Fighter and Thief allow
+        self.assertEqual(ability_rolls(log, 5, [(1, 1, 1, 1)] * 4),
+                         ["Character creation, CHA 9: best of four 4d4 (4, 4, 4, 4) = 4, +4, -2 dwarf = 6, "
+                          "raised to 9 (the Thief's least)"])
+
+    def test_hit_points(self):
+        log = make_creation()
+        for cls, sides, level, face in ((9, 10, 1, 10), (9, 10, 2, 5), (17, 6, 1, 3), (17, 6, 2, 6)):
+            e = entry(raw_for(face, sides), dicelog.DICE_SITE, words(0, 0, 1, sides),
+                      words(dicelog.CREATION_HP_CALLER, 0x54FA, 1, cls, level), parent_code=dicelog.LEVEL_HP_RETURN)
+            self.assertEqual(log.describe(e), [])
+        # (24 / 2 classes) + CON 17's +3 for each of the Fighter's 2 levels
+        self.assertEqual(log.creation_hp_lines(),
+                         ["Character creation, hit points 18: Fighter d10 per level: 10 + 5; Thief d6 per level: "
+                          "3 + 6 = 24, / 2 classes = 12, +6 CON 17 = 18"])
+
+    def test_random_name(self):
+        log = make_creation()
+        e = entry(raw_for(16, 33), dicelog.DICE_SITE, words(0, 0, 1, 33), parent_code=dicelog.RANDOM_NAME_RETURNS[0])
+        self.assertEqual(log.describe(e), ["Character creation: a name picked at random, 1d33 = 16"])
+
+
 if __name__ == "__main__":
     unittest.main()

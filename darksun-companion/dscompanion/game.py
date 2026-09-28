@@ -70,6 +70,15 @@ RACE_HALF_GIANT = 5
 # group; group * 4 = (die, levels that roll it, fixed gain after that); +38h + CON = the
 # least a roll counts for
 LEVEL_HP_SEG = 0x40B1
+LEVEL_HP_CON_BONUS = 0x52  # +52h + CON: hit points per level (a warrior's; others get at most +2)
+# Character creation. DS:119Ch is a far pointer to the character being made, a sheet whose
+# classes (+21h) are numbered as in the creation screen's list (CREATION_CLASS_NAMES).
+CREATION_SHEET_PTR = 0x119C
+# Its tables (segment relative to the load segment): +14Dh + race * 6 + ability = the race's
+# adjustment (signed); +180h + class * 3 = the class's prime requisite (a word: its ability
+# index), then the least any other ability may be
+CREATION_SEG, CREATION_RACE_OFF, CREATION_CLASS_OFF = 0x38D4, 0x14D, 0x180
+CREATION_PRIME_MINIMUM = 17
 ITEM_NAME_SIZE = 25
 BROKEN_ITEM_TYPE = 0x6B  # what a broken weapon becomes
 
@@ -119,6 +128,11 @@ EFFECT_RULES = {
 STR_DAMAGE = {1: -4, 2: -2, 3: -1, 4: -1, 5: -1, 16: 1, 17: 1, 18: 2, 19: 7, 20: 8, 21: 9,
               22: 10, 23: 11, 24: 12, 25: 14}
 
+
+RACE_NAMES = {1: "human", 2: "dwarf", 3: "elf", 4: "half-elf", 5: "half-giant", 6: "halfling", 7: "mul",
+              8: "thri-kreen"}
+CREATION_CLASS_NAMES = {1: "Cleric", 2: "Druid", 3: "Fighter", 4: "Gladiator", 5: "Preserver",
+                        6: "Psionicist", 7: "Ranger", 8: "Thief"}
 
 SMALL_WORDS = {"of", "from", "to", "the", "and", "or", "in"}
 
@@ -328,15 +342,48 @@ class GameData:
         data = self.guest.read((self.load_seg + INITIATIVE_SEG) * 16 + INITIATIVE_OFF, count * 4)
         return [struct.unpack_from("<hh", data, i * 4) for i in range(len(data) // 4)]
 
-    def level_hp_rule(self, cls: int) -> Optional[LevelHp]:
+    def level_hp_group(self, cls: int) -> Optional[int]:
+        """The class's hit point group: 0 priests, 1 warriors, 2 wizards, 3 rogues and psionicists."""
         if not 0 < cls < 32:
             return None
-        base = (self.load_seg + LEVEL_HP_SEG) * 16
-        group = self.guest.read(base + 0x10 + cls, 1)[0]
-        return LevelHp(*self.guest.read(base + group * 4, 3)) if group < 4 else None
+        group = self.guest.read((self.load_seg + LEVEL_HP_SEG) * 16 + 0x10 + cls, 1)[0]
+        return group if group < 4 else None
+
+    def level_hp_rule(self, cls: int) -> Optional[LevelHp]:
+        group = self.level_hp_group(cls)
+        if group is None:
+            return None
+        return LevelHp(*self.guest.read((self.load_seg + LEVEL_HP_SEG) * 16 + group * 4, 3))
 
     def level_hp_minimum(self, con: int) -> int:
         return self.guest.read((self.load_seg + LEVEL_HP_SEG) * 16 + 0x38 + min(max(con, 0), 25), 1)[0]
+
+    def level_hp_con_bonus(self, con: int) -> int:
+        """Hit points a warrior gains per level for a CON score (others get at most +2)."""
+        base = (self.load_seg + LEVEL_HP_SEG) * 16 + LEVEL_HP_CON_BONUS
+        return struct.unpack("b", self.guest.read(base + min(max(con, 0), 25), 1))[0]
+
+    def sheet_at(self, index: int) -> bytes:
+        """Character sheet number `index`."""
+        return self.guest.read(far_pointer(self.guest, self.ds, SHEETS_PTR) + index * SHEET_SIZE, SHEET_SIZE)
+
+    def creation_sheet(self) -> bytes:
+        """The character being made on the creation screen."""
+        return self.guest.read(far_pointer(self.guest, self.ds, CREATION_SHEET_PTR), SHEET_SIZE)
+
+    def race_adjustment(self, race: int, ability: int) -> int:
+        if not 0 < race < 16 or not 0 <= ability < 6:
+            return 0
+        addr = (self.load_seg + CREATION_SEG) * 16 + CREATION_RACE_OFF + race * 6 + ability
+        return struct.unpack("b", self.guest.read(addr, 1))[0]
+
+    def class_minimum(self, cls: int, ability: int) -> int:
+        """The least an ability may be for a class on the creation screen (17 for its prime requisite)."""
+        if not 0 < cls < 16:
+            return 0
+        prime, least = struct.unpack("<hB", self.guest.read(
+            (self.load_seg + CREATION_SEG) * 16 + CREATION_CLASS_OFF + cls * 3, 3))
+        return CREATION_PRIME_MINIMUM if prime == ability else least
 
     def item_breaks(self, item: int, item_type: int) -> bool:
         """Whether a weapon can break: the game's rule for non-magical wood, bone, stone and obsidian."""
