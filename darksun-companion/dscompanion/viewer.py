@@ -9,6 +9,7 @@ name search and a live hex view of a record that highlights bytes as they
 change. Click a byte to see it decoded as each value type.
 """
 
+import struct
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -247,7 +248,11 @@ class Viewer:
             self.table.column(f"slot{i}", width=slot, minwidth=slot)
         # at large text sizes the table scrolls sideways rather than squeezing the logs
         wanted = field + slot * self.layout.count + 24
-        self.panes.sashpos(0, min(wanted, int(self.root.winfo_width() * 0.55)))
+        width = self.root.winfo_width()
+        if width < 200:  # not on screen yet (a slow start): placing the divider now would hide the party
+            self.root.after(200, self._fit_party)
+            return
+        self.panes.sashpos(0, min(wanted, int(width * 0.55)))
 
     def save_text(self, widget: tk.Text, what: str) -> None:
         """Save a log as a text file (to read with other tools, such as a screen reader)."""
@@ -502,6 +507,28 @@ class Viewer:
                 columns.append([str(ac)] + [f"{v:+d}" for v in (detail.armour, detail.dex, detail.other)])
         return [(label, [c[i] for c in columns]) for i, label in enumerate(labels)]
 
+    def _member_slots(self, slots) -> List[list]:
+        """Each slot's spell slots (GameData.spell_slots), or [] when the game isn't running."""
+        if self.ds is None:
+            return [[] for _ in slots]
+        gd = game.GameData(self.guest, self.ds)
+        table = game.far_pointer(self.guest, self.ds, game.CREATURES_PTR)
+        out = []
+        for s in slots:
+            addr = s[1].get("creature")
+            index = (addr - table) // game.CREATURE_SIZE if addr is not None else None
+            try:
+                out.append(gd.spell_slots(index) if index is not None and 0 <= index < 4 else [])
+            except (struct.error, IndexError):
+                out.append([])
+        return out
+
+    def _slot_rows(self, slots) -> List[Tuple[str, List[str]]]:
+        """'Wizard spells left' / 'Priest spells left': '1st 3/5, 2nd 2/3', left of the most."""
+        per_member = [dict(m) for m in self._member_slots(slots)]
+        return [(f"{kind} spells left", [game.slots_text(m.get(kind, [])) for m in per_member])
+                for kind, _ in game.MAGIC_KINDS]
+
     def _refresh_table(self) -> None:
         slots = [self.layout.decode_slot(i, self.guest.read) for i in range(self.layout.count)]
         rows = [(f"{r} @", [f"{s[1][r]:#x}" if s[1][r] is not None else "" for s in slots])
@@ -519,6 +546,7 @@ class Viewer:
             rows.append((f.label, cells))
             if f.label == "Base AC":
                 rows += self._ac_rows(slots)
+        rows += self._slot_rows(slots)
 
         self._refresh_cards(slots)
         existing = self.table.get_children()
@@ -534,7 +562,8 @@ class Viewer:
         effects = gd.effects() if gd else []
         combatants = gd.combatants() if gd else {}
         table = game.far_pointer(self.guest, self.ds, game.CREATURES_PTR) if gd else None
-        for card, (name, bases, fields) in zip(self.cards.cards, slots):
+        spell_slots = self._member_slots(slots)
+        for card, (name, bases, fields), member_slots in zip(self.cards.cards, slots, spell_slots):
             status, ac = "", None
             addr = bases.get("creature")
             if gd and addr is not None and table is not None:
@@ -546,7 +575,7 @@ class Viewer:
                 if names:
                     status += (", " if status else "") + ", ".join(names)
                 ac = self.dice.last_ac.get(index) if self.dice and self.dice.attached else None
-            card.show(name, dict(fields), status, ac, self.art)
+            card.show(name, dict(fields), status, ac, self.art, member_slots)
 
     def _hex_base(self) -> Optional[int]:
         record = self.layout.records.get(self.hex_record.get())

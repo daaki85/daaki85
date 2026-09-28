@@ -172,6 +172,15 @@ def signed_text(n: int) -> str:
     return f"+{n}" if n >= 0 else str(n)
 
 
+def ordinal(n: int) -> str:
+    return f"{n}{'st' if n == 1 else 'nd' if n == 2 else 'rd' if n == 3 else 'th'}"
+
+
+def slots_text(levels) -> str:
+    """ "1st 3/5, 2nd 2/3": spell slots left and the most, by spell level."""
+    return ", ".join(f"{ordinal(level)} {left}/{most}" for level, left, most in levels)
+
+
 def game_time(seconds: int) -> str:
     """Game time: seconds, 60 to a round (AD&D's one-minute round)."""
     if seconds % 60 == 0:
@@ -258,6 +267,19 @@ class SpellDamage(NamedTuple):
 
 SPELL_LEVEL_CAP = 10  # damage stops growing at caster level 10
 PERMANENT = -9999  # a spell record's time unit for effects that last until removed
+
+# Spell slots. What's left: a byte for each spell level (index 1-9) for each party member,
+# 1Eh apart, wizard and priest apart; casting takes one, resting refills them.
+SLOTS_LEFT = {"Wizard": 0x4B08, "Priest": 0x4B11}
+SLOTS_STRIDE, SPELL_LEVELS = 0x1E, 9
+MAGIC_KINDS = (("Wizard", 1), ("Priest", 2))
+# The most: each class's magic (bit 1 wizard, bit 2 priest; a byte every 4, by class number)...
+CLASS_MAGIC_SEG, CLASS_MAGIC_OFF = 0x3800, 0x118
+# ...and its slot rules: DS byte per class number, a rule number in each nibble (low first:
+# class level, then WIS), and the rule words, a DS word each
+SLOT_CLASS_RULES, SLOT_RULES = 0x664, 0x678
+SLOTS_ALL_19 = 0x1164  # a DS word the game checks: 1 gives the party 19 of everything
+HUMAN = 1
 
 
 class SpellRules(NamedTuple):
@@ -444,6 +466,51 @@ class GameData:
             return b""
         index = struct.unpack_from("<H", rec, CREATURE_SHEET_INDEX)[0]
         return self.guest.read(far_pointer(self.guest, self.ds, SHEETS_PTR) + index * SHEET_SIZE, SHEET_SIZE)
+
+    def spell_slots(self, member: int) -> List[Tuple[str, List[Tuple[int, int, int]]]]:
+        """A party member's spell slots: [(kind, [(spell level, left, most), ...]), ...] for
+        the kinds of magic (Wizard, Priest) their classes cast, at the levels they have any."""
+        out = []
+        for kind, bit in MAGIC_KINDS:
+            left = self.guest.read(self.ds * 16 + SLOTS_LEFT[kind] + member * SLOTS_STRIDE, SPELL_LEVELS + 1)
+            levels = [(lvl, left[lvl], self.max_spell_slots(member, bit, lvl)) for lvl in range(1, SPELL_LEVELS + 1)]
+            levels = [x for x in levels if x[1] or x[2]]
+            if levels:
+                out.append((kind, levels))
+        return out
+
+    def max_spell_slots(self, member: int, bit: int, spell_level: int) -> int:
+        """The slots the game gives on resting (its routine at 5E0ACh in DSUN.EXE): for each class
+        casting this kind of magic, rules from its tables applied to the class level and then WIS.
+        A rule word: bits 8-11 the most it gives, bits 4-7 one more than the spell level it
+        starts below, bit 0 how odd values round. A human's later (dual) classes count only while
+        their level is below the first class's."""
+        if member < 4 and self._word(SLOTS_ALL_19) == 1:  # the game's own test switch
+            return 19
+        sheet = self.sheet(member)
+        if len(sheet) < SHEET_SIZE:
+            return 0
+        wis = self.creature(member)[CREATURE_ABILITIES + 4]
+        magic = self.guest.read((self.load_seg + CLASS_MAGIC_SEG) * 16 + CLASS_MAGIC_OFF, 4 * 32)
+        total = 0
+        for n in range(3):
+            cls, level = sheet[SHEET_CLASSES + n], sheet[SHEET_LEVELS + n]
+            if not cls or cls >= 32 or not magic[cls * 4] & bit:
+                continue
+            if n and sheet[SHEET_RACE] == HUMAN and level >= sheet[SHEET_LEVELS]:
+                continue
+            rules = self.guest.read(self.ds * 16 + SLOT_CLASS_RULES + cls, 1)[0]
+            for value in (level, wis):
+                if not rules:
+                    break
+                word, = struct.unpack("<H", self.guest.read(self.ds * 16 + SLOT_RULES + (rules & 0x0F) * 2, 2))
+                start, odd, most = ((word >> 4) & 0x0F) - 1, word & 1, (word >> 8) & 0x0F
+                count = value - (value + odd) // 2 - (spell_level + start)
+                if count == 1 and (value & 1) == odd:
+                    count += 1
+                total += min(max(count, 0), most)
+                rules >>= 4
+        return total
 
     def dex_ac(self, dex: int) -> int:
         """The game's AC adjustment for a DEX score."""

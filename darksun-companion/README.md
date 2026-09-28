@@ -323,9 +323,27 @@ The party pane has two tabs:
   sheet: scores, sex, race and alignment, classes and levels, experience,
   AC, THAC0, movement and attacks. AC is the one the game last used in a
   fight, with the base AC beside it; before the first fight only the base AC
-  is known. Scroll with the mouse wheel, or Tab to the cards and use the
-  arrow and Page keys.
-- **All fields** (Alt+A): every field the layout maps, in a table (as before).
+  is known. Last, for spellcasters, their spell slots (see below). Scroll
+  with the mouse wheel, or Tab to the cards and use the arrow and Page keys.
+- **All fields** (Alt+A): every field the layout maps, in a table (as before),
+  with the spell slots as its last two rows.
+
+**Spell slots.** `Priest spells left: 1st 5/5, 2nd 3/3, 3rd 2/2, 4th 1/1`
+means five first-level priest spells can still be cast out of five, and so
+on. Casting a spell uses one slot of its level, and resting fills them
+again. Wizard slots belong to preservers; priest slots belong to clerics,
+druids and rangers. A multi-class character's classes add up, for example a
+druid/preserver has both. The "most" is worked out the way the game does it
+when it refills them (its tables are read from memory):
+- Preservers: from their level only.
+- Clerics and druids: from their level plus a WIS bonus.
+- Rangers: from their level only, with their first slot at level 8.
+
+The WIS bonus doesn't depend on level, so a 2nd-level druid with WIS 19
+already has 3rd- and 4th-level slots. For a human dual-class character, a
+later class counts only while its level is below the first class's. Checked
+against two characters at the start of a new game, whose slots the game had
+just filled.
 
 For Shattered Lands the party is found automatically. The steps below are for
 mapping new fields, or for other layouts:
