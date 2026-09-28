@@ -28,6 +28,7 @@ ITEMS_PTR = 0x165D  # far pointer to the item table (21-byte records)
 ITEM_TYPES_PTR = 0x1669  # far pointer to the item type table (20-byte records)
 ITEM_NAMES_PTR = 0x166D  # far pointer to the item names (GPLDATA's NAME list, 25 bytes each)
 DEX_AC = 0x07F6  # DS: AC adjustment for each DEX score (bytes)
+DEX_INITIATIVE = 0x07DC  # DS: initiative adjustment for each DEX score (bytes)
 DIFFICULTY = 0x11AE  # DS word: game difficulty (monsters get difficulty-1 to hit)
 EFFECT_COUNT = 0x1E24  # DS word: number of active effects
 SPELL_NAMES = 0x254E  # DS offset of the NUL-separated spell and psionic names
@@ -47,6 +48,9 @@ PARTY_SIZE = 4  # the party are the first creatures in the table
 # Segments relative to the load segment
 COMBATANTS_SEG, COMBATANTS_OFF = 0x3972, 0xC36  # 3 bytes per combatant: kind (2 = creature), creature index
 EFFECTS_SEG, EFFECTS_OFF = 0x3BF6, 0x106  # 10 bytes per active effect
+# Each round, per creature (4 bytes each): the initiative score (-1 once it has
+# acted) and the 0-199 roll that breaks ties
+INITIATIVE_SEG, INITIATIVE_OFF = 0x37BD, 0xD9
 # Wizard and cleric spells, 7 bytes each from id 1: level, ..., DS offset of the name (+5)
 SPELL_INFO_OFF, SPELL_INFO_SIZE, SPELL_COUNT = 0x3FD33, 7, 137
 # The spells' rules, 32 bytes each; the saving throw reads a flags word at +0Ah
@@ -150,6 +154,10 @@ def party_records(guest: GuestMemory, ds: int) -> List[Tuple[Optional[int], Opti
         sheet_index = struct.unpack_from("<H", record, CREATURE_SHEET_INDEX)[0]
         result.append((creature, sheets + sheet_index * SHEET_SIZE))
     return result
+
+
+# Effects that change initiative (effect id -> adjustment), from the game's code
+INITIATIVE_EFFECTS = {8: -2, 22: 2, 47: -2}  # Blind, Hasted, Slowed
 
 
 class Effect(NamedTuple):
@@ -304,6 +312,17 @@ class GameData:
         if not 0 <= dex < 26:
             return 0
         return struct.unpack("b", self.guest.read(self.ds * 16 + DEX_AC + dex, 1))[0]
+
+    def dex_initiative(self, dex: int) -> int:
+        """The game's initiative adjustment for a DEX score."""
+        if not 0 <= dex < 26:
+            return 0
+        return struct.unpack("b", self.guest.read(self.ds * 16 + DEX_INITIATIVE + dex, 1))[0]
+
+    def initiative(self, count: int) -> List[Tuple[int, int]]:
+        """(score, tie-break roll) for the first `count` creatures."""
+        data = self.guest.read((self.load_seg + INITIATIVE_SEG) * 16 + INITIATIVE_OFF, count * 4)
+        return [struct.unpack_from("<hh", data, i * 4) for i in range(len(data) // 4)]
 
     def level_hp_rule(self, cls: int) -> Optional[LevelHp]:
         if not 0 < cls < 32:

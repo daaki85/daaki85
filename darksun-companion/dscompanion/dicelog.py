@@ -63,6 +63,13 @@ SCALED_ROLL = b"\x66\x0f\xbf\xc0"  # movsx eax, ax
 FILTERS = tuple(SCALED_ROLL + bytes.fromhex(h) for h in (
     "666bc0", "6669c0", "66c1e0", "660fbf56")) + (PERCENT_SITE[:8],)
 
+# The rolls at the start of each round (the code after each rand() call): initiative
+# 20 + 0-9 + DEX + effects for every combatant, then 0-199 to break ties
+INITIATIVE_ROLL = bytes.fromhex("660fbfc0666bc00a66bb00800000669966f7fb665057")
+INITIATIVE_TIE = bytes.fromhex("660fbfc06669c0c800000066bb00800000669966f7fb8bde")
+INITIATIVE_BASE = 20
+INITIATIVE_WAIT = 0.3  # seconds after the last initiative roll before the order is shown
+
 KIND_ROLL, KIND_SAVE, KIND_AC = 0, 1, 2
 THIEF = 17  # class number
 
@@ -198,6 +205,9 @@ class DiceLog:
         self._party: Optional[bytes] = None
         self._party_changed_at = 0.0
         self._next_effect_check = 0.0
+        self._initiative: List[Tuple[int, int]] = []  # this round's (0-9 roll, 0-199 roll) pairs
+        self._initiative_roll: Optional[int] = None
+        self._initiative_at = 0.0
         self._names: Dict[int, str] = {}  # combatant -> name, for effects that end after a fight
         self._last_attacker = ""
         self._break_first: Optional[int] = None  # the 0-7 roll of a break check in progress
@@ -295,6 +305,8 @@ class DiceLog:
             out += self.effect_changes(now)
             if not self._party_check(now):
                 out += self.tracker.check(now)
+        if self._initiative and now - self._initiative_at >= INITIATIVE_WAIT:
+            out += self.initiative_lines()
         out += self.flush(now)
         if self.missed:
             out.append(f"({self.missed} rolls came too fast to record)")
@@ -386,6 +398,56 @@ class DiceLog:
         return out
 
     def _describe(self, e: Entry, show_all: bool, now: float) -> List[str]:
+        if e.kind == KIND_ROLL and e.code.startswith(INITIATIVE_ROLL):
+            self._initiative_roll, self._initiative_at = scaled(e.raw, 10), now
+            return []
+        if e.kind == KIND_ROLL and e.code.startswith(INITIATIVE_TIE):
+            if self._initiative_roll is not None:
+                self._initiative.append((self._initiative_roll, scaled(e.raw, 200)))
+            self._initiative_roll, self._initiative_at = None, now
+            return []
+        return self.initiative_lines() + self._describe_entry(e, show_all, now)
+
+    def initiative_lines(self) -> List[str]:
+        """The round's order, from the rolls collected since the round began."""
+        pairs, self._initiative = self._initiative, []
+        if not pairs:
+            return []
+        g = self.game
+        combatants = g.combatants()
+        table = g.initiative(max(combatants.values(), default=0) + 1)
+        effects = g.effects()
+        rows, used = [], set()
+        for roll, tie in pairs:
+            # the game keeps each creature's tie-break roll: that says whose rolls these were
+            found = [(c, i) for c, i in sorted(combatants.items()) if i not in used and table[i][1] == tie]
+            if not found:
+                rows.append((INITIATIVE_BASE + roll, tie, f"? {INITIATIVE_BASE + roll}", f"{roll} (0-9 roll)"))
+                continue
+            combatant, index = found[0]
+            used.add(index)
+            parts = []
+            dex = g.dex_initiative(g.creature(index)[CREATURE_ABILITIES + 1])
+            if dex:
+                parts.append((dex, "DEX"))
+            ids = {x.id for x in effects if x.owner == combatant and x.id in game.INITIATIVE_EFFECTS}
+            parts += [(game.INITIATIVE_EFFECTS[eid], EFFECT_NAMES[eid]) for eid in sorted(ids)]
+            score = INITIATIVE_BASE + roll + sum(v for v, _ in parts)
+            stored = table[index][0]
+            if stored >= 0 and stored != score:  # not acted yet, and something else counted
+                parts.append((stored - score, "other"))
+                score = stored
+            steps = f"{roll} (0-9 roll)" + "".join(f" {signed(v)} {name}" for v, name in parts)
+            rows.append((score, tie, f"{g.creature_name(index)} {score}", steps))
+        rows.sort(key=lambda r: (-r[0], -r[1]))
+        scores = Counter(r[0] for r in rows)
+        out = ["Initiative, highest acts first:"]
+        for score, tie, who, steps in rows:
+            tied = f", tie broken by {tie} (0-199 roll)" if scores[score] > 1 else ""
+            out.append(f"    {who} = {INITIATIVE_BASE} + {steps}{tied}")
+        return out
+
+    def _describe_entry(self, e: Entry, show_all: bool, now: float) -> List[str]:
         if e.kind == KIND_SAVE:
             return self._save(e)
         if e.kind == KIND_AC:

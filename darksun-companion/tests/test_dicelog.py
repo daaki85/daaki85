@@ -428,5 +428,41 @@ class NewLinesTests(unittest.TestCase):
         self.assertEqual(log.speaker(0), "Narration")
 
 
+class InitiativeTests(unittest.TestCase):
+    def setUp(self):
+        self.log = log = make_game()
+        m = log.guest.mem
+        m[CREATURES + game.CREATURE_ABILITIES + 1] = 17  # Dag: DEX 17
+        m[CREATURES + game.CREATURE_SIZE + game.CREATURE_ABILITIES + 1] = 12  # Daaki: DEX 12
+        m[DS * 16 + game.DEX_INITIATIVE + 17] = 2
+        m[DS * 16 + game.DEX_INITIATIVE + 16] = 1  # the stalker's DEX 16
+        set_effects(log, [(0, 1, 22)])  # Dag is hasted
+        self.table = (LOAD_SEG + game.INITIATIVE_SEG) * 16 + game.INITIATIVE_OFF
+
+    def roll(self, creature, roll, tie, score):
+        """The game's two rolls for a creature, and the score it keeps."""
+        struct.pack_into("<hh", self.log.guest.mem, self.table + creature * 4, score, tie)
+        out = self.log.describe(entry(raw_for(roll + 1, 10), dicelog.INITIATIVE_ROLL), now=1.0)
+        return out + self.log.describe(entry(raw_for(tie + 1, 200), dicelog.INITIATIVE_TIE), now=1.0)
+
+    def test_round_order(self):
+        self.assertEqual(self.roll(0, 3, 50, 27), [])  # 20 + 3 + 2 DEX + 2 Hasted
+        self.assertEqual(self.roll(1, 7, 120, 27), [])
+        self.assertEqual(self.roll(STALKER, 9, 10, 30), [])
+        self.assertEqual(self.log.lines(now=1.1), [])  # waits for the rest of the round's rolls
+        self.assertEqual(self.log.lines(now=2.0), [
+            "Initiative, highest acts first:",
+            "    Mountain Stalker 30 = 20 + 9 (0-9 roll) +1 DEX",
+            "    Daaki 27 = 20 + 7 (0-9 roll), tie broken by 120 (0-199 roll)",
+            "    Dag 27 = 20 + 3 (0-9 roll) +2 DEX +2 Hasted, tie broken by 50 (0-199 roll)"])
+
+    def test_shown_before_the_rounds_first_attack(self):
+        self.roll(0, 3, 50, -1)  # already acted: its score is gone, but the tie-break roll stays
+        out = self.log.describe(entry(raw_for(14, 20), dicelog.ATTACK_SITE,
+                                      words(0, 0, 0, 0, 0x29, 0, 0, 0, 0, 0, 0)), now=1.1)
+        self.assertEqual(out[:2], ["Initiative, highest acts first:",
+                                   "    Dag 27 = 20 + 3 (0-9 roll) +2 DEX +2 Hasted"])
+
+
 if __name__ == "__main__":
     unittest.main()

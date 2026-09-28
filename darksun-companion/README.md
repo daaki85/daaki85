@@ -98,6 +98,7 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 | `X DEX check: d20 = 9, needs 16 or less (DEX 16) -> success` | An ability check. A natural 20 always fails. |
 | `Percentile check: d100 = 35, needs 40 or less -> success` | A percentage roll. What it's for isn't known yet. |
 | `    X's Bone Long Sword nearly broke: 0 on 0-7, then 12 on 0-19 (needed 0)` / `... BREAKS` | The weapon check the game makes after an attack sequence whose last attack hit. Only non-magical wood, bone, stone and obsidian weapons can break (and not every kind: clubs and quarterstaffs can't): they break when a 0-7 roll and then a 0-19 roll both come up 0, 1 chance in 160. The line only appears when the first roll comes up 0. |
+| `Initiative, highest acts first:` / `    Cilla 25 = 20 + 1 (0-9 roll) +4 DEX, tie broken by 6 (0-199 roll)` | The order for the round, with each score's make-up (see below). |
 | `Message: Long Sword is broken !` | The game's own message boxes: broken or corroded weapons and armour, level-ups, "NO PATH FROM HERE" and so on. |
 | `    X's special effect on Y: d10 = 1, works on a 1 -> it works` | The 1-in-10 extra effect some creatures' hits have (the thri-kreen bite, for one). |
 | `Slig is killed (270 XP)` | A creature dying, with the XP it's worth (from its character sheet). |
@@ -128,6 +129,17 @@ Ability scores such as `STR 24 (20 without spells)` show the score now and, in
 brackets, the character's own score when a spell (Strength, for one) has
 raised it. The character's own score already includes the racial adjustment:
 a half-giant's 20 + 4 shows as 24.
+
+### Initiative
+
+From the game's code: at the start of every round each combatant's initiative
+is 20 + a roll of 0-9 + a DEX adjustment + Hasted +2, Slowed −2 and Blind −2.
+The DEX adjustment has its own table: −6 at DEX 1, −4 at 2, −3 at 3, −2 at 4,
+−1 at 5, none for 6-15, +1 at 16, +2 at 17-18, +3 at 19-20, +4 at 21-23 and
++5 at 24-25. The weapon makes no difference (there are no weapon speeds). The
+highest score acts first; a second roll, 0-199, decides between equal scores
+(the log shows it only for those). Choosing Wait lowers the character's score
+to 10 (or by one, if it's 10 or less already) so they act later in the round.
 
 ### Attacks from behind and backstabs
 
