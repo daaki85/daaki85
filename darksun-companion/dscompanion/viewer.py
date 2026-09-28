@@ -528,7 +528,7 @@ class Viewer:
         per_member = [dict(m) for m in self._member_slots(slots)]
         rows = [(f"{kind} spells left", [game.slots_text(m.get(kind, [])) for m in per_member])
                 for kind, _ in game.MAGIC_KINDS]
-        if self.ds is not None:  # each thief's skills, before armour and effects
+        if self.ds is not None:  # each thief's skills, before armour and the situation
             gd = game.GameData(self.guest, self.ds)
             table = game.far_pointer(self.guest, self.ds, game.CREATURES_PTR)
             cells = []

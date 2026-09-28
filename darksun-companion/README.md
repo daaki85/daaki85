@@ -109,7 +109,7 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 | `Y saves vs Fireball from X (petrification/polymorph): d20 = 6, doubled for this spell = 12 +1 modifiers (incl. Blessed) = 13, needs 11 -> saved` | A saving throw: which of the target's five saves it uses, the d20, the game's modifiers, and the number it had to reach. The game doubles the d20 for some spells (Burning Hands, Fireball, Cone of Cold, Flame Strike, Wall of Fire...). A natural 1 always fails and a natural 20 always saves. For a damaging spell the result says what the save did: `saved: half damage`, or `saved: no damage` for spells such as Chill Touch. A failed save also lets the spell's effect take hold. Spells left on the ground (Grease, clouds) make creatures save again as they stay in them; those lines have no "from". |
 | `X gives Blessed to Y, Z: +1 to hit, +1 on saves` / `Blessed ends on Y` | A spell or psionic effect starting or ending, with what it does in the game's code where that is known: to-hit, AC and saving throws, movement and attacks, whether the creature can attack or cast, who controls it (see Spells and effects below). `Stuck on Y` (no "gives") is an effect a creature has from a spell on the ground or cast on itself. |
 | `X DEX check: d20 = 9, needs 16 or less (DEX 16) -> success` | An ability check. A natural 20 always fails. |
-| `Cilla tries to open locks: d100 = 35, needs 40 or less -> success` / `    open locks 40 = 18 + 16 thief level 4 + 10 elf... - 5 armour and effects` | A thief skill roll (see Thief skills below), and what its chance is made of. |
+| `Cilla tries to open locks: d100 = 35, needs 40 or less -> success` / `    open locks 40 = 18 + 16 thief level 4 + 10 elf... - 5 armour` | A thief skill roll (see Thief skills below), and what its chance is made of. |
 | `    X's Bone Long Sword nearly broke: 0 on 0-7, then 12 on 0-19 (needed 0)` / `... BREAKS` | The weapon check the game makes after an attack sequence whose last attack hit. Only non-magical wood, bone, stone and obsidian weapons can break (and not every kind: clubs and quarterstaffs can't): they break when a 0-7 roll and then a 0-19 roll both come up 0, 1 chance in 160. The line only appears when the first roll comes up 0. |
 | `Initiative, highest acts first:` / `    Cilla 25 = 20 + 1 (0-9 roll) +4 DEX, tie broken by 6 (0-199 roll)` | The order for the round, with each score's make-up (see below). |
 | `Message: Long Sword is broken !` | The game's own message boxes: broken or corroded weapons and armour, level-ups, "NO PATH FROM HERE" and so on. |
@@ -253,14 +253,18 @@ Some effects rule out a skill:
 - Fire Shield stops picking pockets and hiding; Mirror Image stops hiding.
 - Graft Weapon stops picking pockets, opening locks and climbing.
 - Feeblemind stops reading languages.
-- Enlarge changes two: hiding is divided by (100 + 10 × the spell's level)%, and
-  climbing is multiplied by it. A bigger thief hides worse and climbs better.
+- Enlarge scales the situation's bonus or penalty, not the skill: for hiding it's
+  divided by (100 + 10 × Enlarge's level)%, for climbing multiplied by it. With
+  no bonus or penalty it changes nothing; with a penalty, climbing gets harder.
+
+These effects work on the situation's bonus: ruling a skill out takes 1000 off
+it, so the roll can't succeed.
 
 The game gives the skills no names. The eight are AD&D's in AD&D's order (pick
 pockets, open locks, find/remove traps, move silently, hide in shadows, hear
 noise, climb walls, read languages): the checks above fit them.
 
-The **Characters** tab shows each thief's chances before armour and effects.
+The **Characters** tab shows each thief's chances before armour and the situation.
 **All fields** has them in a row in that order.
 
 ### Character creation

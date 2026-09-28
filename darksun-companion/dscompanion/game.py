@@ -551,7 +551,7 @@ class GameData:
         return [(what, n) for what, n in parts if n or what == "base"]
 
     def thief_skills(self, creature: int) -> List[Tuple[str, int]]:
-        """[(skill, chance before armour and effects), ...] for a thief, else []."""
+        """[(skill, chance before armour and the situation), ...] for a thief, else []."""
         out = []
         for skill, name in enumerate(THIEF_SKILLS):
             parts = self.thief_skill_parts(creature, skill)

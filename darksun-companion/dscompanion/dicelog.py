@@ -560,7 +560,9 @@ class DiceLog:
 
     def _thief_skill(self, e: Entry) -> List[str]:
         """A thief skill check (the game's routine at 803B8h): d100 under the skill's chance plus
-        the situation's bonus. Its arguments are (character, skill, bonus); [BP-2] the chance."""
+        the situation's bonus. Its arguments are (character, skill, bonus); [BP-2] the chance.
+        Effects change the bonus in place before the roll (Enlarge scales it; an effect that
+        rules the skill out takes 1000 off), so the frame holds the bonus as it was used."""
         chance, roll = e.local(-2), e.raw % 100 + 1
         who, skill, bonus = e.arg(6), e.arg(8), e.arg(0x0C) or 0
         if chance is None or who is None or skill is None:
@@ -578,8 +580,8 @@ class DiceLog:
         steps = [f"{n}" if what == "base" else f"{signed(n)} {what}" for what, n in parts]
         if bonus:
             steps.append(f"{signed(bonus)} this attempt")
-        if rest:
-            steps.append(f"{signed(rest)} armour and effects")
+        if rest:  # the only other part of the chance: the penalty for armour other than leather
+            steps.append(f"{signed(rest)} armour")
         return [head, f"    {name} {chance} = " + " ".join(steps).replace(" +", " + ").replace(" -", " - ")]
 
     # attacks ---------------------------------------------------------------------
