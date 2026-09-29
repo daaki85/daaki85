@@ -28,6 +28,7 @@ VEC_TEXT equ 0x63     ; PROBE_TEXT
 VEC_MSG  equ 0x64     ; PROBE_MSG
 VEC_CHAR equ 0x65     ; PROBE_CHAR
 VEC_TURN equ 0xF1     ; PROBE_TURN (not 66h-6Fh: the game calls those, looking for drivers)
+VEC_USE  equ 0xF2     ; PROBE_USE
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -98,6 +99,9 @@ reply_seq dw 0                  ; +140 the companion sets this to TURN_SEQ once 
 popups_on dw 0                  ; +142 the companion sets 1 to have turn summaries shown
 msg_off   dw msg_buf            ; +144 offset of MSG_BUF: the summary, NUL-terminated
 ended     dw 0                  ; +146 the combatant whose turn just ended
+slots_off dw slots_text         ; +148 offset of SLOTS_TEXT: 4 x SLOTS_SIZE bytes, one per party
+                                ;      member, lines separated by "|", NUL-terminated (the companion
+                                ;      keeps them up to date); PROBE_USE draws them
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -832,6 +836,88 @@ probe_turn:                     ; (re-entered while the window waits: all state 
 dlg     dd 0                    ; the dialogue window routine being called
 showing db 0                    ; 1 while PROBE_TURN has a summary up
 last_turn dw 0xFFFF
+
+; PROBE_USE: INT VEC_USE replaces "add sp,0Ch" (3 bytes: INT + NOP) in the USE (cast spells)
+; screen's routine that labels its LEVEL button, which runs whenever the screen is drawn
+; or the level changes. Draws the selected character's spell slots (SLOTS_TEXT, from the
+; companion) in the empty panel under the spells, with the game's own text routine.
+USE_TEXT_SEG equ 0x2B7A - 0x4356 ; the text routine's segment (DSUN.EXE: 2B7Ah) less DS's
+USE_TEXT_OFF equ 0x16D
+USE_WHO_SEG  equ 0x3931 - 0x4356 ; the selected character's number is at this segment:25Bh
+SLOTS_SIZE   equ 96
+probe_use:
+        push bp                 ; the replaced "add sp,0Ch": move the interrupt frame (and BP)
+        mov bp, sp              ; up over the 12 bytes
+        push ax
+        mov ax, [bp + 6]
+        mov [bp + 18], ax
+        mov ax, [bp + 4]
+        mov [bp + 16], ax
+        mov ax, [bp + 2]
+        mov [bp + 14], ax
+        mov ax, [bp]
+        mov [bp + 12], ax
+        pop ax
+        mov sp, bp
+        add sp, 12
+        pop bp
+        sti
+        pushad
+        push es
+        push fs
+        mov ax, ds
+        add ax, USE_WHO_SEG
+        mov es, ax
+        mov bx, [es:0x25B]      ; the character on show
+        cmp bx, 3
+        ja .done
+        imul si, bx, SLOTS_SIZE
+        add si, slots_text
+        cmp byte [cs:si], 0
+        je .done                ; no spells
+        mov ax, ds
+        add ax, USE_TEXT_SEG
+        mov [cs:c_draw + 2], ax
+        mov word [cs:c_draw], USE_TEXT_OFF
+        mov eax, [0x11A4]       ; the screen's window
+        mov [cs:c_winptr], eax
+        mov dx, USE_FIRST_Y
+.line:  mov di, u_line          ; copy one line (up to "|" or the end) and draw it
+.copy:  mov al, [cs:si]
+        cmp al, '|'
+        je .cut
+        cmp al, 0
+        je .cut
+        mov [cs:di], al
+        inc si
+        inc di
+        cmp di, u_line + SLOTS_SIZE - 1
+        jb .copy
+.cut:   mov byte [cs:di], 0
+        push si
+        push dx
+        push dx                 ; y
+        push word USE_X         ; x
+        push cs
+        push word u_line
+        call c_draw_line
+        pop dx
+        pop si
+        add dx, 8
+        cmp byte [cs:si], '|'
+        jne .done
+        inc si
+        cmp dx, USE_LAST_Y
+        jbe .line
+.done:  pop fs
+        pop es
+        popad
+        iret
+USE_X      equ 0x96             ; the panel under the spells (window coordinates)
+USE_FIRST_Y equ 0x76
+USE_LAST_Y equ 0x9E
+u_line  times SLOTS_SIZE db 0
+slots_text times 4 * SLOTS_SIZE db 0
 msg_buf times 256 db 0
 
 tput:                           ; AL -> text buffer at position BX
@@ -865,7 +951,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 7
+        mov cx, 8
 .check:
         lodsb
         mov ah, 35h
@@ -902,6 +988,9 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_TURN
         mov dx, probe_turn
         int 21h
+        mov ax, 2500h + VEC_USE
+        mov dx, probe_use
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -917,8 +1006,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or F1h are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN
+busy    db 'DSCLOG: interrupts 60h-65h, F1h or F2h are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE
 
         align 16, db 0
 image_len equ $ - $$

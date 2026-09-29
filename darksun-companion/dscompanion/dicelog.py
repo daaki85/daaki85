@@ -34,6 +34,9 @@ HDR_SIG = b"DSCLOGv7"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
 MSG_SIZE = 256
+# ... and the party's spell slots, for the game's USE screen (PROBE_USE)
+TSR_SLOTS_OFF, SLOTS_SIZE = 148, 96
+SLOT_KINDS = {"Wizard": "WIZ", "Priest": "PRI"}
 RAND_PATCHED = b"\xcd\x60"  # INT 60h at the start of rand() in DSUNLOG.EXE
 RAND_IP = 0x822  # rand()'s offset in the game's first code segment
 SEED = 0x4122  # DS offset of rand()'s 32-bit seed
@@ -281,6 +284,7 @@ class DiceLog:
         self.popups = False  # in-game turn summaries (set_popups)
         self._turn_seq = 0
         self._turn_attacks: Dict[int, List[dict]] = {}  # creature -> this turn's attacks
+        self._slots_written = b""
         self._own_text: set = set()  # summaries shown in the game's window, not to log as dialogue
         self._skip_choice = False
         self._hits: Dict[int, int] = {}  # creature -> damage of weapon hits not yet seen in its HP
@@ -374,6 +378,35 @@ class DiceLog:
             text = text[:MSG_SIZE - 4].rsplit(" ", 1)[0] + "..."
         return text
 
+    def slots_lines(self, member: int) -> str:
+        """A party member's spell slots for the game's USE screen, "|" between lines:
+        "SPELLS LEFT BY LEVEL|WIZ 2/2 1/1|PRI 5/5 3/3 2/2 1/1" (five levels a line)."""
+        lines = []
+        for kind, levels in self.game.spell_slots(member):
+            top = max(level for level, _, _ in levels)
+            by_level = {level: (left, most) for level, left, most in levels}
+            cells = [f"{by_level.get(n, (0, 0))[0]}/{by_level.get(n, (0, 0))[1]}" for n in range(1, top + 1)]
+            for i in range(0, len(cells), 5):
+                lines.append(("    " if i else f"{SLOT_KINDS.get(kind, kind[:3].upper())} ") + " ".join(cells[i:i + 5]))
+        return "|".join(["SPELLS LEFT BY LEVEL"] + lines) if lines else ""
+
+    def _write_slots(self) -> None:
+        """Keep DSCLOG's copy of the party's spell slots current."""
+        if self.tsr_hdr is None:
+            return
+        base = self.tsr_hdr - struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_HDR_OFF, 2))[0]
+        table = base + struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_SLOTS_OFF, 2))[0]
+        data = b""
+        for member in range(game.PARTY_SIZE):
+            try:
+                text = self.slots_lines(member)
+            except (struct.error, IndexError, ValueError):
+                text = ""
+            data += text.encode("cp437", "replace")[:SLOTS_SIZE - 1].ljust(SLOTS_SIZE, b"\0")
+        if data != self._slots_written:
+            self.guest.write(table, data)
+            self._slots_written = data
+
     def _not_ours(self, entries: List[DialogueEntry]) -> List[DialogueEntry]:
         """Dialogue without the turn summaries the log itself had the game show (and their
         "Continue")."""
@@ -464,6 +497,7 @@ class DiceLog:
         if now >= self._next_effect_check:
             self._next_effect_check = now + EFFECT_INTERVAL
             out += self.effect_changes(now)
+            self._write_slots()
             if not self._party_check(now):
                 out += self.tracker.check(now)
         if self._initiative and now - self._initiative_at >= INITIATIVE_WAIT:

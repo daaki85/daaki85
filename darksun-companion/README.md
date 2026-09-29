@@ -31,6 +31,8 @@ parts:
 - **In the game itself:** the inventory screen also shows each character's
   THAC0, saving throws and (for thieves) thief skills, in the game's own
   lettering (see [In the game](#in-the-game-thac0-saves-and-thief-skills)),
+  the USE screen their spell slots left (see
+  [spell slots](#in-the-game-spell-slots-on-the-use-screen)),
   and, if you like, the game stops after each turn in a fight to show that
   turn's attack rolls (see [each turn's attacks](#in-the-game-each-turns-attacks)).
 
@@ -483,6 +485,22 @@ whose address, like the selected character, it reads from the game's code
 around the patch (overlays move, so nothing is fixed in advance). Nothing else
 in the game changes.
 
+### In the game: spell slots on the USE screen
+
+The game's USE (cast spells) screen shows, in the empty panel under the spells,
+how many spells of each level the selected character can still cast, and the
+most they get after resting: `WIZ` for preservers' wizard spells, `PRI` for
+clerics', druids' and rangers' priest spells, one `left/most` per spell level
+from the 1st (five to a line):
+
+![The USE screen with Cilla's spell slots](docs/use-slots.png)
+
+The numbers are the same as on the Characters tab (see Spell slots): the
+Ledger works them out, including the WIS bonus, and keeps a copy in the
+helper's memory, which the patched game (`INT F2h`, where the USE screen
+labels its LEVEL button) prints with the game's own text routine. So they
+show while Templar's Ledger (or its command-line dice log) is running.
+
 ### In the game: each turn's attacks
 
 With **Show each turn's attacks in the game** ticked on the Dice log tab (or
@@ -541,8 +559,9 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    (`dscompanion/gamepatch.py`). The start of `rand()`, the end of the saving
    throw, the end of the AC calculation, the start of the routine that fills
    the dialogue window and the start of the message box routine become
-   `INT 60h` to `64h`, the inventory screen's panel calls `INT 65h` and the
-   combat loop `INT F1h` (see In the game), and the copy looks for its data files in the current
+   `INT 60h` to `64h`, the inventory screen's panel calls `INT 65h`, the
+   combat loop `INT F1h` and the USE screen `INT F2h` (see In the game), and
+   the copy looks for its data files in the current
    folder rather than next to itself. DOSBox runs it from the game folder, so
    it uses your saves as usual.
 2. `dos\DSCLOG.EXE` (source in `dos\dsclog.asm`) is a tiny DOS program loaded

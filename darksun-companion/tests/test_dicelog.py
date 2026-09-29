@@ -232,6 +232,15 @@ class AttackTests(unittest.TestCase):
         self.assertEqual(log.turn_summary(0), "")  # a new turn starts afresh
 
 
+class SlotsForTheGameTests(unittest.TestCase):
+    def test_slot_lines(self):
+        log = make_game()
+        log.game.spell_slots = lambda member: {
+            0: [("Wizard", [(1, 2, 2), (2, 1, 1)]), ("Priest", [(n, 1, 2) for n in range(1, 8)])]}.get(member, [])
+        self.assertEqual(log.slots_lines(0), "SPELLS LEFT BY LEVEL|WIZ 2/2 1/1|PRI 1/2 1/2 1/2 1/2 1/2|    1/2 1/2")
+        self.assertEqual(log.slots_lines(1), "")
+
+
 class BackstabTests(unittest.TestCase):
     def test_backstab_multiplies_the_damage(self):
         log = make_game()
