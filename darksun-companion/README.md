@@ -128,7 +128,7 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 | `Y saves vs Fireball from X (petrification/polymorph): d20 = 6, doubled against fire = 12 +1 modifiers (incl. Blessed) = 13, needs 11 (80% to save) -> saved: half damage, 19 of 38` | A saving throw: which of the target's five saves it uses, the d20, the game's modifiers, and the number it had to reach. The game doubles the d20 against fire, cold and electricity spells (see Spells and effects). A natural 1 always fails and a natural 20 always saves. The chance of saving is worked out for you (`needs 14 (70% to save)`); with the doubled d20, Fireball's victims usually save. For a damaging spell the result says what the save left, from that target's damage roll just before it: `saved: half damage, 19 of 38`, `failed: full damage, 38`, or `saved: no damage` for spells such as Chill Touch. The HP line after it shows what the creature really lost, once resistances and protections have had their say. A failed save also lets the spell's effect take hold. Spells left on the ground (Grease, clouds) make creatures save again as they stay in them; those lines have no "from". |
 | `X gives Blessed to Y, Z: +1 to hit, +1 on saves` / `Blessed ends on Y` | A spell or psionic effect starting or ending, with what it does in the game's code where that is known: to-hit, AC and saving throws, movement and attacks, whether the creature can attack or cast, who controls it (see Spells and effects below). `Stuck on Y` (no "gives") is an effect a creature has from a spell on the ground or cast on itself. |
 | `X DEX check: d20 = 9, needs 16 or less (DEX 16) -> success` | An ability check. A natural 20 always fails. |
-| `Cilla tries to open locks: d100 = 35, needs 40 or less -> success` / `    open locks 40 = 18 + 16 thief level 4 + 10 elf... - 5 armour` | A thief skill roll (see Thief skills below), and what its chance is made of. |
+| `Cilla tries to open locks: d100 = 35, needs 40 or less -> success` / `    open locks 40 = 18 + 16 thief level 4 + 10 elf...` | A thief skill roll (see Thief skills below), and what its chance is made of. |
 | `    X's Bone Long Sword nearly broke: 0 on 0-7, then 12 on 0-19 (needed 0)` / `... BREAKS` | The weapon check the game makes after an attack sequence whose last attack hit. Only non-magical wood, bone, stone and obsidian weapons can break (and not every kind: clubs and quarterstaffs can't): they break when a 0-7 roll and then a 0-19 roll both come up 0, 1 chance in 160. The line only appears when the first roll comes up 0. |
 | `Message: Long Sword is broken !` | The game's own message boxes: broken or corroded weapons and armour, level-ups, "NO PATH FROM HERE" and so on. |
 | `  Slig now 8/18 HP (-10)` / `  Gerakis now 51/54 HP (+1)` | Any combatant's hit points going down or up, with what's left out of their most. The game never shows a monster's HP; this does. The line comes just after the damage that caused it (sometimes after the next roll, when the game is quick). |
@@ -302,10 +302,10 @@ Fireball, cast at a Slig next to her, killed her.
 
 ### Thief skills
 
-The game never shows thief skills, but it rolls them: for locks, traps and
-other things its scripts ask for. Sometimes it's the party's best member at it
-who tries. The roll is a d100 that must come in under the skill's chance. The
-game's code works the chance out as:
+The game never shows thief skills, but it rolls them: for traps, and for the
+locks, walls and so on its scripts ask for (see Where the game rolls them). The
+roll is a d100 that must come in under the skill's chance. The game's code works
+the chance out as:
 - a base for each skill (28, 18, 13, 28, 18, 23, 78, −4),
 - plus 4 for each thief level,
 - plus a racial adjustment. These are AD&D's, for example a dwarf gets +10 to
@@ -313,12 +313,16 @@ game's code works the chance out as:
 - plus DEX: −5 for each point below 12, 11, 12, 13 or 11 (the first five skills);
   +5 for each point above 16, 15, 17, 16 or 16; and −3 for each point above
   21, 20, 21, 19 or 19, so very high DEX gains less,
-- minus an armour penalty (5, 0, 0, 10, 5, 0, 10, 0) when the thief wears
-  anything but leather,
+- minus an equipment penalty (5, 0, 0, 10, 5, 0, 10, 0) when the thief has
+  anything at all in the leg armour slot, the quiver or either hand. That is the
+  game's own check: it doesn't look at what the item is (leather or metal) and
+  ignores chest and arm armour and helmets, so a thief holding any weapon pays
+  it. (The manual's "anything other than leather-type armor" is AD&D's rule,
+  not what the code does.)
 - plus the situation's bonus or penalty (a hard lock, say).
 
-Only characters with thief levels have the skills. The exception is finding
-traps: anyone with Find Traps on them can try. The character's condition must
+Only characters with thief levels have the skills; everyone else's chance is 0.
+The character's condition must
 be Okay (the status the character screen shows under HP): a thief who is
 Stunned, Out Cold, Dying and so on can't use the skills.
 
@@ -333,12 +337,41 @@ Some effects rule out a skill:
   divided by (100 + 10 × Enlarge's level)%, for climbing multiplied by it. With
   no bonus or penalty it changes nothing; with a penalty, climbing gets harder.
 
+Two effects make a skill certain instead: Detect Traps (anyone, thief or not,
+finds traps) and Invisible (hiding in shadows).
+
 These effects work on the situation's bonus: ruling a skill out takes 1000 off
-it, so the roll can't succeed.
+it, so the roll can't succeed, and making it certain adds 1000. (One more rule
+in the code would make move silently certain, and hearing noise impossible, for
+someone wearing one particular item on their legs, but the game passes that
+check its two lists the wrong way round, so it never applies.)
 
 The game gives the skills no names. The eight are AD&D's in AD&D's order (pick
 pockets, open locks, find/remove traps, move silently, hide in shadows, hear
 noise, climb walls, read languages): the checks above fit them.
+
+#### Where the game rolls them
+
+There is no hide or sneak command: a thief skill is only rolled when the game
+asks for one, and it asks in two places.
+- **Traps.** When a trap on an object goes off, the party tries to find/remove
+  it: the member with the best chance rolls, with no bonus. Detect Traps on the
+  character setting it off also avoids it.
+- **The game's scripts** (conversations, doors, walls...). Every script in
+  GPLDATA.GFF decodes (see `dscompanion/gpl.py`), and between them they make 13
+  thief checks: find/remove traps 4 times (hidden passages, a secret door, a
+  rug, a trip cord; bonuses −10 to +3), open locks 4 times (a safe, a grate and
+  cell doors; −4 to +8), climb walls 3 times, and pick pockets and hear noise
+  once each (a key in a trustee's pocket; two men arguing by a wagon, a check
+  for the whole party). Most are made by the character who acted.
+
+**Move silently, hide in shadows and read languages are never rolled** anywhere
+in the game, so they make no difference; nor does the equipment penalty on
+them. The scripts also make 3 ability checks (a d20 under the ability): CHA
+twice and STR once.
+
+`python -m dscompanion checks` lists them all with the script's text around
+each (spoilers).
 
 The **Characters** tab shows each thief's chances before armour and the situation.
 **All fields** has them in a row in that order.

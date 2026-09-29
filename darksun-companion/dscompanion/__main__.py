@@ -117,6 +117,20 @@ def cmd_save(args) -> None:
         print(label.ljust(width) + "".join(cell.ljust(w) for cell, w in zip(cells, cols)))
 
 
+def cmd_checks(args) -> None:
+    from . import gpl, launch
+    game_dir = launch.find_game_dir(args.game_dir)
+    if game_dir is None:
+        raise CliError("Can't find the game folder; pass --game-dir.")
+    with open(os.path.join(game_dir, "GPLDATA.GFF"), "rb") as f:
+        scripts, field_types = gpl.load_scripts(f.read())
+    for c in gpl.checks(scripts, field_types):
+        bonus = "" if c.bonus is None else f", bonus {c.bonus:+d}"
+        print(f"{c.script} at {c.at:X}h: {c.what} ({c.kind} check), {c.who}{bonus}")
+        if c.text:
+            print("    " + " / ".join(t.strip() for t in c.text if t.strip())[:300])
+
+
 def cmd_dicelog(args) -> None:
     import time
     from .dicelog import DiceLog
@@ -227,6 +241,10 @@ def main(argv=None) -> int:
     s.add_argument("--short-popups", action="store_true",
                    help="with --popups: one line per target instead of the log's detail")
     s.set_defaults(func=cmd_dicelog)
+
+    s = sub.add_parser("checks", help="list the thief skill and ability checks in the game's scripts (spoilers)")
+    s.add_argument("--game-dir", help="the game's install folder")
+    s.set_defaults(func=cmd_checks)
 
     s = sub.add_parser("save", help="show the party stored in a save file (SAVEnn.SAV)")
     s.add_argument("file")

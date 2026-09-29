@@ -592,7 +592,7 @@ class OtherTests(unittest.TestCase):
         e = entry(1223, dicelog.PERCENT_SITE, words(0, 0, 0, 1, 0, -10), locals_=locals_at(0x10, m2=24))
         self.assertEqual(log.describe(e), ["Dag tries to open locks: d100 = 24, needs 24 or less -> success",
                                            "    open locks 24 = 18 + 16 thief level 4 + 5 DEX 16 - 10 this attempt "
-                                           "- 5 armour"])
+                                           "- 5 equipment"])
         # an effect (Blind, Afraid...) takes 1000 off
         e = entry(1223, dicelog.PERCENT_SITE, words(0, 0, 0, 1, 0, 0), locals_=locals_at(0x10, m2=-961))
         self.assertEqual(log.describe(e), ["Dag tries to open locks: d100 = 24 -> failure (an effect stops it)"])

@@ -810,8 +810,8 @@ class DiceLog:
         steps = [f"{n}" if what == "base" else f"{signed(n)} {what}" for what, n in parts]
         if bonus:
             steps.append(f"{signed(bonus)} this attempt")
-        if rest:  # the only other part of the chance: the penalty for armour other than leather
-            steps.append(f"{signed(rest)} armour")
+        if rest:  # the only other part of the chance: the equipment penalty
+            steps.append(f"{signed(rest)} equipment")
         return [head, f"    {name} {chance} = " + " ".join(steps).replace(" +", " + ").replace(" -", " - ")]
 
     # attacks ---------------------------------------------------------------------
