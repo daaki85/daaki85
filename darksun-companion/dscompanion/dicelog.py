@@ -74,6 +74,17 @@ CONFUSION_RESULTS = ((1, "runs off"), (6, "does nothing"), (9, "fights for a sid
 STRENGTH_ROLL_RETURN = bytes.fromhex("83c40450660fbf4618")
 STR_MOST = 24
 MIND_BAR, LOW_RESISTANCE, MIND_BAR_RESISTANCE = 32, 31, 75
+# The magic resistance roll made straight from the spell code (arguments: target, spell, level)
+RESISTANCE_ROLL_RETURN = bytes.fromhex("83c404508a460a50ff76")
+# Dispel Magic, for each effect on the target (the effect id in [BP-2], the dispeller's level
+# the handler's argument at +14h): d100 at or under 50 + 5 x (that level - the effect's level)
+DISPEL_ROLL_RETURN = bytes.fromhex("83c4045a3bd07c108a46")
+# Abjure: d20, which must reach 11 - the caster's level + the target's level; a creature of
+# kind 14 (a summoned one) is then sent away (1000 damage)
+ABJURE_ROLL_RETURN = bytes.fromhex("83c4045a3bd07e03e968")
+ABJURE_KIND = 14
+# A summoning spell picking which of its three creatures comes
+SUMMON_ROLL_RETURN = bytes.fromhex("83c4043d0100740d3d02")
 # What a return address shows when the overlay manager has redirected it (INT 3Fh)
 OVERLAY_TRAP = b"\xcd\x3f"
 # DSCLOG only records calls whose calling code starts like one of these, so
@@ -744,6 +755,14 @@ class DiceLog:
                 return self.flush(now, force=True) + [
                     f"{self.game.spell_name(spell)}: 1d{sides} = {faces[0]} -> {self._name(target)}'s STR "
                     f"+{faces[0]} while it lasts (at most {STR_MOST})"]
+            if count == 1 and sides == 100 and e.parent_code.startswith(RESISTANCE_ROLL_RETURN):
+                return self._magic_resistance(e.parent_arg(6), e.parent_arg(8), faces[0])
+            if count == 1 and sides == 100 and e.parent_code.startswith(DISPEL_ROLL_RETURN):
+                return self._dispel(e, faces[0])
+            if count == 1 and sides == 20 and e.parent_code.startswith(ABJURE_ROLL_RETURN):
+                return self._abjure(e, faces[0])
+            if count == 1 and e.parent_code.startswith(SUMMON_ROLL_RETURN):
+                return [f"    Summoning: 1d{sides} = {faces[0]} picks which of its {sides} creatures comes"]
             if e.parent_code.startswith(CHARGE_USED_RETURN):
                 who, eid = self._name(e.parent_arg(6)), e.parent_arg(8)
                 if eid == ACID:
@@ -1068,6 +1087,41 @@ class DiceLog:
         spell, target, caster = e.arg(0x0A), e.arg(6), e.arg(8)
         return self._flush_spell(spell) + [
             self._save_line(target, caster, spell, e.local(-6), natural, total, needed)]
+
+    def _dispel(self, e: Entry, roll: int) -> List[str]:
+        """One effect's chance against Dispel Magic."""
+        g = self.game
+        target, level, eid = e.parent_arg(6), (e.parent_arg(0x14) or 0) & 0xFF, e.parent_local(-2)
+        if target is None or eid is None:
+            return []
+        name = EFFECT_NAMES.get(eid, f"effect {eid}")
+        # the game weighs every effect of that kind on the target (usually one): each effect's level
+        levels = []
+        for effect, spell in g.effect_spells():
+            if effect.owner == target and effect.id == eid:
+                caster = g.combatant_creature(effect.caster)
+                found = g.effect_caster_level(caster, spell) if caster is not None else None
+                levels.append(found or 0)
+        chance = 50 + 5 * level - 5 * sum(levels)
+        against = f" - 5 x {sum(levels)} (its caster's level)" if levels else ""
+        return [f"    Dispel Magic on {self._name(target)}'s {name}: d100 = {roll}, needs {chance} or less "
+                f"(50 + 5 x {level}{against}) -> {'dispelled' if roll <= chance else 'stays'}"]
+
+    def _abjure(self, e: Entry, roll: int) -> List[str]:
+        g = self.game
+        target, level = e.parent_arg(6), (e.parent_arg(0x14) or 0) & 0xFF
+        creature = g.combatant_creature(target) if target is not None else None
+        sheet = g.sheet(creature) if creature is not None else b""
+        if len(sheet) < game.SHEET_SIZE:
+            return [f"    Abjure: d20 = {roll}"]
+        their = sheet[game.SHEET_LEVELS]
+        need = 11 - level + their
+        kind = sheet[game.SHEET_RACE]
+        works = roll >= need
+        result = ("sent away" if kind == ABJURE_KIND else "no effect: only summoned creatures can be sent away") \
+            if works else "fails"
+        return [f"    Abjure on {self._name(target)}: d20 = {roll}, needs {need} or more (11 - caster level {level} "
+                f"+ its level {their}) -> {result}"]
 
     def _magic_resistance(self, target: int, spell: int, roll: int) -> List[str]:
         """The d100 the game rolls against a target's magic resistance before its saving throw."""

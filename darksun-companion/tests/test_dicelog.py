@@ -288,6 +288,20 @@ class SaveTests(unittest.TestCase):
                       parent_code=dicelog.OVERLAY_TRAP + bytes(8)) for f in (1, 7, 5, 1)]
         self.assertEqual(sum((log.describe(d) for d in dice), []), ["Fireball damage: 4d8 = [1 + 7 + 5 + 1] = 14"])
 
+    def test_dispel_and_abjure(self):
+        log = make_game()
+        # Dispel Magic at level 7 on the stalker's Blessed (no such effect listed: nothing to weigh)
+        e = entry(raw_for(60, 100), dicelog.DICE_SITE, words(0, 0, 1, 100),
+                  words(0, 0, 0x29, 0, 0, 0, 0, 0, 0, 7), parent_locals=locals_at(0x28, m2=7),
+                  parent_code=dicelog.DISPEL_ROLL_RETURN)
+        self.assertEqual(log.describe(e), ["    Dispel Magic on Mountain Stalker's Blessed: d100 = 60, needs 85 or "
+                                           "less (50 + 5 x 7) -> dispelled"])
+        # Abjure at level 5 against the stalker (level 0 on its sheet): needs 6
+        e = entry(raw_for(4, 20), dicelog.DICE_SITE, words(0, 0, 1, 20), words(0, 0, 0x29, 0, 0, 0, 0, 0, 0, 5),
+                  parent_code=dicelog.ABJURE_ROLL_RETURN)
+        self.assertEqual(log.describe(e), ["    Abjure on Mountain Stalker: d20 = 4, needs 6 or more (11 - caster "
+                                           "level 5 + its level 0) -> fails"])
+
     def test_psp(self):
         log = make_game()
         dag = CREATURES + game.CREATURE_PSP

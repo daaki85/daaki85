@@ -321,6 +321,9 @@ CLASS_MAGIC_SEG, CLASS_MAGIC_OFF = 0x3800, 0x118
 # ...and its slot rules: DS byte per class number, a rule number in each nibble (low first:
 # class level, then WIS), and the rule words, a DS word each
 SLOT_CLASS_RULES, SLOT_RULES = 0x664, 0x678
+# Each spell's spheres (a dword, 7 bytes a spell), matched against each class's (above)
+SPELL_SPHERES_SEG, SPELL_SPHERES_OFF, SPELL_SPHERES_SIZE = 0x3FB9, 0x19D, 7
+RANGER_CLASSES = range(13, 17)
 SLOTS_ALL_19 = 0x1164  # a DS word the game checks: 1 gives the party 19 of everything
 HUMAN = 1
 
@@ -440,6 +443,15 @@ class GameData:
                 charges = None  # a permanent effect keeps a meaningless 15 there
             out.append((effect, charges, max(at - now, 0) if at is not None and now is not None else None))
         return out
+
+    def effect_spells(self) -> List[Tuple[Effect, int]]:
+        """Each active effect with the spell (or power) that made it."""
+        count = self._word(EFFECT_COUNT)
+        if not 0 <= count <= 400:
+            return []
+        data = self.guest.read((self.load_seg + EFFECTS_SEG) * 16 + EFFECTS_OFF, count * 10)
+        return [(Effect(*struct.unpack_from("<hh", data, i * 10), data[i * 10 + 6]),
+                 struct.unpack_from("<h", data, i * 10 + 4)[0]) for i in range(count)]
 
     def game_time(self) -> Optional[int]:
         """Game seconds since the start (60 to a round): the dword the game keeps its clock in."""
@@ -613,6 +625,29 @@ class GameData:
                 total += min(max(count, 0), most)
                 rules >>= 4
         return total
+
+    def class_level(self, creature: int, cls: int) -> int:
+        """The creature's level in one class (0 if it hasn't that class)."""
+        sheet = self.sheet(creature)
+        if len(sheet) < SHEET_SIZE:
+            return 0
+        return next((sheet[SHEET_LEVELS + n] for n in range(3) if sheet[SHEET_CLASSES + n] == cls), 0)
+
+    def effect_caster_level(self, creature: int, spell: int) -> Optional[int]:
+        """The level a spell effect counts as having been cast at, as Dispel Magic weighs it (the
+        game's routine at 81B16h): the caster's best level in a class sharing a sphere with the
+        spell, rangers 7 levels less. None for psionic powers and monsters' own powers."""
+        if not 0 < spell < PSIONIC_FIRST:
+            return None
+        spheres, = struct.unpack("<I", self.guest.read(
+            (self.load_seg + SPELL_SPHERES_SEG) * 16 + SPELL_SPHERES_OFF + spell * SPELL_SPHERES_SIZE, 4))
+        classes = self.guest.read((self.load_seg + CLASS_MAGIC_SEG) * 16 + CLASS_MAGIC_OFF, 4 * 20)
+        best = 0
+        for cls in range(1, 20):
+            if struct.unpack_from("<I", classes, cls * 4)[0] & spheres:
+                level = self.class_level(creature, cls) - (7 if cls in RANGER_CLASSES else 0)
+                best = max(best, level)
+        return best
 
     def thief_skill_parts(self, creature: int, skill: int) -> Optional[List[Tuple[str, int]]]:
         """What a thief skill's chance (percent) is made of, before armour, effects and the
