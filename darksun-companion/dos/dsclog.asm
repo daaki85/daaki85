@@ -470,8 +470,8 @@ text_leave:                     ; record CL = kind, DS:SI = dword, DX = word, th
 ; PROBE_INV: INT VEC_CHAR replaces "add sp,0Eh" (3 bytes: INT + NOP) in the inventory
 ; screen's routine for its right-hand panel, straight after the weapon lines (AX = how many
 ; lines they took). Does the add, then adds in the game's own lettering: THAC0 and the five
-; saving throws above STR, and for a thief the eight skills below the weapons, when they
-; fit above the buttons.
+; saving throws above STR, and for a thief the eight skills in a column right of the
+; abilities (below the weapons, three of which reach the buttons, there'd be no room).
 ; The routine's code holds the (relocated) far address of the game's text routine at a
 ; fixed distance before the patch: it is read from there.
 IV_PATCH  equ 0x6F6BF           ; DSUN.EXE offsets
@@ -489,7 +489,6 @@ probe_char:
         push es
         push fs
         push gs
-        mov [cs:c_lines], ax
         mov es, [cs:t_cs]
         mov di, [cs:t_ip]
         sub di, 2               ; ES:DI = the patch
@@ -521,13 +520,7 @@ probe_char:
         cmp cx, 3
         jb .cls
         jmp .done
-.thief: mov ax, [cs:c_lines]     ; the rows start below the weapon lines
-        imul ax, ax, 7
-        add ax, 0x78 + 3
-        cmp ax, THIEF_LAST_Y
-        ja .done                ; three weapons: no room above the buttons
-        mov [cs:c_ty], ax
-        mov al, [es:si + bx + 3]  ; the thief level (levels follow the classes)
+.thief: mov al, [es:si + bx + 3]  ; the thief level (levels follow the classes)
         call c_thief
 .done:
         pop gs
@@ -605,14 +598,6 @@ c_thief:
         cmp bx, 8
         jb .skill
         pop si
-        mov bx, c_cells_thief   ; the rows' y: from C_TY, 7 apart
-        mov ax, [cs:c_ty]
-        mov cx, 4
-.row:   mov [cs:bx + 2], ax
-        mov [cs:bx + 10], ax
-        add bx, 16
-        add ax, 7
-        loop .row
         mov bx, c_cells_thief
         mov cx, 8
         ; fall through
@@ -698,14 +683,15 @@ c_cells_top:
         dw 0xEC, 0x17, l_ppd, 0x103,  0x113, 0x17, l_rsw, 0x12A
         dw 0xEC, 0x1E, l_pp, 0x103,   0x113, 0x1E, l_bw, 0x12A
         dw 0xEC, 0x25, l_sp, 0x103
-c_cells_thief:                  ; the y values are filled in (C_TY)
-        dw 0xEC, 0, l_pick, 0x106,  0x116, 0, l_lock, 0x130
-        dw 0xEC, 0, l_trap, 0x106,  0x116, 0, l_move, 0x130
-        dw 0xEC, 0, l_hide, 0x106,  0x116, 0, l_hear, 0x130
-        dw 0xEC, 0, l_clmb, 0x106,  0x116, 0, l_read, 0x130
-THIEF_LAST_Y equ 0x98           ; the lowest first row: the fourth then ends above the buttons
-c_lines dw 0
-c_ty    dw 0
+c_cells_thief:                  ; right of the abilities (whose values end by 10Eh), in the
+        dw 0x113, 0x27, l_pick, 0x12D  ; saves' second column: from beside SP down to CHR,
+        dw 0x113, 0x2E, l_lock, 0x12D  ; level with STR..CHR, clear of the PSI line
+        dw 0x113, 0x35, l_trap, 0x12D
+        dw 0x113, 0x3C, l_move, 0x12D
+        dw 0x113, 0x43, l_hide, 0x12D
+        dw 0x113, 0x4A, l_hear, 0x12D
+        dw 0x113, 0x51, l_clmb, 0x12D
+        dw 0x113, 0x58, l_read, 0x12D
 l_thac0 db 'THAC0:', 0
 l_ppd   db 'PPD', 0
 l_rsw   db 'RSW', 0

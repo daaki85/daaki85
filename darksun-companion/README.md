@@ -466,18 +466,17 @@ right-hand panel, drawn by the game's text routine so they look like the rest:
 - above STR, **THAC0** and the five **saving throws**, with the usual AD&D
   short labels: `PPD` paralysis/poison/death, `RSW` rod/staff/wand, `PP`
   petrification/polymorph, `BW` breath weapon, `SP` spell;
-- below the weapons, for a character with thief levels, the eight **thief
-  skills**: `PICK` pockets, open `LOCK`s, find/remove `TRAP`s, `MOVE`
+- right of the abilities, for a character with thief levels, the eight
+  **thief skills**: `PICK` pockets, open `LOCK`s, find/remove `TRAP`s, `MOVE`
   silently, `HIDE` in shadows, `HEAR` noise, `CLMB` walls, `READ` languages.
+  (Not below the weapons: three weapons fill the panel down to its buttons.)
 
 They're read from the character when the screen is drawn, so they follow
 level-ups, and the next character's show when you pick another portrait.
 They're the character's own numbers, as on a paper character sheet: THAC0 and
 saves before the weapon, STR, magic and spells that the game adds at the
 moment of each attack or save (the dice log shows those), and thief skills
-before armour and the situation (see Thief skills). With three weapons ready
-the weapon lines leave no room above the buttons, and the thief skills are
-left out.
+before armour and the situation (see Thief skills).
 
 How: the patched game calls the helper (`INT 65h`) just after the panel's
 weapon lines; the helper prints the lines with the game's own text routine,
