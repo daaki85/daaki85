@@ -697,6 +697,34 @@ class NewLinesTests(unittest.TestCase):
         log.speaker_names = {57: "Tithian", 119: "Herald"}  # names the player gave
         self.assertEqual((log.speaker(57), log.speaker(119)), ("Tithian", "Herald"))
 
+    def test_speakers_learned_from_conversations(self):
+        log = make_game()
+        struct.pack_into("<H", log.guest.mem, HDR + dicelog.TSR_SLOTS_OFF, 0x1800)  # spell slots out of the way
+        talking_to = [None]
+        log.game.talk_target = lambda: talking_to[0]
+        def conversation(*portraits):
+            data = b""
+            for p in portraits:
+                for kind, value, text in ((KIND_PORTRAIT, p, b""), (KIND_TEXT, 0, b"Hello. "), (KIND_TEXT, 0, b"END")):
+                    data += bytes((0xFE, kind)) + struct.pack("<IHH", 0, value, len(text)) + text
+            data += bytes((0xFE, KIND_TEXT)) + struct.pack("<IHH", 0, 0, 5) + b"CLOSE"
+            start = struct.unpack_from("<H", log.guest.mem, HDR + 126)[0]
+            log.guest.mem[HDR + 0x800 + start:HDR + 0x800 + start + len(data)] = data
+            struct.pack_into("<H", log.guest.mem, HDR + 126, start + len(data))
+            log.lines(now=100.0)
+            log.take_dialogue()
+        talking_to[0] = "Legcrusher"
+        conversation(5, 100)  # two faces: a scene, can't tell who is who
+        self.assertEqual(log.take_speakers(), {})
+        conversation(0, 100)  # one face (and narration): that's Legcrusher talking
+        self.assertEqual(log.take_speakers(), {100: "Legcrusher"})
+        self.assertEqual(log.speaker(100), "Legcrusher")
+        talking_to[0] = None
+        conversation(57)  # not started on anyone
+        self.assertEqual(log.take_speakers(), {})
+        log.speaker_names = {100: "Legs"}  # the player's name comes first
+        self.assertEqual(log.speaker(100), "Legs")
+
     def test_the_reply_chosen(self):
         log = make_game()
         m = log.guest.mem

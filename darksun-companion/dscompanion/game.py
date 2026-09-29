@@ -73,6 +73,9 @@ WHOSE_TURN = 0x4979  # DS word: the combatant whose turn it is
 # Speakers the game names in its own text (the dialogue window shows only a portrait):
 # 119 is asked about as "Yell something back at the Announcer?"
 SPEAKERS = {119: "The Announcer"}
+# The object a script was started on, e.g. the person clicked to talk to (a combatant number):
+# the game's script trigger (DSUN.EXE 9520h) puts it here before running the script.
+TALK_SEG, TALK_TARGET = 0x3781, 0x365
 # The dialogue window's replies: the game copies each into DS:5537 + n * 33h; the row the
 # player clicks goes in DS:1F0A (FFh until then), plus the list's scroll position at DS:5502
 REPLY_CHOSEN, REPLY_SCROLL, REPLY_TEXTS, REPLY_SIZE = 0x1F0A, 0x5502, 0x5537, 0x33
@@ -419,6 +422,21 @@ class GameData:
     def creatures(self, count: int) -> bytes:
         """The first `count` creature records, in one read."""
         return self.guest.read(far_pointer(self.guest, self.ds, CREATURES_PTR), count * CREATURE_SIZE)
+
+    def talk_target(self) -> Optional[str]:
+        """The name of the creature the current script was started on (the person being talked to),
+        when it is a living, named creature outside the party."""
+        combatant, = struct.unpack("<h", self.guest.read((self.load_seg + TALK_SEG) * 16 + TALK_TARGET, 2))
+        if combatant < PARTY_SIZE:
+            return None
+        index = self.combatant_creature(combatant)
+        if index is None:
+            return None
+        rec = self.creature(index)
+        name = rec[CREATURE_NAME:CREATURE_NAME + 16].split(b"\0", 1)[0].decode("cp437", "replace").strip()
+        if not name or struct.unpack_from("<h", rec, 0)[0] <= 0:
+            return None
+        return name
 
     def combatant_name(self, combatant: int) -> str:
         index = self.combatant_creature(combatant)

@@ -457,6 +457,7 @@ class Viewer:
             if self.dice is None:
                 self.dice = DiceLog(self.guest)
                 self.dice.speaker_names = launch.speaker_names()
+                self.dice.learned_speakers = launch.learned_speakers()
                 self.dice.popups = self.popups.get()
                 self.dice.popup_detail = self.popup_detail.get()
             try:
@@ -473,6 +474,11 @@ class Viewer:
         lines = self.dice.lines(self.show_all.get())
         if lines:
             self._append_dice(lines)
+        learned = self.dice.take_speakers()
+        if learned:  # names worked out from conversations: keep them, and show them on earlier lines
+            launch.add_learned_speakers(learned)
+            for portrait in learned:
+                self._rename_portrait(portrait)
         talk = self.dice.take_dialogue()
         if talk:
             self._append_dialogue(talk)
@@ -511,6 +517,10 @@ class Viewer:
             self.dice.speaker_names[portrait] = name
         else:
             self.dice.speaker_names.pop(portrait, None)
+        self._rename_portrait(portrait)
+
+    def _rename_portrait(self, portrait: int) -> None:
+        """Show a portrait's current name on every line already shown from it."""
         tag = f"portrait {portrait}"
         ranges = self.talk_text.tag_ranges(tag)
         for start, end in reversed(list(zip(ranges[0::2], ranges[1::2]))):

@@ -27,7 +27,7 @@ from . import game
 from .game import (CONVENTIONAL_AND_UPPER, CREATURE_ABILITIES, CREATURE_SIDE, CREATURE_THAC0, EFFECT_NAMES,
                    EFFECT_RULES, MATERIAL_TO_HIT, MATERIALS, SAVE_NAMES, STR_DAMAGE, GameData)
 from .guestmem import GuestMemory
-from .textlog import KIND_MESSAGE, Dialogue, DialogueEntry, TextBuffer
+from .textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
 HDR_SIG = b"DSCLOGv7"
@@ -282,6 +282,9 @@ class DiceLog:
         self._turn: Optional[int] = None  # whose turn it was when last looked at
         self._reply: Optional[Tuple[int, str]] = None  # the reply being flashed when last looked at
         self.speaker_names: Dict[int, str] = {}  # portrait -> the name the player gave it
+        self.learned_speakers: Dict[int, str] = {}  # portrait -> the name worked out from conversations
+        self._new_speakers: Dict[int, str] = {}  # learned since take_speakers()
+        self._talk: Optional[dict] = None  # the conversation on screen: its portraits and who it's with
         self.popups = False  # in-game turn summaries (set_popups)
         self.popup_detail = True  # ... with the dice log's lines, or in short
         self._turn_seq = 0
@@ -507,6 +510,7 @@ class DiceLog:
                 if rec.text.strip():
                     out.append(f"Message: {' '.join(rec.text.split())}")
             else:
+                self._follow_talk(rec)
                 self._dialogue += self._not_ours(self.dialogue.add(rec, now))
         self._dialogue += self._not_ours(self.dialogue.idle(now))
         self._dialogue += self._not_ours(self._reply_choice(now))
@@ -595,7 +599,34 @@ class DiceLog:
             return "(no portrait)"
         if portrait == 0:
             return "Narration"  # the window shows an emblem, not a face
-        return self.speaker_names.get(portrait) or game.SPEAKERS.get(portrait) or f"Portrait {portrait}"
+        return (self.speaker_names.get(portrait) or self.learned_speakers.get(portrait)
+                or game.SPEAKERS.get(portrait) or f"Portrait {portrait}")
+
+    def _follow_talk(self, rec) -> None:
+        """Learn portraits' names: a conversation (the window opening to CLOSE) that shows a single
+        face, started on a named creature, is that creature talking. With several faces (a scene
+        where others speak too) it can't be told who is who, so nothing is learned."""
+        if rec.kind == KIND_PORTRAIT:
+            if self._talk is None:
+                try:
+                    target = self.game.talk_target()
+                except (struct.error, IndexError, ValueError):
+                    target = None
+                self._talk = {"portraits": set(), "with": target}
+            if rec.value:
+                self._talk["portraits"].add(rec.value)
+        elif rec.kind == KIND_TEXT and rec.text == "CLOSE" and self._talk is not None:
+            talk, self._talk = self._talk, None
+            if len(talk["portraits"]) == 1 and talk["with"]:
+                portrait = next(iter(talk["portraits"]))
+                if self.learned_speakers.get(portrait) != talk["with"]:
+                    self.learned_speakers[portrait] = talk["with"]
+                    self._new_speakers[portrait] = talk["with"]
+
+    def take_speakers(self) -> Dict[int, str]:
+        """Portrait names learned since the last call."""
+        out, self._new_speakers = self._new_speakers, {}
+        return out
 
     def _reply_choice(self, now: float) -> List[DialogueEntry]:
         """The player's answer, once, when they click a reply."""

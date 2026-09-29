@@ -589,9 +589,18 @@ such as "Answer Yes or No", above them), and then the one you picked:
 it; the log reads the reply's text from the game's own list.)
 
 **Who's speaking.** The game's dialogue window gets only a portrait number,
-never a name, so a speaker the log can't name shows as `Portrait 57`. Portrait
-119 is named `The Announcer`, as the game itself calls him ("Yell something
-back at the Announcer?"). To name any other speaker, right-click the name
+never a name. But when the game runs a script on someone (you click them, or
+they come up to you), it notes who; the log reads that when a conversation
+opens. A conversation that shows one face, started on a named creature outside
+the party, is that creature talking, and from then on the portrait carries its
+name: in the pens, portrait 5 became `Kurzak` ("Legcrusher! Get gladiators!")
+and portrait 100 `Legcrusher` ("Kurzak told me to bring you to the arena").
+When several faces take turns in one conversation, nothing is learned from it,
+as it can't be told who is who. Names learned are shown on the lines already
+there too, and kept in `settings.json` (`speakers_learned`). A speaker not
+named yet shows as `Portrait 57`. Portrait 119 is named `The Announcer`, as the
+game itself calls him ("Yell something back at the Announcer?"). To name a
+speaker yourself (your name wins over a learned one), right-click the name
 line in the Dialogue tab, or press **Name speaker...** (it names the latest
 speaker). The name replaces the number on every line from that portrait,
 the ones already shown included, and is remembered in `settings.json` for
@@ -645,8 +654,10 @@ Limitations:
 - A save-file load from the main menu is recognised, so the spells already
   active in it aren't reported as new. Loading a save of the same party in the
   middle of play isn't, and its effects may be listed as if just cast.
-- Dialogue speakers are portrait numbers until you name them (see above):
-  the game doesn't keep a name with the dialogue.
+- Dialogue speakers are portrait numbers until the log learns their names or
+  you name them (see above): the game doesn't keep a name with the dialogue.
+  A learned name is the creature the conversation was started on, so a scene
+  in which one face speaks for someone else would get that someone's name.
 - Weapon breaking was checked against the game's code, and the check's rolls
   were seen in play, but no weapon happened to break during testing; the
   game's own "is broken !" message is logged either way.

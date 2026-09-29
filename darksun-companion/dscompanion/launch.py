@@ -87,6 +87,18 @@ def set_speaker_name(portrait: int, name: str) -> None:
     save_settings(settings)
 
 
+def learned_speakers() -> Dict[int, str]:
+    """Portrait names the Ledger worked out from conversations: {portrait: name}."""
+    names = load_settings().get("speakers_learned", {})
+    return {int(k): v for k, v in names.items() if str(k).isdigit() and isinstance(v, str) and v}
+
+
+def add_learned_speakers(learned: Dict[int, str]) -> None:
+    settings = load_settings()
+    settings.setdefault("speakers_learned", {}).update({str(k): v for k, v in learned.items()})
+    save_settings(settings)
+
+
 def find_game_dir(given: Optional[str] = None) -> Optional[str]:
     """The game folder: `given`, the one remembered from last time, or a usual GOG location."""
     for folder in [given, load_settings().get("game_dir")] + candidate_dirs():
