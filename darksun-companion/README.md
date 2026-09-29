@@ -34,7 +34,7 @@ The window is dressed in the game's own colours: its grey stone panels, the
 amber of its dialogue, the yellow of its character screen and the red rock of
 the arena, all sampled from the game (no game artwork is copied).
 
-![Templar's Ledger during a fight in the arena](docs/dicelog.png)
+![Templar's Ledger after a fight in the arena: the Characters tab and the dice log](docs/dicelog.png)
 
 ![The Dialogue tab](docs/dialogue.png)
 
