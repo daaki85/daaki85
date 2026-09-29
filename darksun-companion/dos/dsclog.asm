@@ -2,10 +2,11 @@
 ;
 ; A tiny TSR that stays resident (load it high with LH) and holds a ring
 ; buffer plus a replacement for the game's Borland rand(). The companion runs a
-; patched copy of the game (DSUNLOG.EXE) whose rand() and two "probe" places
+; patched copy of the game (DSUNLOG.EXE) whose rand() and a few "probe" places
 ; start with INT instructions; this TSR answers those interrupts
-; (VEC_RAND, VEC_SAVE, VEC_AC) and the companion reads the ring buffer from
-; DOSBox's memory.
+; (VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG) and the companion reads the ring buffer
+; from DOSBox's memory. VEC_CHAR adds THAC0, the saving throws and thief skills to the
+; game's inventory screen.
 ;
 ; STUB produces exactly the numbers the original rand() would
 ; (seed = seed * 0x015A4E35 + 1, result = (seed >> 16) & 0x7FFF), so the game
@@ -25,6 +26,7 @@ VEC_SAVE equ 0x61     ; PROBE_SAVE
 VEC_AC   equ 0x62     ; PROBE_AC
 VEC_TEXT equ 0x63     ; PROBE_TEXT
 VEC_MSG  equ 0x64     ; PROBE_MSG
+VEC_CHAR equ 0x65     ; PROBE_CHAR
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -89,6 +91,7 @@ tbuf_off dw tbuf                ; +128 offset of the text buffer in this segment
 tsize    dw TSIZE               ; +130 its size (a power of two)
 probe_text_off dw probe_text    ; +132 offset of PROBE_TEXT in this segment
 probe_msg_off dw probe_msg      ; +134 offset of PROBE_MSG in this segment
+probe_char_off dw probe_char    ; +136 offset of PROBE_CHAR in this segment
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -454,6 +457,265 @@ text_leave:                     ; record CL = kind, DS:SI = dword, DX = word, th
         push word [cs:t_ip]
         iret
 
+; PROBE_INV: INT VEC_CHAR replaces "add sp,0Eh" (3 bytes: INT + NOP) in the inventory
+; screen's routine for its right-hand panel, straight after the weapon lines (AX = how many
+; lines they took). Does the add, then adds in the game's own lettering: THAC0 and the five
+; saving throws above STR, and for a thief the eight skills below the weapons, when they
+; fit above the buttons.
+; The routine's code holds the (relocated) far address of the game's text routine at a
+; fixed distance before the patch: it is read from there.
+IV_PATCH  equ 0x6F6BF           ; DSUN.EXE offsets
+IV_DRAW   equ 0x6F626           ; "lcall 0150h:016Dh" operand: the text routine
+IV_WHO    equ 0x6F634           ; "mov ax,0348h" operand: segment of the character number (+25Bh)
+THIEF_CLASS equ 17
+THIEF_TABLE equ 0x3FAA - 0x4356 ; the thief tables' segment, relative to DS
+probe_char:
+        pop word [cs:t_ip]
+        pop word [cs:t_cs]
+        pop word [cs:t_fl]
+        add sp, 0x0E            ; the replaced instruction
+        sti
+        pushad
+        push es
+        push fs
+        push gs
+        mov [cs:c_lines], ax
+        mov es, [cs:t_cs]
+        mov di, [cs:t_ip]
+        sub di, 2               ; ES:DI = the patch
+        mov eax, [es:di + IV_DRAW - IV_PATCH]
+        mov [cs:c_draw], eax
+        mov fs, [es:di + IV_WHO - IV_PATCH]
+        mov eax, [0x11A4]       ; the panel's window
+        mov [cs:c_winptr], eax
+        mov bx, [fs:0x25B]      ; the character on show
+        imul ax, bx, 0x47
+        les si, [0x1661]
+        add si, ax              ; ES:SI = the character sheet
+        cmp word [es:si + 0x10], 0
+        je .done                ; an empty slot
+        imul bx, bx, 0x3A
+        lfs di, [0x1665]
+        add di, bx              ; FS:DI = the creature record
+        ; THAC0 and the saves
+        mov al, [fs:di + 0x1F]
+        mov bx, c_cells_top
+        call c_cells_saves
+        ; thief skills, for a character with thief levels
+        xor cx, cx
+        mov bx, 0x21
+.cls:   cmp byte [es:si + bx], THIEF_CLASS
+        je .thief
+        inc bx
+        inc cx
+        cmp cx, 3
+        jb .cls
+        jmp .done
+.thief: mov ax, [cs:c_lines]     ; the rows start below the weapon lines
+        imul ax, ax, 7
+        add ax, 0x78 + 3
+        cmp ax, THIEF_LAST_Y
+        ja .done                ; three weapons: no room above the buttons
+        mov [cs:c_ty], ax
+        mov al, [es:si + bx + 3]  ; the thief level (levels follow the classes)
+        call c_thief
+.done:
+        pop gs
+        pop fs
+        pop es
+        popad
+        push word [cs:t_fl]
+        push word [cs:t_cs]
+        push word [cs:t_ip]
+        iret
+
+; THAC0 (AL) and the saves (sheet +37h..+3Bh at ES:SI), as the cells at CS:BX say
+c_cells_saves:
+        mov [cs:c_vals], al
+        mov eax, [es:si + 0x37]
+        mov [cs:c_vals + 1], eax
+        mov al, [es:si + 0x3B]
+        mov [cs:c_vals + 5], al
+        mov cx, 6
+        jmp c_cells
+
+; the eight thief skills of the character (sheet ES:SI, creature FS:DI, thief level AL):
+; base + 4 a level + the race's adjustment + DEX, from the game's tables (before armour,
+; as the Templar's Ledger shows them)
+c_thief:
+        push si
+        mov dl, al
+        shl dl, 2               ; 4 a level
+        mov ax, ds
+        add ax, THIEF_TABLE
+        mov gs, ax
+        mov dh, [fs:di + 0x23]  ; DEX
+        movzx di, byte [es:si + 0x18]  ; race
+        shl di, 3
+        add di, 8               ; +8 + race * 8
+        xor bx, bx
+.skill: movsx ax, byte [gs:bx]  ; base
+        movzx cx, dl
+        add ax, cx
+        movsx cx, byte [gs:bx + di]  ; race
+        add ax, cx
+        push dx                 ; DEX: -5 a point below LOW, +5 a point above HIGH, -3 above TOP
+        movzx dx, dh
+        movzx cx, byte [gs:bx + 0x90]
+        sub cx, dx
+        jle .nolow
+        imul cx, cx, 5
+        sub ax, cx
+.nolow: mov cx, dx
+        push dx
+        movzx dx, byte [gs:bx + 0x98]
+        sub cx, dx
+        pop dx
+        jle .nohigh
+        imul cx, cx, 5
+        add ax, cx
+.nohigh:
+        mov cx, dx
+        push dx
+        movzx dx, byte [gs:bx + 0xA0]
+        sub cx, dx
+        pop dx
+        jle .notop
+        imul cx, cx, 3
+        sub ax, cx
+.notop: pop dx
+        cmp ax, 0
+        jge .pos
+        xor ax, ax              ; below 0: shown as 0
+.pos:   cmp ax, 255
+        jbe .fits
+        mov ax, 255
+.fits:  mov [cs:c_vals + bx], al
+        inc bx
+        cmp bx, 8
+        jb .skill
+        pop si
+        mov bx, c_cells_thief   ; the rows' y: from C_TY, 7 apart
+        mov ax, [cs:c_ty]
+        mov cx, 4
+.row:   mov [cs:bx + 2], ax
+        mov [cs:bx + 10], ax
+        add bx, 16
+        add ax, 7
+        loop .row
+        mov bx, c_cells_thief
+        mov cx, 8
+        ; fall through
+
+; CX cells at CS:BX: each x, y, label offset, value's x (words); the values are C_VALS in
+; order. Keeps ES, SI, DI.
+c_cells:
+        push es
+        push si
+        push di
+        xor si, si
+.cell:  push cx
+        push bx
+        push word [cs:bx + 2]   ; y
+        push word [cs:bx]       ; x
+        push cs
+        push word [cs:bx + 4]   ; the label
+        call c_draw_line
+        pop bx
+        push bx
+        mov al, [cs:c_vals + si]
+        mov di, c_num
+        call c_itoa
+        push word [cs:bx + 2]
+        push word [cs:bx + 6]   ; the value's x
+        push cs
+        push word c_num
+        call c_draw_line
+        pop bx
+        pop cx
+        add bx, 8
+        inc si
+        loop .cell
+        pop di
+        pop si
+        pop es
+        ret
+
+c_draw_line:                    ; stack: text far pointer, x, y (near return address first)
+        push bp
+        mov bp, sp
+        push dword [bp + 4]     ; the text, for the format's %s
+        push word [0x3270]      ; the colours, as the game sets them for its AC line
+        push word 0x14
+        push word [0x326E]
+        push dword 0x00FE00FF
+        push word 0
+        push ds
+        push word 0x0E11        ; the format: "%C%C%C%s"
+        push dword [bp + 8]     ; x, y
+        push dword [cs:c_winptr]  ; the window
+        call far [cs:c_draw]
+        add sp, 0x1C
+        pop bp
+        ret 8
+
+c_itoa:                         ; AL (unsigned) -> decimal at CS:DI, NUL-terminated; keeps BX, CX
+        push bx
+        push cx
+        xor ah, ah
+        mov bl, 10
+        xor cx, cx
+.div:   div bl
+        push ax                 ; AH = a digit
+        inc cx
+        xor ah, ah
+        or al, al
+        jnz .div
+.put:   pop ax
+        add ah, '0'
+        mov [cs:di], ah
+        inc di
+        loop .put
+        mov byte [cs:di], 0
+        pop cx
+        pop bx
+        ret
+
+; cells: x, y, label, value's x (window coordinates: the stats' labels are at x 0ECh, their
+; values at 104h, STR at y 35h, lines 7 apart)
+c_cells_top:
+        dw 0xEC, 0x10, l_thac0, 0x111
+        dw 0xEC, 0x17, l_ppd, 0x103,  0x113, 0x17, l_rsw, 0x12A
+        dw 0xEC, 0x1E, l_pp, 0x103,   0x113, 0x1E, l_bw, 0x12A
+        dw 0xEC, 0x25, l_sp, 0x103
+c_cells_thief:                  ; the y values are filled in (C_TY)
+        dw 0xEC, 0, l_pick, 0x106,  0x116, 0, l_lock, 0x130
+        dw 0xEC, 0, l_trap, 0x106,  0x116, 0, l_move, 0x130
+        dw 0xEC, 0, l_hide, 0x106,  0x116, 0, l_hear, 0x130
+        dw 0xEC, 0, l_clmb, 0x106,  0x116, 0, l_read, 0x130
+THIEF_LAST_Y equ 0x98           ; the lowest first row: the fourth then ends above the buttons
+c_lines dw 0
+c_ty    dw 0
+l_thac0 db 'THAC0:', 0
+l_ppd   db 'PPD', 0
+l_rsw   db 'RSW', 0
+l_pp    db 'PP', 0
+l_bw    db 'BW', 0
+l_sp    db 'SP', 0
+l_pick  db 'PICK', 0
+l_lock  db 'LOCK', 0
+l_trap  db 'TRAP', 0
+l_move  db 'MOVE', 0
+l_hide  db 'HIDE', 0
+l_hear  db 'HEAR', 0
+l_clmb  db 'CLMB', 0
+l_read  db 'READ', 0
+c_vals  times 8 db 0
+c_num   db 0, 0, 0, 0
+c_draw  dd 0
+c_winptr dd 0
+
+
 tput:                           ; AL -> text buffer at position BX
         push bx
         and bx, TSIZE - 1
@@ -484,8 +746,8 @@ install:                        ; DS = ES = PSP, CS = the image
         mov [cs:psp], es
         push cs
         pop ds
-        mov si, vectors         ; the vectors must be free
-        mov cx, 5
+        mov si, all_vectors     ; the vectors must be free
+        mov cx, 6
 .check:
         lodsb
         mov ah, 35h
@@ -516,6 +778,9 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_MSG
         mov dx, probe_msg
         int 21h
+        mov ax, 2500h + VEC_CHAR
+        mov dx, probe_char
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -531,7 +796,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-64h are in use (already loaded?). Not loaded.', 13, 10, '$'
+busy    db 'DSCLOG: interrupts 60h-65h are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR
 
         align 16, db 0
 image_len equ $ - $$

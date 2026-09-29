@@ -28,6 +28,9 @@ parts:
   ```
 - **Dialogue:** what characters say, the replies you're offered and the one
   you picked, kept in a tab you can scroll back through.
+- **In the game itself:** the inventory screen also shows each character's
+  THAC0, saving throws and (for thieves) thief skills, in the game's own
+  lettering (see [In the game](#in-the-game-thac0-saves-and-thief-skills)).
 
 Nothing in the game folder or your save files is changed. The viewer only reads
 memory. For the dice log, the launcher runs a patched copy of the game that it
@@ -41,6 +44,8 @@ the arena, all sampled from the game (no game artwork is copied).
 ![Templar's Ledger after a fight in the arena: the Characters tab and the dice log](docs/dicelog.png)
 
 ![The Dialogue tab](docs/dialogue.png)
+
+![The inventory screen's panel in the game, with THAC0, saves and thief skills added](docs/inventory.png)
 
 ## Requirements
 
@@ -446,6 +451,34 @@ From the game's code:
   attack of the round the damage, STR bonus included, is multiplied: x2 at
   thief levels 1-4, x3 at 5-8, x4 at 9-12, x5 from 13.
 
+### In the game: THAC0, saves and thief skills
+
+Started with the dice log, the game's own inventory screen (the one with the
+character's figure and their equipment) shows three more things in its
+right-hand panel, drawn by the game's text routine so they look like the rest:
+
+- above STR, **THAC0** and the five **saving throws**, with the usual AD&D
+  short labels: `PPD` paralysis/poison/death, `RSW` rod/staff/wand, `PP`
+  petrification/polymorph, `BW` breath weapon, `SP` spell;
+- below the weapons, for a character with thief levels, the eight **thief
+  skills**: `PICK` pockets, open `LOCK`s, find/remove `TRAP`s, `MOVE`
+  silently, `HIDE` in shadows, `HEAR` noise, `CLMB` walls, `READ` languages.
+
+They're read from the character when the screen is drawn, so they follow
+level-ups, and the next character's show when you pick another portrait.
+They're the character's own numbers, as on a paper character sheet: THAC0 and
+saves before the weapon, STR, magic and spells that the game adds at the
+moment of each attack or save (the dice log shows those), and thief skills
+before armour and the situation (see Thief skills). With three weapons ready
+the weapon lines leave no room above the buttons, and the thief skills are
+left out.
+
+How: the patched game calls the helper (`INT 65h`) just after the panel's
+weapon lines; the helper prints the lines with the game's own text routine,
+whose address, like the selected character, it reads from the game's code
+around the patch (overlays move, so nothing is fixed in advance). Nothing else
+in the game changes.
+
 ### The Dialogue tab
 
 Everything the game shows in its dialogue window, one entry per window of
@@ -480,7 +513,8 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    (`dscompanion/gamepatch.py`). The start of `rand()`, the end of the saving
    throw, the end of the AC calculation, the start of the routine that fills
    the dialogue window and the start of the message box routine become
-   `INT 60h` to `64h`, and the copy looks for its data files in the current
+   `INT 60h` to `64h`, the inventory screen's panel calls `INT 65h` (see
+   In the game), and the copy looks for its data files in the current
    folder rather than next to itself. DOSBox runs it from the game folder, so
    it uses your saves as usual.
 2. `dos\DSCLOG.EXE` (source in `dos\dsclog.asm`) is a tiny DOS program loaded
