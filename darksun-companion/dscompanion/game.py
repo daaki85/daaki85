@@ -53,6 +53,16 @@ PARTY_SIZE = 4  # the party are the first creatures in the table
 
 # Segments relative to the load segment
 COMBATANTS_SEG, COMBATANTS_OFF = 0x3972, 0xC36  # 3 bytes per combatant: kind (2 = creature), creature index
+# The same table holds every object the game tracks ("things": kind 1 an item, 2 a creature).
+# A creature's items: two lists, each starting at an object number in the creature's record;
+# each item names the next by item number (9999 ends the list). An item's slot is where it is
+# worn (the game's own slot names, in this order), 255 if only carried.
+THING_ITEM = 1
+CREATURE_ITEM_LISTS = (0x08, 0x0A)
+ITEM_NEXT, ITEM_SLOT, ITEM_TYPE, ITEM_NAME, ITEM_PLUS = 0x04, 0x11, 0x0A, 0x12, 0x14
+NO_ITEM = 9999
+EQUIP_SLOTS = ("arm", "ammo", "missile", "right hand", "finger", "waist", "legs", "head", "neck", "chest",
+               "left hand", "cloak", "foot")
 EFFECTS_SEG, EFFECTS_OFF = 0x3BF6, 0x106  # 10 bytes per active effect
 # Each round, per creature (4 bytes each): the initiative score (-1 once it has
 # acted) and the 0-199 roll that breaks ties
@@ -563,6 +573,40 @@ class GameData:
                 return []
             out.append((name, sum(n for _, n in parts)))
         return out
+
+    def equipment(self, creature: int) -> List[Tuple[Optional[str], str]]:
+        """A creature's items: [(slot it's worn in or None if only carried, "Leather Chest Armor"), ...],
+        worn items first, in the game's slot order."""
+        rec = self.creature(creature)
+        if len(rec) < CREATURE_SIZE:
+            return []
+        things = (self.load_seg + COMBATANTS_SEG) * 16 + COMBATANTS_OFF
+        items = far_pointer(self.guest, self.ds, ITEMS_PTR)
+        types = far_pointer(self.guest, self.ds, ITEM_TYPES_PTR)
+        out, seen = [], set()
+        for field in CREATURE_ITEM_LISTS:
+            thing, = struct.unpack_from("<h", rec, field)
+            if not 0 <= thing < 0x1000:
+                continue
+            kind, index = struct.unpack("<Bh", self.guest.read(things + thing * 3, 3))
+            if kind != THING_ITEM:
+                continue
+            while 0 <= index < 0x1000 and index not in seen and len(seen) < 100:
+                seen.add(index)
+                item = self.guest.read(items + index * ITEM_SIZE, ITEM_SIZE)
+                typ = self.guest.read(types + struct.unpack_from("<H", item, ITEM_TYPE)[0] * ITEM_TYPE_SIZE,
+                                      ITEM_TYPE_SIZE)
+                material = typ[0x08] & 0x0F if len(typ) == ITEM_TYPE_SIZE else len(MATERIALS)
+                plus = struct.unpack("b", item[ITEM_PLUS:ITEM_PLUS + 1])[0]
+                name = (f"{MATERIALS[material]} " if material < len(MATERIALS) else "") + \
+                    self.item_name(item[ITEM_NAME]) + (f" {plus:+d}" if plus else "")
+                slot = item[ITEM_SLOT]
+                out.append((EQUIP_SLOTS[slot] if slot < len(EQUIP_SLOTS) else None, name, slot))
+                index, = struct.unpack_from("<h", item, ITEM_NEXT)
+                if index == NO_ITEM:
+                    break
+        out.sort(key=lambda x: x[2])
+        return [(slot, name) for slot, name, _ in out]
 
     def dex_ac(self, dex: int) -> int:
         """The game's AC adjustment for a DEX score."""

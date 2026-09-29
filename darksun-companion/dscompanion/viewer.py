@@ -537,6 +537,12 @@ class Viewer:
                 skills = gd.thief_skills((addr - table) // game.CREATURE_SIZE) if addr is not None else []
                 cells.append(" ".join(f"{n}" for _, n in skills))
             rows.append(("Thief skills PP/OL/FT/MS/HS/HN/CW/RL", cells))
+            worn = []
+            for s in slots:
+                addr = s[1].get("creature")
+                items = gd.equipment((addr - table) // game.CREATURE_SIZE) if addr is not None else []
+                worn.append(", ".join(f"{slot}: {item}" if slot else item for slot, item in items))
+            rows.append(("Equipment", worn))
         return rows
 
     def _refresh_table(self) -> None:
@@ -585,8 +591,10 @@ class Viewer:
                 if names:
                     status += (", " if status else "") + ", ".join(names)
                 ac = self.dice.last_ac.get(index) if self.dice and self.dice.attached else None
-            thief = gd.thief_skills(index) if gd and addr is not None and table is not None else []
-            card.show(name, dict(fields), status, ac, self.art, member_slots, thief)
+            known = gd and addr is not None and table is not None
+            thief = gd.thief_skills(index) if known else []
+            equipment = gd.equipment(index) if known else []
+            card.show(name, dict(fields), status, ac, self.art, member_slots, thief, equipment)
 
     def _hex_base(self) -> Optional[int]:
         record = self.layout.records.get(self.hex_record.get())

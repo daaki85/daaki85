@@ -435,7 +435,10 @@ The party pane has two tabs:
   sheet: scores, sex, race and alignment, classes and levels, experience,
   AC, THAC0, movement and attacks. AC is the one the game last used in a
   fight, with the base AC beside it; before the first fight only the base AC
-  is known. Last, for spellcasters, their spell slots (see below). Scroll
+  is known. Then what they wear and hold, by the game's own slot names ("Right
+  hand: Bone Long Sword", "Chest: Leather Chest Armor"; "Carried" for anything
+  not worn), with each item's material and plus. Last, for spellcasters, their
+  spell slots (see below), and for thieves their skills. Scroll
   with the mouse wheel, or Tab to the cards and use the arrow and Page keys.
 - **All fields** (Alt+A): every field the layout maps, in a table (as before),
   with the spell slots as its last two rows.
