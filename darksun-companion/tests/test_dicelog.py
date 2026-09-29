@@ -154,7 +154,7 @@ class AttackTests(unittest.TestCase):
         set_effects(log, [(0, 2, 7)])  # Dag is Blessed
         lines = log.describe(self.attack(18, 8, 4, 5, 9, after_f1=9, hit_bonus=1))
         self.assertEqual(lines, [
-            "Dag attacks Mountain Stalker with Long Sword +1 (1d8+1): d20 = 18, hits AC -10, target AC 4 -> HIT",
+            "Dag attacks Mountain Stalker with Long Sword +1 (1d8+1): d20 = 18, needs 4+ (85%), hits AC -10, target AC 4 -> HIT",
             "    THAC0 16, +1 Blessed, +6 STR, +1 weapon = 8"])
         self.assertEqual(log.last_ac, {STALKER: 4})  # the target's AC, for the viewer
 
@@ -163,7 +163,7 @@ class AttackTests(unittest.TestCase):
         # base 16 - 2 (rear) - 6 (STR) = 8; wooden -3 -> 11
         lines = log.describe(self.attack(5, 11, 2, 6, 10, after_f1=8, hit_bonus=-3, m1a=1))
         self.assertEqual(lines, [
-            "Dag attacks Mountain Stalker from behind with Wooden Long Sword (1d8): d20 = 5, hits AC 6, target AC 2 -> miss",
+            "Dag attacks Mountain Stalker from behind with Wooden Long Sword (1d8): d20 = 5, needs 9+ (60%), hits AC 6, target AC 2 -> miss",
             "    THAC0 16, +2 from behind, +6 STR, -3 wooden = 11"])
 
     def test_backstab_is_named(self):
@@ -193,7 +193,7 @@ class AttackTests(unittest.TestCase):
         log = make_game()
         lines = log.describe(self.attack(20, 11, 1, -1, -1, after_f1=11, hit_bonus=0, attacker=STALKER,
                                          combatant=0x29))
-        self.assertEqual(lines[0], "Mountain Stalker attacks Mountain Stalker: d20 = 20 (natural 20), "
+        self.assertEqual(lines[0], "Mountain Stalker attacks Mountain Stalker: d20 = 20 (natural 20), needs 10+ (55%), "
                                    "hits AC -9, target AC 1 -> HIT")
         self.assertEqual(lines[1], "    THAC0 11 = 11")
 
@@ -340,8 +340,8 @@ class SaveTests(unittest.TestCase):
                   parent_code=dicelog.SPELL_DAMAGE_RETURN)
         log.describe(e, now=1.0)
         struct.pack_into("<h", m, stalker, 24)
-        self.assertEqual(log.hp_changes(1.5), ["    Mountain Stalker takes 6 from Fireball (HP 30 -> 24) "
-                                               "(Out Cold: the most the dice can do)"])
+        self.assertEqual(log.hp_changes(1.5), ["  Mountain Stalker takes 6 from Fireball "
+                                               "(Out Cold: the most the dice can do), now 24 HP"])
 
     def test_confusion(self):
         log = make_game()
@@ -403,9 +403,11 @@ class SaveTests(unittest.TestCase):
                   parent_code=dicelog.SPELL_DAMAGE_RETURN)
         log.describe(e, now=1.0)
         struct.pack_into("<h", m, stalker, 27)
-        self.assertEqual(log.hp_changes(1.5), ["    Mountain Stalker takes 3 from Fireball (HP 30 -> 27)"])
+        self.assertEqual(log.hp_changes(1.5), ["  Mountain Stalker takes 3 from Fireball, now 27 HP"])
         struct.pack_into("<h", m, stalker, 20)  # long after: not the spell's doing
-        self.assertEqual(log.hp_changes(30.0), [])
+        self.assertEqual(log.hp_changes(30.0), ["  Mountain Stalker now 20 HP (-7)"])
+        struct.pack_into("<h", m, stalker, 25)
+        self.assertEqual(log.hp_changes(31.0), ["  Mountain Stalker now 25 HP (+5)"])
 
     def test_doubled_roll(self):
         log = make_game()
@@ -640,7 +642,7 @@ class InitiativeTests(unittest.TestCase):
         self.assertEqual(self.roll(STALKER, 9, 10, 30), [])
         self.assertEqual(self.log.lines(now=1.1), [])  # waits for the rest of the round's rolls
         self.assertEqual(self.log.lines(now=2.0), [
-            "Initiative, highest acts first:",
+            "Initiative: Mountain Stalker 30, Daaki 27, Dag 27",
             "    Mountain Stalker 30 = 20 + 9 (0-9 roll) +1 DEX",
             "    Daaki 27 = 20 + 7 (0-9 roll), tie broken by 120 (0-199 roll)",
             "    Dag 27 = 20 + 3 (0-9 roll) +2 DEX +2 Hasted, tie broken by 50 (0-199 roll)"])
@@ -649,8 +651,66 @@ class InitiativeTests(unittest.TestCase):
         self.roll(0, 3, 50, -1)  # already acted: its score is gone, but the tie-break roll stays
         out = self.log.describe(entry(raw_for(14, 20), dicelog.ATTACK_SITE,
                                       words(0, 0, 0, 0, 0x29, 0, 0, 0, 0, 0, 0)), now=1.1)
-        self.assertEqual(out[:2], ["Initiative, highest acts first:",
+        self.assertEqual(out[:2], ["Initiative: Dag 27",
                                    "    Dag 27 = 20 + 3 (0-9 roll) +2 DEX +2 Hasted"])
+
+
+CLOCK = 0x6F000  # where the fake game keeps its clock
+
+
+def set_clock(log, seconds):
+    m = log.guest.mem
+    m[DS * 16 + game.GAME_TIME_PTR:DS * 16 + game.GAME_TIME_PTR + 4] = far(CLOCK)
+    m[DS * 16 + game.GAME_TIME_SCALE] = 1
+    struct.pack_into("<i", m, CLOCK, seconds)
+
+
+class RoundAndTurnTests(unittest.TestCase):
+    def setUp(self):
+        self.log = make_game()
+        self.table = (LOAD_SEG + game.INITIATIVE_SEG) * 16 + game.INITIATIVE_OFF
+
+    def round(self, seconds):
+        set_clock(self.log, seconds)
+        struct.pack_into("<hh", self.log.guest.mem, self.table, 25, 50)
+        self.log.describe(entry(raw_for(6, 10), dicelog.INITIATIVE_ROLL), now=1.0)
+        self.log.describe(entry(raw_for(51, 200), dicelog.INITIATIVE_TIE), now=1.0)
+        return self.log.initiative_lines()[0]
+
+    def test_rounds_count_up_and_restart_after_a_gap(self):
+        self.assertEqual(self.round(600), "Round 1: Dag 25")
+        self.assertEqual(self.round(660), "Round 2: Dag 25")
+        self.assertEqual(self.round(5000), "Round 1: Dag 25")  # a new fight
+
+    def test_whose_turn(self):
+        m = self.log.guest.mem
+        struct.pack_into("<h", m, DS * 16 + game.WHOSE_TURN, 0x29)
+        set_clock(self.log, 600)
+        self.assertEqual(self.log.turn_lines(), [])  # no fight yet
+        self.round(600)
+        struct.pack_into("<h", m, DS * 16 + game.WHOSE_TURN, 1)
+        self.assertEqual(self.log.turn_lines(), ["Daaki's turn"])
+        self.assertEqual(self.log.turn_lines(), [])  # still Daaki's
+        struct.pack_into("<h", m, DS * 16 + game.WHOSE_TURN, 0x29)
+        self.assertEqual(self.log.turn_lines(), ["Mountain Stalker's turn"])
+
+    def test_the_rounds_order_comes_before_its_first_turn(self):
+        m = self.log.guest.mem
+        self.round(600)
+        set_clock(self.log, 660)  # the next round's rolls are in, but its order isn't shown yet
+        self.log.describe(entry(raw_for(6, 10), dicelog.INITIATIVE_ROLL), now=5.0)
+        self.log.describe(entry(raw_for(51, 200), dicelog.INITIATIVE_TIE), now=5.0)
+        struct.pack_into("<h", m, DS * 16 + game.WHOSE_TURN, 1)
+        self.assertEqual(self.log.turn_lines(), [])
+        self.assertEqual(self.log.initiative_lines()[0], "Round 2: Dag 25")
+        self.assertEqual(self.log.turn_lines(), ["Daaki's turn"])
+
+
+class HitChanceTests(unittest.TestCase):
+    def test_hit_chance(self):
+        self.assertEqual(dicelog.hit_chance(4), 85)
+        self.assertEqual(dicelog.hit_chance(1), 95)  # a 1 always misses
+        self.assertEqual(dicelog.hit_chance(25), 5)  # a 20 always hits
 
 
 CREATION = 0x6C000  # the character being made

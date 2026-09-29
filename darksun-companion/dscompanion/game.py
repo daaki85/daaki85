@@ -69,6 +69,7 @@ EFFECTS_SEG, EFFECTS_OFF = 0x3BF6, 0x106  # 10 bytes per active effect
 # GAME_TIME_SCALE); the first queue's entries (17 bytes: due time, kind, then the event's data),
 # sorted by time, with their count. An effect ending is kind 7, its data the owner and handle.
 GAME_TIME_PTR, GAME_TIME_SCALE = 0x9B72, 0x9B70
+WHOSE_TURN = 0x4979  # DS word: the combatant whose turn it is
 EVENT_QUEUE, EVENT_COUNT, EVENT_SIZE, EVENT_EFFECT_ENDS = 0x2FBE, 0x2FC6, 0x11, 7
 # Each round, per creature (4 bytes each): the initiative score (-1 once it has
 # acted) and the 0-199 roll that breaks ties
@@ -452,6 +453,11 @@ class GameData:
         data = self.guest.read((self.load_seg + EFFECTS_SEG) * 16 + EFFECTS_OFF, count * 10)
         return [(Effect(*struct.unpack_from("<hh", data, i * 10), data[i * 10 + 6]),
                  struct.unpack_from("<h", data, i * 10 + 4)[0]) for i in range(count)]
+
+    def whose_turn(self) -> Optional[int]:
+        """The combatant whose turn it is in a fight (the game's word at WHOSE_TURN)."""
+        turn = self._word(WHOSE_TURN)
+        return turn if 0 <= turn < 256 else None
 
     def game_time(self) -> Optional[int]:
         """Game seconds since the start (60 to a round): the dword the game keeps its clock in."""

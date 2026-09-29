@@ -132,6 +132,7 @@ EFFECT_INTERVAL = 0.25  # seconds between looks at the active effects
 LOAD_SETTLE = 3.0  # seconds after the party changes (a game was loaded) when effects are not news
 PENDING_SECONDS = 1.0  # how long dice wait to learn which spell they belong to
 SPELL_WINDOW = 15.0  # seconds after a spell's roll in which HP changes are put down to the spell
+FIGHT_GAP = 120  # game seconds without a new round after which the fight is over
 
 
 class DiceLogError(Exception):
@@ -195,6 +196,11 @@ class Entry:
 def scaled(raw: int, sides: int) -> int:
     """The game's rand()*N/32768: a number from 0 to N-1."""
     return raw * sides // 0x8000
+
+
+def hit_chance(need: int) -> int:
+    """The chance (percent) of a d20 attack roll reaching `need`: a 20 always hits, a 1 always misses."""
+    return 5 * sum(1 for d in range(1, 21) if d == 20 or (d != 1 and d >= need))
 
 
 def save_chance(needed: int, doubled: bool) -> int:
@@ -266,6 +272,8 @@ class DiceLog:
         self._out_cold: Dict[int, bool] = {}  # creature index -> Out Cold when last looked at
         self._psp: Dict[int, int] = {}  # party member -> PSP when last looked at
         self._last_damage: Optional[Tuple[int, int]] = None  # (spell, damage) last rolled
+        self._turn: Optional[int] = None  # whose turn it was when last looked at
+        self._round, self._round_time = 0, None  # this fight's round, and the game time it began
         self._save_rolls: Dict[Tuple[int, int], int] = {}  # (SS, save frame BP) -> natural d20
         self._effects: Optional[Counter] = None
         self._party: Optional[bytes] = None
@@ -383,6 +391,7 @@ class DiceLog:
                 out += self.tracker.check(now)
         if self._initiative and now - self._initiative_at >= INITIATIVE_WAIT:
             out += self.initiative_lines()
+        out += self.turn_lines()  # after the round's order and the last turn's XP
         if self._creation_hp and now - self._creation_hp_at >= CREATION_HP_WAIT:
             out += self.creation_hp_lines()
         out += self.flush(now)
@@ -411,13 +420,14 @@ class DiceLog:
         return out
 
     def hp_changes(self, now: float) -> List[str]:
-        """While a spell is being cast, what it does to each combatant's HP (the damage after
-        saves, resistances and protections, or the healing)."""
-        combatants = self.game.combatants()
+        """Every combatant's HP going down or up, with what's left (the game never shows a
+        monster's HP). Put down to a spell while one is being cast (the damage after saves,
+        resistances and protections, or the healing)."""
+        g = self.game
         out = []
         current = {}
-        for combatant, index in sorted(combatants.items()):
-            rec = self.game.creature(index)
+        for combatant, index in sorted(g.combatants().items()):
+            rec = g.creature(index)
             if len(rec) < 2:
                 continue
             hp = struct.unpack_from("<h", rec, 0)[0]
@@ -425,15 +435,23 @@ class DiceLog:
             was_out_cold = self._out_cold.get(index, False)
             self._out_cold[index] = rec[game.CREATURE_STATUS] == game.OUT_COLD
             before = self._hp.get(index)
-            if before is None or before == hp or now > self._spell_until:
+            if before is None or before == hp:
                 continue
-            who = self.game.creature_name(index)
-            if hp < before:
-                # the game's damage code gives a creature that was Out Cold the most the dice can do
-                out_cold = " (Out Cold: the most the dice can do)" if was_out_cold else ""
-                out.append(f"    {who} takes {before - hp} from {self._spell_name} (HP {before} -> {hp}){out_cold}")
+            who = g.creature_name(index)
+            sheet = g.sheet(index)
+            most = struct.unpack_from("<h", sheet, game.SHEET_MAX_HP)[0] if len(sheet) >= game.SHEET_SIZE else None
+            left = f"now {hp}/{most} HP" if most and most > 0 else f"now {hp} HP"
+            if now <= self._spell_until:
+                if hp < before:
+                    # the game's damage code gives a creature that was Out Cold the most the dice can do
+                    out_cold = " (Out Cold: the most the dice can do)" if was_out_cold else ""
+                    out.append(f"  {who} takes {before - hp} from {self._spell_name}{out_cold}, {left}")
+                else:
+                    out.append(f"  {who} regains {hp - before} HP from {self._spell_name}, {left}")
+            elif hp < before:
+                out.append(f"  {who} {left} (-{before - hp})")
             else:
-                out.append(f"    {who} regains {hp - before} HP from {self._spell_name} (HP {before} -> {hp})")
+                out.append(f"  {who} {left} (+{hp - before})")
         self._hp = current
         return out
 
@@ -541,6 +559,32 @@ class DiceLog:
             return []
         return self.initiative_lines() + self._describe_entry(e, show_all, now)
 
+    def turn_lines(self) -> List[str]:
+        """'Gerakis's turn' whenever the turn passes during a fight."""
+        if self._initiative or self._initiative_roll is not None:
+            return []  # a round is starting: its order comes first
+        turn = self.game.whose_turn()
+        if turn is None or turn == self._turn:
+            return []
+        self._turn = turn
+        now = self.game.game_time()
+        if self._round_time is None or now is None or now - self._round_time > FIGHT_GAP:
+            return []  # not in a fight
+        name = self.game.combatant_name(turn)
+        return [f"{name}'s turn"] if name != "?" else []
+
+    def _round_number(self) -> int:
+        """The round of this fight: the game's clock moves 60 seconds a round, and a longer gap
+        means a new fight."""
+        now = self.game.game_time()
+        if now is None:
+            return 0
+        if self._round_time is None or now - self._round_time > FIGHT_GAP:
+            self._round = 0
+        self._round_time = now
+        self._round += 1
+        return self._round
+
     def initiative_lines(self) -> List[str]:
         """The round's order, from the rolls collected since the round began."""
         pairs, self._initiative = self._initiative, []
@@ -574,7 +618,9 @@ class DiceLog:
             rows.append((score, tie, f"{g.creature_name(index)} {score}", steps))
         rows.sort(key=lambda r: (-r[0], -r[1]))
         scores = Counter(r[0] for r in rows)
-        out = ["Initiative, highest acts first:"]
+        number = self._round_number()
+        order = ", ".join(who for _, _, who, _ in rows)
+        out = [f"Round {number}" + (f": {order}" if order else "") if number else f"Initiative: {order}"]
         for score, tie, who, steps in rows:
             tied = f", tie broken by {tie} (0-199 roll)" if scores[score] > 1 else ""
             out.append(f"    {who} = {INITIATIVE_BASE} + {steps}{tied}")
@@ -652,8 +698,10 @@ class DiceLog:
         target = g.combatant_name(target_combatant)
         # the attack's own arguments: [BP+1Eh] a backstab, [BP+20h] from behind
         how = " BACKSTAB" if e.arg(0x1E) and e.arg(0x20) else " from behind" if e.arg(0x20) else ""
+        chance = hit_chance(need)
+        needs = ("hits on anything but a 1" if need <= 2 else "only a 20 hits" if need > 20 else f"needs {need}+")
         head = (f"{g.creature_name(attacker)} attacks {target}{how}{with_what}: d20 = {d20}{note}, "
-                f"hits AC {thac0 - d20}, target AC {ac} -> {'HIT' if hit else 'miss'}")
+                f"{needs} ({chance}%), hits AC {thac0 - d20}, target AC {ac} -> {'HIT' if hit else 'miss'}")
         return [head, "    " + self._thac0_breakdown(e, thac0, attacker, attacker_combatant,
                                                      target_combatant, weapon, mode)]
 

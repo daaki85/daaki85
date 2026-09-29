@@ -12,12 +12,16 @@ parts:
   compared against and where every bonus comes from. For example:
 
   ```
-  Dag attacks Mountain Stalker with Long Sword +1 (1d8+1): d20 = 18, hits AC -10, target AC 4 -> HIT
+  Round 2: Dag 27, Mountain Stalker 25, Daaki 21, Red Slaad 20
+  Dag's turn
+  Dag attacks Mountain Stalker with Long Sword +1 (1d8+1): d20 = 18, needs 4+ (85%), hits AC -10, target AC 4 -> HIT
       THAC0 16, +1 Blessed, +6 STR, +1 weapon = 8
     Dag hits Mountain Stalker for 20: 1d8 = [7] +1 weapon +12 STR 24
+    Mountain Stalker now 12/32 HP (-20)
   Fireball damage: 9d6 = [3 + 2 + 3 + 4 + 5 + 4 + 1 + 2 + 2] = 26
   Red Slaad magic resistance 30% vs Fireball: d100 = 71 -> not resisted
-  Red Slaad saves vs Fireball from Daaki (petrification/polymorph): d20 = 6, doubled for this spell = 12, needs 11 -> saved
+  Red Slaad saves vs Fireball from Daaki (petrification/polymorph): d20 = 6, doubled for this spell = 12, needs 11 (75% to save) -> saved: half damage, 13 of 26
+    Red Slaad takes 13 from Fireball, now 47/60 HP
   Jellybelly gives Blessed to Daaki: +1 to hit, +1 on saves
   Slig is killed (270 XP)
   XP: Gerakis +67, K'ratchek +22, Cermak +67, Cilla +22 (for Slig 270)
@@ -96,12 +100,14 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 
 | Line | Meaning |
 |---|---|
-| `X attacks Y with Long Sword +1 (1d8+1): d20 = 14, hits AC 1, target AC 3 -> HIT` | An attack roll, the weapon and its damage dice. `X attacks Y from behind ...` and `X attacks Y BACKSTAB ...` mark attacks from behind and backstabs (see below). "Hits AC" is the lowest AC this roll hits (THAC0 − d20); the target AC is the one the game used, with armour, DEX and spells. A natural 20 always hits and a natural 1 always misses. |
+| `Round 2: K'ratchek 32, Cermak 31, Cilla 30, Gerakis 26, Slig 26` | A new round of a fight, numbered from the fight's start, and the order everyone acts in (highest first). The lines under it (shown with **Show details**) give each score's make-up: `    Gerakis 26 = 20 + 6 (0-9 roll), tie broken by 38 (0-199 roll)` (see Initiative below). If the log was started in the middle of a round, the list has only the rolls it saw. |
+| `Gerakis's turn` | Whose turn it is now, each time the turn passes in a fight. |
+| `X attacks Y with Long Sword +1 (1d8+1): d20 = 14, needs 12+ (45%), hits AC 1, target AC 3 -> HIT` | An attack roll, the weapon and its damage dice. `needs 12+ (45%)` is the d20 this attacker needed against this target (THAC0 − target AC) and the chance of rolling it; `hits on anything but a 1` or `only a 20 hits` when it's out of the ordinary range. `X attacks Y from behind ...` and `X attacks Y BACKSTAB ...` mark attacks from behind and backstabs (see below). "Hits AC" is the lowest AC this roll hits (THAC0 − d20); the target AC is the one the game used, with armour, DEX and spells. A natural 20 always hits and a natural 1 always misses. |
 | `    THAC0 16, +1 Blessed, +6 STR, +1 weapon = 8` | Where the attacker's THAC0 for this attack comes from: STR (melee) or DEX (missiles), spells (Bless, Prayer, Slow, Graft Weapon, the target's Blur), attacking from behind, the weapon's plus, the penalty for non-metal weapons (wooden −3, bone −1, stone and obsidian −2), the two-weapon adjustment (see below), and the difficulty setting for monsters. |
 | `  X hits Y for 14: 1d8 = [6] +8 STR 20` | The damage of that hit: the dice, the weapon's bonus, and the STR bonus the game adds for melee. Damage is at least 1. |
 | `  X hits Y for 51: (1d8 = [5] +12 STR 24) x3 backstab` | A backstab (see below) multiplies the whole damage, STR bonus included. |
 | `Shocking Grasp damage: 1d8 = [5] +10 = 15 (1d8 + 1 for each caster level: 10 at caster level 20, which counts as 10)` | A spell's damage roll, rolled for each target before its saving throw, with the spell's formula from the game's data. Damage stops growing at caster level 10 (Fireball does at most 10d6). Magic Missile, Flame Arrow and Minute Meteors are rolled elsewhere in the game, without the caster's level, so their line says how many steps the dice stand for. |
-| `    Slig takes 15 from Shocking Grasp (HP 250 -> 235)` | What the spell really did to each creature, after its save, resistances and protections (or the healing it gave). A creature that is Out Cold gets no save and takes the most the dice can do (the game's damage code does that), marked `(Out Cold: the most the dice can do)`. |
+| `  Slig takes 15 from Shocking Grasp, now 3/18 HP` | What the spell really did to each creature, after its save, resistances and protections (or the healing it gave). A creature that is Out Cold gets no save and takes the most the dice can do (the game's damage code does that), marked `(Out Cold: the most the dice can do)`. |
 | `    Blur lasts 23 rounds (caster level 20: 1 for each caster level = 20 + 3 from the dice; dice 3d1)` | How long a spell's effect lasts, and how the game worked it out. A round is 60 game seconds. The game often "rolls" dice with one side, which are fixed numbers. |
 | `    Stoneskin has 23 charges (caster level 20: 1 for each caster level = 20 + 3 from the dice; dice 1d4 = [3])` | Effects that last a number of uses rather than a time (Stoneskin's blows, Mirror Image's images, Invisibility's one attack, Poison's rounds): the game stores them as charges, worked out like a duration. |
 | `    Acid on Slig: 2d4 = [3 + 1] = 4 acid damage` / `    Ironskin on Cilla: one charge used` | Acid Arrow's damage each round while the acid lasts; and an effect with charges using one up (Stoneskin or Ironskin stopping a blow, Mirror Image losing an image...). |
@@ -115,8 +121,8 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 | `X DEX check: d20 = 9, needs 16 or less (DEX 16) -> success` | An ability check. A natural 20 always fails. |
 | `Cilla tries to open locks: d100 = 35, needs 40 or less -> success` / `    open locks 40 = 18 + 16 thief level 4 + 10 elf... - 5 armour` | A thief skill roll (see Thief skills below), and what its chance is made of. |
 | `    X's Bone Long Sword nearly broke: 0 on 0-7, then 12 on 0-19 (needed 0)` / `... BREAKS` | The weapon check the game makes after an attack sequence whose last attack hit. Only non-magical wood, bone, stone and obsidian weapons can break (and not every kind: clubs and quarterstaffs can't): they break when a 0-7 roll and then a 0-19 roll both come up 0, 1 chance in 160. The line only appears when the first roll comes up 0. |
-| `Initiative, highest acts first:` / `    Cilla 25 = 20 + 1 (0-9 roll) +4 DEX, tie broken by 6 (0-199 roll)` | The order for the round, with each score's make-up (see below). |
 | `Message: Long Sword is broken !` | The game's own message boxes: broken or corroded weapons and armour, level-ups, "NO PATH FROM HERE" and so on. |
+| `  Slig now 8/18 HP (-10)` / `  Gerakis now 51/54 HP (+1)` | Any combatant's hit points going down or up, with what's left out of their most. The game never shows a monster's HP; this does. The line comes just after the damage that caused it (sometimes after the next roll, when the game is quick). |
 | `    X's special effect on Y: d10 = 1, works on a 1 -> it works` | The 1-in-10 extra effect some creatures' hits have (the thri-kreen bite, for one). |
 | `Slig is killed (270 XP)` | A creature dying, with the XP it's worth (from its character sheet). |
 | `XP: Gerakis +67, K'ratchek +22, ... (for Slig 270)` | Experience the party got, and for which kills. The game gives it right after the kill: an equal share to each character, split again between a multi-class character's classes (the sheet counts XP per class, so a three-class thri-kreen shows a third of the share). |
@@ -127,6 +133,16 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 | `Character creation, hit points 15: Fighter d10 per level: 7 + 9; Thief d6 per level: 5 + 1 = 22, / 2 classes = 11, +4 CON 16 = 15` | The new character's hit points: a die for every level of every class, divided by the number of classes, plus CON's bonus (see below). |
 | `Character creation: a name picked at random, 1d33 = 6` | The game picks a new name from its lists when the sex or race changes. |
 | `Dice: 1d8 = [3] = 3` | Dice the log couldn't tie to anything (for example a spell with no saving throw). |
+
+**Reading it at a glance.** Lines at the left edge are the events: a round
+starting, whose turn it is, attack rolls, saves, spells, kills. Lines indented
+two spaces are their results (damage, HP left); lines indented four spaces are
+the details: the sums behind a THAC0, a save's modifiers, the initiative
+scores. Untick **Show details** to hide the details and keep the rest; they
+come back when it's ticked again. In the window, each kind has its colour
+(hits green, misses grey, damage amber, saves blue, turns sand, rounds
+underlined with a gap above), but the words say the same thing, so nothing
+depends on telling colours apart.
 
 **Show unlabelled rolls** also lists everything else the game randomises
 (creatures wandering, animations and so on), as raw numbers with where in the

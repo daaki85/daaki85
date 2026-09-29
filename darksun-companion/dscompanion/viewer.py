@@ -125,6 +125,12 @@ class Viewer:
             side="right", padx=4)
         self.show_all = tk.BooleanVar(value=False)
         ttk.Checkbutton(dice, text="Show unlabelled rolls", variable=self.show_all).pack(anchor="w", pady=(4, 0))
+        # the indented lines under a roll (what a THAC0 or save was made of); hiding them leaves
+        # the rolls, results, turns and HP
+        self.show_details = tk.BooleanVar(value=True)
+        ttk.Checkbutton(dice, text="Show details (the sums behind each roll)", variable=self.show_details,
+                        command=lambda: self.dice_text.tag_configure("detail", elide=not self.show_details.get())
+                        ).pack(anchor="w", pady=(4, 0))
         self.dice_status = tk.StringVar(value="Waiting for the game...")
         ttk.Label(dice, textvariable=self.dice_status).pack(fill="x", pady=(4, 0))
         box = ttk.Frame(dice)
@@ -137,6 +143,7 @@ class Viewer:
         self.dice_text.pack(side="left", fill="both", expand=True)
         for tag, colour in theme.LOG_COLOURS.items():
             self.dice_text.tag_configure(tag, foreground=colour)
+        self.dice_text.tag_configure("round", underline=True, spacing1=8)  # a gap before each round
 
         talk = ttk.Frame(tabs, padding=6)
         tabs.add(talk, text="Dialogue", underline=1)
@@ -477,7 +484,9 @@ class Viewer:
     def _append_dice(self, lines: List[str]) -> None:
         at_end = self.dice_text.yview()[1] >= 0.999
         for line in lines:
-            tag = ("save" if " saves vs " in line or " magic resistance " in line else
+            tag = ("round" if line.startswith(("Round ", "Initiative: ")) else
+                   "turn" if line.endswith("'s turn") else
+                   "save" if " saves vs " in line or " magic resistance " in line else
                    "hit" if "-> HIT" in line else
                    "miss" if "-> miss" in line else
                    "detail" if line.startswith("    ") else

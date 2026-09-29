@@ -46,6 +46,8 @@ LOG_COLOURS = {
     "damage": AMBER,
     "save": PSI_BLUE,
     "detail": DETAIL,
+    "round": PALE,
+    "turn": SAND,
     "other": YELLOW,
 }
 
