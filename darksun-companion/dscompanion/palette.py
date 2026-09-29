@@ -57,6 +57,7 @@ TEXT_PAIRS: Dict[str, Tuple[str, str]] = {
     "log text": (PALE, DEEP),
     "dialogue": (AMBER, DEEP),
     "speaker": (YELLOW, DEEP),
+    "dialogue, chosen reply": (GREEN, DEEP),
     "label": (PALE, STONE),
     "status": (YELLOW, STONE),
     "section title": (YELLOW, STONE),

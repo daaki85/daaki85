@@ -70,6 +70,12 @@ EFFECTS_SEG, EFFECTS_OFF = 0x3BF6, 0x106  # 10 bytes per active effect
 # sorted by time, with their count. An effect ending is kind 7, its data the owner and handle.
 GAME_TIME_PTR, GAME_TIME_SCALE = 0x9B72, 0x9B70
 WHOSE_TURN = 0x4979  # DS word: the combatant whose turn it is
+# Speakers the game names in its own text (the dialogue window shows only a portrait):
+# 119 is asked about as "Yell something back at the Announcer?"
+SPEAKERS = {119: "The Announcer"}
+# The dialogue window's replies: the game copies each into DS:5537 + n * 33h; the row the
+# player clicks goes in DS:1F0A (FFh until then), plus the list's scroll position at DS:5502
+REPLY_CHOSEN, REPLY_SCROLL, REPLY_TEXTS, REPLY_SIZE = 0x1F0A, 0x5502, 0x5537, 0x33
 EVENT_QUEUE, EVENT_COUNT, EVENT_SIZE, EVENT_EFFECT_ENDS = 0x2FBE, 0x2FC6, 0x11, 7
 # Each round, per creature (4 bytes each): the initiative score (-1 once it has
 # acted) and the 0-199 roll that breaks ties
@@ -342,9 +348,15 @@ THIEF_BASE, THIEF_RACE, THIEF_DEX_LOW, THIEF_DEX_HIGH, THIEF_DEX_TOP, THIEF_ARMO
 THIEF_PER_LEVEL = 4
 
 
+# The spell's damage kinds (its flags word): the saving throw doubles the d20 against fire,
+# cold and electricity, and no other kind
+DOUBLED_KINDS = {0x02: "fire", 0x04: "cold", 0x80: "electricity"}
+
+
 class SpellRules(NamedTuple):
     doubles_roll: bool  # the saving throw's d20 counts double
     save_modifier: int  # added to every saving throw against the spell
+    doubled_for: str = ""  # the damage kind that doubles it: "fire", "cold" or "electricity"
 
 
 class Weapon(NamedTuple):
@@ -454,6 +466,16 @@ class GameData:
         return [(Effect(*struct.unpack_from("<hh", data, i * 10), data[i * 10 + 6]),
                  struct.unpack_from("<h", data, i * 10 + 4)[0]) for i in range(count)]
 
+    def reply_chosen(self) -> Optional[Tuple[int, str]]:
+        """The reply the player has just clicked (its place in the list, and its text), while
+        the game flashes it; None the rest of the time."""
+        row = self.guest.read(self.ds * 16 + REPLY_CHOSEN, 1)[0]
+        if row == 0xFF:
+            return None
+        n = row + self.guest.read(self.ds * 16 + REPLY_SCROLL, 1)[0]
+        text = self.guest.read(self.ds * 16 + REPLY_TEXTS + n * REPLY_SIZE, REPLY_SIZE)
+        return n, text.split(b"\0", 1)[0].decode("cp437", "replace").strip()
+
     def whose_turn(self) -> Optional[int]:
         """The combatant whose turn it is in a fight (the game's word at WHOSE_TURN)."""
         turn = self._word(WHOSE_TURN)
@@ -496,7 +518,9 @@ class GameData:
         if len(rec) < SPELL_SIZE:
             return None
         nibble = (rec[0x0F] >> 1) & 0x0F
-        return SpellRules(bool(struct.unpack_from("<H", rec, 0x0A)[0] & 0x86), nibble - 16 if nibble & 8 else nibble)
+        flags = struct.unpack_from("<H", rec, 0x0A)[0]
+        kinds = " and ".join(name for bit, name in DOUBLED_KINDS.items() if flags & bit)
+        return SpellRules(bool(kinds), nibble - 16 if nibble & 8 else nibble, kinds)
 
     def spell_record(self, spell: int) -> bytes:
         """The spell's whole 32-byte record (it starts 10h before the fields SPELLS_OFF names)."""

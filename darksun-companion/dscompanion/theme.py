@@ -14,7 +14,7 @@ from tkinter import font as tkfont
 from tkinter import ttk
 from typing import Tuple
 
-from .palette import (AMBER, BUTTON, BUTTON_LIT, DARK, DEEP, EDGE_LIT, FOCUS, LOG_COLOURS, NAME, PALE,  # noqa: F401
+from .palette import (AMBER, BUTTON, BUTTON_LIT, DARK, DEEP, EDGE_LIT, FOCUS, GREEN, LOG_COLOURS, NAME, PALE,  # noqa: F401
                       PANEL, PSI_BLUE, ROCK, SAND, SHADOW, STONE, SUBTITLE, YELLOW)
 
 # Named fonts, so Ctrl + / Ctrl - can enlarge all text at once

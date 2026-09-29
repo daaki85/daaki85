@@ -20,14 +20,14 @@ parts:
     Mountain Stalker now 12/32 HP (-20)
   Fireball damage: 9d6 = [3 + 2 + 3 + 4 + 5 + 4 + 1 + 2 + 2] = 26
   Red Slaad magic resistance 30% vs Fireball: d100 = 71 -> not resisted
-  Red Slaad saves vs Fireball from Daaki (petrification/polymorph): d20 = 6, doubled for this spell = 12, needs 11 (75% to save) -> saved: half damage, 13 of 26
+  Red Slaad saves vs Fireball from Daaki (petrification/polymorph): d20 = 6, doubled against fire = 12, needs 11 (75% to save) -> saved: half damage, 13 of 26
     Red Slaad takes 13 from Fireball, now 47/60 HP
   Jellybelly gives Blessed to Daaki: +1 to hit, +1 on saves
   Slig is killed (270 XP)
   XP: Gerakis +67, K'ratchek +22, Cermak +67, Cilla +22 (for Slig 270)
   ```
-- **Dialogue:** what characters say, and the replies you're offered, kept in a
-  tab you can scroll back through.
+- **Dialogue:** what characters say, the replies you're offered and the one
+  you picked, kept in a tab you can scroll back through.
 
 Nothing in the game folder or your save files is changed. The viewer only reads
 memory. For the dice log, the launcher runs a patched copy of the game that it
@@ -61,7 +61,7 @@ install anything into the game folder.
 
 1. Install Python from <https://www.python.org/downloads/>. On the first
    installer screen, tick **"Add python.exe to PATH"**.
-2. Download this project: on GitHub open the `claude/amazing-lovelace-gcqdap`
+2. Download this project: on GitHub open the `templars-ledger`
    branch, click **Code → Download ZIP**, and unzip it anywhere.
    The files you need are in the `darksun-companion` folder.
 
@@ -116,7 +116,7 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 | `    Dispel Magic on Slig's Blessed: d100 = 60, needs 85 or less (50 + 5 x 7 - 5 x 0 (its caster's level)) -> dispelled` | Dispel Magic tries each effect on its target separately: 50 + 5 for each of the dispeller's levels, less 5 for each of the level the effect was cast at. It can't touch some (Biofeedback, Diseased, Feeblemind, Poisoned, Graft Weapon, No spell use, Stuck, Mind Bar and a few more). |
 | `    Abjure on Y: d20 = 14, needs 12 or more (11 - caster level 5 + its level 6) -> sent away` | Abjure sends a summoned creature away (1000 damage) on a d20 at or over 11 - the caster's level + the creature's. |
 | `    Summoning: 1d3 = 2 picks which of its 3 creatures comes` | Which creature a summoning spell brings. |
-| `Y saves vs Fireball from X (petrification/polymorph): d20 = 6, doubled for this spell = 12 +1 modifiers (incl. Blessed) = 13, needs 11 (80% to save) -> saved: half damage, 19 of 38` | A saving throw: which of the target's five saves it uses, the d20, the game's modifiers, and the number it had to reach. The game doubles the d20 for some spells (Burning Hands, Fireball, Cone of Cold, Flame Strike, Wall of Fire...). A natural 1 always fails and a natural 20 always saves. The chance of saving is worked out for you (`needs 14 (70% to save)`); with the doubled d20, Fireball's victims usually save. For a damaging spell the result says what the save left, from that target's damage roll just before it: `saved: half damage, 19 of 38`, `failed: full damage, 38`, or `saved: no damage` for spells such as Chill Touch. The HP line after it shows what the creature really lost, once resistances and protections have had their say. A failed save also lets the spell's effect take hold. Spells left on the ground (Grease, clouds) make creatures save again as they stay in them; those lines have no "from". |
+| `Y saves vs Fireball from X (petrification/polymorph): d20 = 6, doubled against fire = 12 +1 modifiers (incl. Blessed) = 13, needs 11 (80% to save) -> saved: half damage, 19 of 38` | A saving throw: which of the target's five saves it uses, the d20, the game's modifiers, and the number it had to reach. The game doubles the d20 against fire, cold and electricity spells (see Spells and effects). A natural 1 always fails and a natural 20 always saves. The chance of saving is worked out for you (`needs 14 (70% to save)`); with the doubled d20, Fireball's victims usually save. For a damaging spell the result says what the save left, from that target's damage roll just before it: `saved: half damage, 19 of 38`, `failed: full damage, 38`, or `saved: no damage` for spells such as Chill Touch. The HP line after it shows what the creature really lost, once resistances and protections have had their say. A failed save also lets the spell's effect take hold. Spells left on the ground (Grease, clouds) make creatures save again as they stay in them; those lines have no "from". |
 | `X gives Blessed to Y, Z: +1 to hit, +1 on saves` / `Blessed ends on Y` | A spell or psionic effect starting or ending, with what it does in the game's code where that is known: to-hit, AC and saving throws, movement and attacks, whether the creature can attack or cast, who controls it (see Spells and effects below). `Stuck on Y` (no "gives") is an effect a creature has from a spell on the ground or cast on itself. |
 | `X DEX check: d20 = 9, needs 16 or less (DEX 16) -> success` | An ability check. A natural 20 always fails. |
 | `Cilla tries to open locks: d100 = 35, needs 40 or less -> success` / `    open locks 40 = 18 + 16 thief level 4 + 10 elf... - 5 armour` | A thief skill roll (see Thief skills below), and what its chance is made of. |
@@ -205,10 +205,35 @@ AD&D rules, the log follows the game.
 **Damage.** Each spell's record gives its dice: base dice plus dice (and a flat
 bonus) for each step of caster level, counted up to level 10. So Fireball and
 Lightning Bolt do at most 10d6, and Burning Hands 1d3 + 2 a level. A save halves
-the damage, or stops it all for spells such as Chill Touch. Some spells (Burning
-Hands, Fireball, Lightning Bolt, Cone of Cold, Flame Strike...) double the
-save's d20. A creature that is Out Cold gets no save and takes the most the
-dice can do.
+the damage, or stops it all for spells such as Chill Touch. A creature that is
+Out Cold gets no save and takes the most the dice can do.
+
+**Fire, cold and electricity: the save's d20 counts double.** Each spell's
+record has a word of flags saying what kind of damage it does, and the saving
+throw code doubles the d20 whenever the kind is fire, cold or electricity
+(`test word [flags], 86h` then `shl al, 1` in DSUN.EXE). Nothing else is
+doubled: not acid (Acid Arrow), crushing (Ice Storm, Magical Stone), poison
+(Cloudkill), draining (Vampiric Touch, the Cause Wounds spells) or the
+psionic attacks. The doubled spells are:
+- fire: Burning Hands, Flaming Sphere, Fireball, Flame Arrow, Minute Meteors,
+  Fire Shield, Wall of Fire (both), Focus Heat, Produce Fire, Flame Strike;
+- cold: Chill Touch, Cone of Cold;
+- electricity: Shocking Grasp, Lightning Bolt.
+
+A natural 1 still fails and a 20 still saves, but in between the doubled roll
+makes saving far easier: needing 14, a normal d20 saves 35% of the time and a
+doubled one 70%. That's why Fireball's victims usually get away with half
+damage. It isn't AD&D, and the game never explains it, so why SSI did it is a
+guess; it may have been meant as a dodge that makes energy blasts a gamble.
+The log says it on each save: `d20 = 7, doubled against fire = 14`.
+
+Almost every spell in the game is saved against with **petrification/polymorph**
+(its code maps the spell's save kind 5 to the sheet's third save; kind 1 is
+paralysis/poison/death, used by the clouds, Poison, Slay Living and the psionic
+attacks). The spell save, the one AD&D uses for spells, is never used. That
+was checked against the AD&D tables: a 3rd-level warrior needs 13 against
+Psychic Crush (paralysis) and 14 against Fireball (petrification), where the
+spell save would be 16.
 
 **How long.** A duration is (caster level × so much + dice) × a unit of time.
 A round is 60 game seconds. Some effects last a number of uses instead
@@ -425,10 +450,19 @@ From the game's code:
 
 Everything the game shows in its dialogue window, one entry per window of
 text, with the replies offered numbered underneath (and the list's title,
-such as "Answer Yes or No", above them). The game only says which portrait
-goes with the text, so speakers show as `Portrait 119` and so on (119 is the
-arena announcer); the text itself often names who's speaking. Text shown
-without a face (the emblem instead) is `Narration`.
+such as "Answer Yes or No", above them), and then the one you picked:
+`You chose: No`. (The game keeps the clicked row at DS:1F0A while it flashes
+it; the log reads the reply's text from the game's own list.)
+
+**Who's speaking.** The game's dialogue window gets only a portrait number,
+never a name, so a speaker the log can't name shows as `Portrait 57`. Portrait
+119 is named `The Announcer`, as the game itself calls him ("Yell something
+back at the Announcer?"). To name any other speaker, right-click the name
+line in the Dialogue tab, or press **Name speaker...** (it names the latest
+speaker). The name replaces the number on every line from that portrait,
+the ones already shown included, and is remembered in `settings.json` for
+next time (the command-line log uses it too). Leave the name empty to go back
+to the number. Text shown without a face (the emblem instead) is `Narration`.
 
 Each entry shows the speaker's portrait, as the game's own dialogue window
 does. Portraits and the title's lettering are read from your installed game
@@ -475,7 +509,8 @@ Limitations:
 - A save-file load from the main menu is recognised, so the spells already
   active in it aren't reported as new. Loading a save of the same party in the
   middle of play isn't, and its effects may be listed as if just cast.
-- Dialogue speakers are portrait numbers, not names (see above).
+- Dialogue speakers are portrait numbers until you name them (see above):
+  the game doesn't keep a name with the dialogue.
 - Weapon breaking was checked against the game's code, and the check's rolls
   were seen in play, but no weapon happened to break during testing; the
   game's own "is broken !" message is logged either way.
@@ -525,8 +560,8 @@ The party pane has two tabs:
   not worn), with each item's material and plus. Last, for spellcasters, their
   spell slots (see below), and for thieves their skills. Scroll
   with the mouse wheel, or Tab to the cards and use the arrow and Page keys.
-- **All fields** (Alt+A): every field the layout maps, in a table (as before),
-  with the spell slots as its last two rows.
+- **All fields** (Alt+A): every field the layout maps, in a table, with the
+  spell slots as its last two rows.
 
 **Spell slots.** `Priest spells left: 1st 5/5, 2nd 3/3, 3rd 2/2, 4th 1/1`
 means five first-level priest spells can still be cast out of five, and so
@@ -606,7 +641,7 @@ parties, plus the in-game View Character screens.
 | sheet | `+0x0a` | s16 | HP before CON bonus (probably) | max − this = CON bonus × level for single-class characters |
 | sheet | `+0x0c` | s16 | Max PSP | |
 | sheet | `+0x10` | u16 | Entity ID | links the sheet to its creature record |
-| sheet | `+0x18` | u8 | Race: 1 Human, 3 Elf, 4 Half-elf, 5 Half-giant, 8 Thri-kreen | ability modifiers fit; 2, 6, 7 are unseen |
+| sheet | `+0x18` | u8 | Race: 1 Human, 2 Dwarf, 3 Elf, 4 Half-elf, 5 Half-giant, 6 Halfling, 7 Mul, 8 Thri-kreen | ability modifiers fit; 2, 6 and 7 from the character creation code's race table |
 | sheet | `+0x19` | u8 | Gender: 1 male, 2 female | |
 | sheet | `+0x1a` | u8 | Alignment: 1 LG, 2 LN, 3 LE, 4 NG, 5 TN, 6 NE, 7 CG, 8 CN, 9 CE | 1, 5, 7 confirmed in game |
 | sheet | `+0x1b` | u8 ×6 | STR DEX CON INT WIS CHA | |

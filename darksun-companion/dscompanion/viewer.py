@@ -149,10 +149,13 @@ class Viewer:
         tabs.add(talk, text="Dialogue", underline=1)
         row = ttk.Frame(talk)
         row.pack(fill="x")
-        ttk.Label(row, text="What characters say, and the replies offered").pack(side="left")
         ttk.Button(row, text="Clear", command=self.clear_dialogue).pack(side="right")
         ttk.Button(row, text="Save...", command=lambda: self.save_text(self.talk_text, "dialogue")).pack(
             side="right", padx=4)
+        # the game shows only a face; the player can name it (right-click a name, or this button
+        # for the latest speaker), and the name sticks for every line from that portrait
+        ttk.Button(row, text="Name speaker...", command=lambda: self.name_speaker(self._last_portrait)).pack(
+            side="right")
         box = ttk.Frame(talk)
         box.pack(fill="both", expand=True, pady=(6, 0))
         self.talk_text = tk.Text(box, wrap="word", height=20, font="TkTextFont")
@@ -164,6 +167,9 @@ class Viewer:
         self.talk_text.pack(side="left", fill="both", expand=True)
         self.talk_text.tag_configure("speaker", font=theme.fonts()[1], foreground=theme.YELLOW)
         self.talk_text.tag_configure("reply", foreground=theme.PALE)
+        self.talk_text.tag_configure("chosen", foreground=theme.GREEN)
+        self._last_portrait: Optional[int] = None
+        self.talk_text.tag_bind("speaker", "<Button-3>", self._speaker_clicked)
 
         tools = ttk.Frame(tabs, padding=6)
         tabs.add(tools, text="Memory tools", underline=0)
@@ -255,11 +261,13 @@ class Viewer:
             self.table.column(f"slot{i}", width=slot, minwidth=slot)
         # at large text sizes the table scrolls sideways rather than squeezing the logs
         wanted = field + slot * self.layout.count + 24
-        width = self.root.winfo_width()
-        if width < 200:  # not on screen yet (a slow start): placing the divider now would hide the party
+        width = self.panes.winfo_width()
+        if width < 200:  # not laid out yet (a slow start): placing the divider now would hide the party
             self.root.after(200, self._fit_party)
             return
-        self.panes.sashpos(0, min(wanted, int(width * 0.55)))
+        place = min(wanted, int(width * 0.55))
+        if self.panes.sashpos(0, place) < place // 2:  # the panes weren't ready after all: again soon
+            self.root.after(200, self._fit_party)
 
     def save_text(self, widget: tk.Text, what: str) -> None:
         """Save a log as a text file (to read with other tools, such as a screen reader)."""
@@ -438,7 +446,9 @@ class Viewer:
             if now < self.next_try:
                 return
             self.next_try = now + RETRY_SECONDS
-            self.dice = self.dice or DiceLog(self.guest)
+            if self.dice is None:
+                self.dice = DiceLog(self.guest)
+                self.dice.speaker_names = launch.speaker_names()
             try:
                 self.dice_status.set(self.dice.attach())
             except DiceLogError as e:
@@ -457,6 +467,36 @@ class Viewer:
         if talk:
             self._append_dialogue(talk)
 
+    def _speaker_clicked(self, event) -> None:
+        tags = self.talk_text.tag_names(f"@{event.x},{event.y}")
+        portrait = next((int(t.split()[1]) for t in tags if t.startswith("portrait ")), None)
+        self.name_speaker(portrait)
+
+    def name_speaker(self, portrait: Optional[int]) -> None:
+        """Ask for a name for a dialogue portrait, remember it, and show it on every line from it."""
+        from tkinter import simpledialog
+        if portrait is None or self.dice is None:
+            messagebox.showinfo("Name speaker", "No one with a portrait has spoken yet.", parent=self.root)
+            return
+        shown = self.dice.speaker(portrait)
+        name = simpledialog.askstring(
+            "Name speaker", f"Name for the speaker shown as \"{shown}\" (portrait {portrait}).\n"
+            "Leave it empty to go back to the default.", initialvalue=self.dice.speaker_names.get(portrait, ""),
+            parent=self.root)
+        if name is None:
+            return
+        name = " ".join(name.split())
+        launch.set_speaker_name(portrait, name)
+        if name:
+            self.dice.speaker_names[portrait] = name
+        else:
+            self.dice.speaker_names.pop(portrait, None)
+        tag = f"portrait {portrait}"
+        ranges = self.talk_text.tag_ranges(tag)
+        for start, end in reversed(list(zip(ranges[0::2], ranges[1::2]))):
+            self.talk_text.delete(start, end)
+            self.talk_text.insert(start, self.dice.speaker(portrait), ("speaker", tag))
+
     def clear_dialogue(self) -> None:
         self.talk_text.delete("1.0", "end")
         self._images.clear()
@@ -464,13 +504,21 @@ class Viewer:
     def _append_dialogue(self, entries) -> None:
         at_end = self.talk_text.yview()[1] >= 0.999
         for entry in entries:
+            if entry.chosen:  # the player's answer to the replies above
+                self.talk_text.delete("end-2c")  # into the gap under the replies
+                self.talk_text.insert("end", f"  You chose: {entry.chosen}\n\n", "chosen")
+                continue
             face = self.art.portrait(entry.portrait) if entry.portrait else None
             if face:  # the game's portrait, twice its size (more at larger text sizes)
                 image = art.photo(self.root, face, max(2, round(2 * theme.scale())), background=theme.DEEP)
                 self._images.append(image)
                 self.talk_text.image_create("end", image=image, padx=2, pady=4, align="center")
                 self.talk_text.insert("end", " ")
-            self.talk_text.insert("end", self.dice.speaker(entry.portrait) + "\n", "speaker")
+            tags = ("speaker", f"portrait {entry.portrait}") if entry.portrait else ("speaker",)
+            self.talk_text.insert("end", self.dice.speaker(entry.portrait), tags)
+            self.talk_text.insert("end", "\n")
+            if entry.portrait:
+                self._last_portrait = entry.portrait
             if entry.text:
                 self.talk_text.insert("end", entry.text + "\n")
             if entry.title:

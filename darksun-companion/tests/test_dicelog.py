@@ -261,7 +261,7 @@ class SaveTests(unittest.TestCase):
             log.describe(d, now=1.0)
         log.describe(self.save_roll(log, 9, spell=FIREBALL), now=1.1)
         self.assertEqual(log.describe(self.probe(18, needed=14, spell=FIREBALL)),
-                         ["Mountain Stalker saves vs Fireball from Dag (spell): d20 = 9, doubled for this spell = 18, "
+                         ["Mountain Stalker saves vs Fireball from Dag (spell): d20 = 9, doubled against fire = 18, "
                           "needs 14 (70% to save) -> saved: half damage, 7 of 15"])
 
     def damage_formula(self, log, spell, b0, b1, b2):
@@ -409,11 +409,25 @@ class SaveTests(unittest.TestCase):
         struct.pack_into("<h", m, stalker, 25)
         self.assertEqual(log.hp_changes(31.0), ["  Mountain Stalker now 25 HP (+5)"])
 
+    def test_a_hit_during_a_spell_is_not_the_spells(self):
+        log = make_game()
+        m = log.guest.mem
+        stalker = CREATURES + STALKER * game.CREATURE_SIZE
+        struct.pack_into("<h", m, stalker, 30)
+        log.hp_changes(0.5)
+        log._spell_cast(FIREBALL, 1.0)
+        log._hits[STALKER] = 12  # a weapon hit logged just before
+        struct.pack_into("<h", m, stalker, 12)
+        self.assertEqual(log.hp_changes(1.5), ["  Mountain Stalker takes 6 from Fireball and 12 from the hit, now 12 HP"])
+        log._hits[STALKER] = 5
+        struct.pack_into("<h", m, stalker, 7)
+        self.assertEqual(log.hp_changes(2.0), ["  Mountain Stalker now 7 HP (-5)"])
+
     def test_doubled_roll(self):
         log = make_game()
         log.describe(self.save_roll(log, 7, spell=FIREBALL))
         self.assertEqual(log.describe(self.probe(14, needed=15, spell=FIREBALL)),
-                         ["Mountain Stalker saves vs Fireball from Dag (spell): d20 = 7, doubled for this spell "
+                         ["Mountain Stalker saves vs Fireball from Dag (spell): d20 = 7, doubled against fire "
                           "= 14, needs 15 (65% to save) -> failed"])
 
     def test_modifiers_name_the_effects_that_count(self):
@@ -615,8 +629,39 @@ class NewLinesTests(unittest.TestCase):
         messages = [line for line in log.lines(now=100.0) if line.startswith("Message:")]
         self.assertEqual(messages, ["Message: Long Sword is broken !"])  # an empty box is left out
         (said,) = log.take_dialogue()
-        self.assertEqual((log.speaker(said.portrait), said.text), ("Portrait 119", "Watch and enjoy!"))
+        self.assertEqual((log.speaker(said.portrait), said.text), ("The Announcer", "Watch and enjoy!"))
         self.assertEqual(log.speaker(0), "Narration")
+        self.assertEqual(log.speaker(57), "Portrait 57")
+        log.speaker_names = {57: "Tithian", 119: "Herald"}  # names the player gave
+        self.assertEqual((log.speaker(57), log.speaker(119)), ("Tithian", "Herald"))
+
+    def test_the_reply_chosen(self):
+        log = make_game()
+        m = log.guest.mem
+        for n, text in enumerate((b"Yes", b"No", b"Maybe")):
+            at = DS * 16 + game.REPLY_TEXTS + n * game.REPLY_SIZE
+            m[at:at + len(text) + 1] = text + b"\0"
+        m[DS * 16 + game.REPLY_CHOSEN] = 0xFF
+        log.lines(now=1.0)
+        self.assertEqual(log.take_dialogue(), [])
+        m[DS * 16 + game.REPLY_CHOSEN] = 0  # the second row clicked, the list scrolled down one
+        m[DS * 16 + game.REPLY_SCROLL] = 1
+        log.lines(now=1.1)
+        self.assertEqual([d.chosen for d in log.take_dialogue()], ["No"])
+        log.lines(now=1.2)  # still flashing: not again
+        self.assertEqual(log.take_dialogue(), [])
+        m[DS * 16 + game.REPLY_CHOSEN] = 0xFF
+        log.lines(now=1.3)
+        self.assertEqual(log.take_dialogue(), [])
+
+    def test_no_hp_or_psp_news_while_a_game_loads(self):
+        log = make_game()
+        m = log.guest.mem
+        log.lines(now=10.0)
+        m[CREATURES + game.CREATURE_NAME:CREATURES + game.CREATURE_NAME + 4] = b"Tavi"  # another game
+        struct.pack_into("<h", m, CREATURES + game.CREATURE_PSP, 40)
+        struct.pack_into("<h", m, CREATURES, 25)
+        self.assertEqual([l for l in log.lines(now=10.5) if "HP" in l or "PSP" in l], [])
 
 
 class InitiativeTests(unittest.TestCase):

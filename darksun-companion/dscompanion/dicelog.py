@@ -273,6 +273,9 @@ class DiceLog:
         self._psp: Dict[int, int] = {}  # party member -> PSP when last looked at
         self._last_damage: Optional[Tuple[int, int]] = None  # (spell, damage) last rolled
         self._turn: Optional[int] = None  # whose turn it was when last looked at
+        self._reply: Optional[Tuple[int, str]] = None  # the reply being flashed when last looked at
+        self.speaker_names: Dict[int, str] = {}  # portrait -> the name the player gave it
+        self._hits: Dict[int, int] = {}  # creature -> damage of weapon hits not yet seen in its HP
         self._round, self._round_time = 0, None  # this fight's round, and the game time it began
         self._save_rolls: Dict[Tuple[int, int], int] = {}  # (SS, save frame BP) -> natural d20
         self._effects: Optional[Counter] = None
@@ -375,8 +378,9 @@ class DiceLog:
         out: List[str] = []
         for e in self.poll():
             out += self.describe(e, show_all, now)
-        out += self.hp_changes(now)
-        out += self.psp_changes()
+        changes = self.hp_changes(now) + self.psp_changes()
+        if not self._party_check(now):  # not while a game is loading: its records are half-filled
+            out += changes
         for rec in self.text.poll():
             if rec.kind == KIND_MESSAGE:
                 if rec.text.strip():
@@ -384,6 +388,7 @@ class DiceLog:
             else:
                 self._dialogue += self.dialogue.add(rec, now)
         self._dialogue += self.dialogue.idle(now)
+        self._dialogue += self._reply_choice(now)
         if now >= self._next_effect_check:
             self._next_effect_check = now + EFFECT_INTERVAL
             out += self.effect_changes(now)
@@ -410,8 +415,8 @@ class DiceLog:
                 continue
             psp = struct.unpack_from("<h", rec, game.CREATURE_PSP)[0]
             before, self._psp[index] = self._psp.get(index), psp
-            if before is None or before == psp:
-                continue
+            if before is None or before == psp or not rec[game.CREATURE_NAME]:
+                continue  # unchanged, or an empty party slot
             who = self.game.creature_name(index)
             if psp < before:
                 out.append(f"    {who} spends {before - psp} PSP ({before} -> {psp})")
@@ -441,13 +446,14 @@ class DiceLog:
             sheet = g.sheet(index)
             most = struct.unpack_from("<h", sheet, game.SHEET_MAX_HP)[0] if len(sheet) >= game.SHEET_SIZE else None
             left = f"now {hp}/{most} HP" if most and most > 0 else f"now {hp} HP"
-            if now <= self._spell_until:
-                if hp < before:
-                    # the game's damage code gives a creature that was Out Cold the most the dice can do
-                    out_cold = " (Out Cold: the most the dice can do)" if was_out_cold else ""
-                    out.append(f"  {who} takes {before - hp} from {self._spell_name}{out_cold}, {left}")
-                else:
-                    out.append(f"  {who} regains {hp - before} HP from {self._spell_name}, {left}")
+            hit = min(self._hits.pop(index, 0), max(before - hp, 0))
+            if now <= self._spell_until and before - hp > hit:
+                # the game's damage code gives a creature that was Out Cold the most the dice can do
+                out_cold = " (Out Cold: the most the dice can do)" if was_out_cold else ""
+                also = f" and {hit} from the hit" if hit else ""
+                out.append(f"  {who} takes {before - hp - hit} from {self._spell_name}{out_cold}{also}, {left}")
+            elif now <= self._spell_until and hp > before:
+                out.append(f"  {who} regains {hp - before} HP from {self._spell_name}, {left}")
             elif hp < before:
                 out.append(f"  {who} {left} (-{before - hp})")
             else:
@@ -467,7 +473,15 @@ class DiceLog:
             return "(no portrait)"
         if portrait == 0:
             return "Narration"  # the window shows an emblem, not a face
-        return f"Portrait {portrait}"
+        return self.speaker_names.get(portrait) or game.SPEAKERS.get(portrait) or f"Portrait {portrait}"
+
+    def _reply_choice(self, now: float) -> List[DialogueEntry]:
+        """The player's answer, once, when they click a reply."""
+        chosen, before = self.game.reply_chosen(), self._reply
+        self._reply = chosen
+        if chosen is None or chosen == before or not chosen[1]:
+            return []
+        return self.dialogue.flush() + [DialogueEntry(None, chosen=chosen[1])]
 
     def take_dialogue(self) -> List[DialogueEntry]:
         """Dialogue that has come in since the last call (lines() collects it)."""
@@ -590,6 +604,7 @@ class DiceLog:
         pairs, self._initiative = self._initiative, []
         if not pairs:
             return []
+        self._hits.clear()  # a new round: hits not seen in HP by now never will be (Stoneskin...)
         g = self.game
         combatants = g.combatants()
         table = g.initiative(max(combatants.values(), default=0) + 1)
@@ -876,6 +891,9 @@ class DiceLog:
             times = min(2 + (max(thief[0], 1) - 1) // 4, 5) if thief else 2
             total *= times
             steps = f"({steps}) x{times} backstab"
+        target = g.combatant_creature(e.glob[0])
+        if target is not None:  # so the HP it takes isn't put down to a spell being cast
+            self._hits[target] = self._hits.get(target, 0) + total
         return [f"  {g.creature_name(attacker)} hits {g.combatant_name(e.glob[0])} for {total}: {steps}"]
 
     def _overlay_duration(self, e: Entry, count: int, sides: int) -> bool:
@@ -1233,7 +1251,7 @@ class DiceLog:
             steps, rolled = f"d20 = {natural}", natural
             if rules and rules.doubles_roll:
                 rolled = natural * 2
-                steps += f", doubled for this spell = {rolled}"
+                steps += f", doubled against {rules.doubled_for} = {rolled}"
             parts = []
             if rules and rules.save_modifier:
                 parts.append(f"{signed(rules.save_modifier)} spell")

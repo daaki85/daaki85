@@ -122,6 +122,7 @@ def cmd_dicelog(args) -> None:
     from .dicelog import DiceLog
     from .dicelog import DiceLogError
     from .guestmem import GuestMemoryError
+    from .launch import speaker_names
     while True:  # DOSBox may still be starting
         try:
             guest = connect(args)
@@ -130,6 +131,7 @@ def cmd_dicelog(args) -> None:
             print(f"{e} Waiting...", flush=True)
             time.sleep(2)
     log = DiceLog(guest, record_everything=args.raw)
+    log.speaker_names = speaker_names()
 
     def attach() -> None:
         waiting = False
@@ -153,6 +155,9 @@ def cmd_dicelog(args) -> None:
             for line in log.lines(show_all=args.all):
                 print(line, flush=True)
             for entry in log.take_dialogue():
+                if entry.chosen:
+                    print(f"    > {entry.chosen}", flush=True)
+                    continue
                 print(f"[{log.speaker(entry.portrait)}] {entry.text}", flush=True)
                 if entry.title:
                     print(f"    ({entry.title})", flush=True)
