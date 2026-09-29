@@ -288,6 +288,20 @@ class SaveTests(unittest.TestCase):
                       parent_code=dicelog.OVERLAY_TRAP + bytes(8)) for f in (1, 7, 5, 1)]
         self.assertEqual(sum((log.describe(d) for d in dice), []), ["Fireball damage: 4d8 = [1 + 7 + 5 + 1] = 14"])
 
+    def test_psp(self):
+        log = make_game()
+        dag = CREATURES + game.CREATURE_PSP
+        struct.pack_into("<h", log.guest.mem, dag, 52)
+        self.assertEqual(log.psp_changes(), [])  # the first look
+        struct.pack_into("<h", log.guest.mem, dag, 34)
+        self.assertEqual(log.psp_changes(), ["    Dag spends 18 PSP (52 -> 34)"])
+
+    def test_psionic_names(self):
+        log = make_game()
+        m = log.guest.mem
+        m[DS * 16 + game.SPELL_NAMES:DS * 16 + game.SPELL_NAMES + 30] = b"DETONATE\0DISINTEGRATE\0" + bytes(7)
+        self.assertEqual(game.GameData(log.guest, DS).spell_name(139), "Disintegrate")
+
     def test_out_cold_takes_the_most(self):
         log = make_game()
         m = log.guest.mem

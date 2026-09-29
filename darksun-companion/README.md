@@ -288,6 +288,70 @@ noise, climb walls, read languages): the checks above fit them.
 The **Characters** tab shows each thief's chances before armour and the situation.
 **All fields** has them in a row in that order.
 
+### Psionics
+
+Psionic powers are numbered after the spells (Detonate 138 to Thought Shield
+171) and go through the same code: the same records for damage, saves and
+effects, so the log treats them like spells and names them. Some things are
+their own:
+
+- **Level.** A power works at the character's psionicist level; anyone else
+  with psionic powers counts as level 1.
+- **PSP.** A power costs its PSP to use. Kept-up powers (Inertial Barrier,
+  Biofeedback, Graft Weapon...) cost more PSP at the start of each round, and
+  the game puts them on again for another round; when the PSP runs short, the
+  power drops. The log shows every change in a party member's PSP
+  (`    K'ratchek spends 18 PSP (52 -> 34)`).
+- **Psionic defence.** Attacked by a psionic attack mode (Psychic Crush, Ego
+  Whip, Id Insinuation, Psionic Blast), a character automatically raises the
+  best defence mode they know and can pay for, and pays its PSP.
+- **Mind Bar** adds 75% magic resistance against mind-affecting spells:
+  charms, holds, Scare, Confusion, Chaos, Feeblemind, Minor Malison. The log's
+  magic resistance line counts it, and Lower Resistance halving the result.
+- **Body Weaponry** makes unarmed attacks 2d4; **Animal Affinity** at least 1d10.
+- Monsters use them too: the Screamer Beetle's "special attack" in earlier
+  logs was Psychic Crush (1d8, save vs paralysis/poison/death for half).
+
+What each costs, from the game's own table (it differs from the books in
+places: Enhanced Strength and Domination cost nothing to start):
+
+| Power | Discipline | PSP to use | PSP each round kept up |
+|---|---|---|---|
+| Detonate | psychokinesis | 18 | — |
+| Disintegrate | psychokinesis | 40 | — |
+| Project Force | psychokinesis | 10 | — |
+| Ballistic Attack | psychokinesis | 5 | — |
+| Control Body | psychokinesis | 8 | — |
+| Inertial Barrier | psychokinesis | 7 | 5 |
+| Animal Affinity | psychometabolism | 15 | 4 |
+| Energy Containment | psychometabolism | 10 | — |
+| Life Draining | psychometabolism | 11 | — |
+| Absorb Disease | psychometabolism | 12 | — |
+| Adrenalin Control | psychometabolism | 8 | 4 |
+| Biofeedback | psychometabolism | 6 | 3 |
+| Body Weaponry | psychometabolism | 9 | 4 |
+| Cell Adjustment | psychometabolism | 5 | — |
+| Displacement | psychometabolism | 6 | 3 |
+| Enhanced Strength | psychometabolism | 0 | 8 |
+| Flesh Armor | psychometabolism | 8 | 4 |
+| Graft Weapon | psychometabolism | 10 | 1 |
+| Lend Health | psychometabolism | 4 | — |
+| Share Strength | psychometabolism | 6 | 2 |
+| Domination | telepathy | 0 | — |
+| Mass Domination | telepathy | 0 | — |
+| Psychic Crush (attack mode) | telepathy | 7 | — |
+| Superior Invisibility | telepathy | 5 | 5 |
+| Tower of Iron Will (defence mode) | telepathy | 6 | 0 |
+| Ego Whip (attack mode) | telepathy | 4 | — |
+| Id Insinuation (attack mode) | telepathy | 5 | — |
+| Intellect Fortress (defence mode) | telepathy | 4 | 0 |
+| Mental Barrier (defence mode) | telepathy | 3 | 0 |
+| Mind Bar | telepathy | 6 | 4 |
+| Mind Blank (defence mode) | telepathy | 0 | 0 |
+| Psionic Blast (attack mode) | telepathy | 10 | — |
+| Synaptic Static | telepathy | 15 | 10 |
+| Thought Shield (defence mode) | telepathy | 1 | 0 |
+
 ### Character creation
 
 Every click of the die on the creation screen (and every change of race or sex)

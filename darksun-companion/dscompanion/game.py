@@ -39,6 +39,7 @@ SHEET_SIZE = 0x47
 ITEM_SIZE = 0x15
 ITEM_TYPE_SIZE = 0x14
 CREATURE_SHEET_INDEX = 0x04
+CREATURE_PSP = 0x02  # word: PSP now
 CREATURE_THAC0 = 0x1F
 CREATURE_SIDE = 0x1D  # creatures on the same side share this value
 CREATURE_ABILITIES = 0x22
@@ -69,6 +70,9 @@ EFFECTS_SEG, EFFECTS_OFF = 0x3BF6, 0x106  # 10 bytes per active effect
 INITIATIVE_SEG, INITIATIVE_OFF = 0x37BD, 0xD9
 # Wizard and cleric spells, 7 bytes each from id 1: level, ..., DS offset of the name (+5)
 SPELL_INFO_OFF, SPELL_INFO_SIZE, SPELL_COUNT = 0x3FD33, 7, 137
+# Psionic powers are numbered after the spells (Detonate 138 ... Thought Shield 171) and share
+# the spells' records and casting code; higher numbers are monsters' own powers
+PSIONIC_FIRST, PSIONIC_COUNT = 138, 34
 # The spells' rules, 32 bytes each; the saving throw reads a flags word at +0Ah
 # (0x86: the d20 is doubled) and a byte at +0Fh (bits 1-4: a save modifier,
 # bits 5-7: the kind of save)
@@ -161,6 +165,11 @@ EFFECT_RULES = {
     50: "can't cast spells",
     51: "can't move (Free Action prevents it; some creatures are immune)",
     53: "no damage from weapons, using up one charge each time",
+    # psionic powers' effects
+    31: "magic resistance halved",
+    32: "+75% magic resistance against mind-affecting spells (charms, holds, fear, confusion...)",
+    61: "unarmed attacks do at least 1d10",
+    62: "unarmed attacks do 2d4 (the arm is the weapon)",
 }
 # Effects that change a rule already listed above, from the same code
 EFFECT_RULES[8] += "; can't cast spells that need sight"
@@ -284,6 +293,7 @@ class SpellDamage(NamedTuple):
 
 SPELL_LEVEL_CAP = 10  # damage stops growing at caster level 10
 PERMANENT = -9999  # a spell record's time unit for effects that last until removed
+MIND_AFFECTING = 0x26  # flags in the spell record's word at +11h
 
 # Spell slots. What's left: a byte for each spell level (index 1-9) for each party member,
 # 1Eh apart, wizard and priest apart; casting takes one, resting refills them.
@@ -393,6 +403,11 @@ class GameData:
         return [Effect(*struct.unpack_from("<hh", data, i * 10), data[i * 10 + 6]) for i in range(count)]
 
     def spell_name(self, spell: int) -> str:
+        if PSIONIC_FIRST <= spell < PSIONIC_FIRST + PSIONIC_COUNT:
+            # the psionic powers' names come first in the names list, in number order
+            names = self.guest.read(self.ds * 16 + SPELL_NAMES, 0x400).split(b"\0")
+            text = names[spell - PSIONIC_FIRST].decode("cp437", "replace") if spell - PSIONIC_FIRST < len(names) else ""
+            return title(text) if text else f"psionic power {spell}"
         if spell > SPELL_COUNT:  # monsters' powers, such as a paralysing touch
             return f"special attack {spell}"
         if 1 <= spell <= SPELL_COUNT:
@@ -471,6 +486,11 @@ class GameData:
         b0, b1, b2 = rec[0x0C], rec[0x0D], rec[0x0E]
         adjust = (b2 >> 4) - 16 if b2 & 0x80 else b2 >> 4
         return SpellDamage(b1 >> 3, b0 >> 5, b0 & 0x1F, (b1 & 7) or 1, adjust, b2 & 0x0F)
+
+    def mind_affecting(self, spell: int) -> bool:
+        """A mind-affecting spell (charms, fear, feeblemind...): bits 26h of the word at +11h."""
+        rec = self.spell_record(spell)
+        return len(rec) >= SPELL_SIZE and bool(struct.unpack_from("<H", rec, 0x11)[0] & MIND_AFFECTING)
 
     def magic_resistance(self, combatant: int) -> Optional[int]:
         """The base magic resistance (percent) on a creature's character sheet."""

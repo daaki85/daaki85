@@ -73,6 +73,7 @@ CONFUSION_RESULTS = ((1, "runs off"), (6, "does nothing"), (9, "fights for a sid
 # the effect; while it lasts the game adds it to STR, keeping STR between 3 and 24
 STRENGTH_ROLL_RETURN = bytes.fromhex("83c40450660fbf4618")
 STR_MOST = 24
+MIND_BAR, LOW_RESISTANCE, MIND_BAR_RESISTANCE = 32, 31, 75
 # What a return address shows when the overlay manager has redirected it (INT 3Fh)
 OVERLAY_TRAP = b"\xcd\x3f"
 # DSCLOG only records calls whose calling code starts like one of these, so
@@ -245,6 +246,7 @@ class DiceLog:
         self._dice: Dict[Tuple[int, int, int, int], List[int]] = {}
         self._pending: List[PendingDice] = []
         self._out_cold: Dict[int, bool] = {}  # creature index -> Out Cold when last looked at
+        self._psp: Dict[int, int] = {}  # party member -> PSP when last looked at
         self._save_rolls: Dict[Tuple[int, int], int] = {}  # (SS, save frame BP) -> natural d20
         self._effects: Optional[Counter] = None
         self._party: Optional[bytes] = None
@@ -347,6 +349,7 @@ class DiceLog:
         for e in self.poll():
             out += self.describe(e, show_all, now)
         out += self.hp_changes(now)
+        out += self.psp_changes()
         for rec in self.text.poll():
             if rec.kind == KIND_MESSAGE:
                 if rec.text.strip():
@@ -367,6 +370,25 @@ class DiceLog:
         if self.missed:
             out.append(f"({self.missed} rolls came too fast to record)")
             self.missed = 0
+        return out
+
+    def psp_changes(self) -> List[str]:
+        """The party's PSP going down (a psionic power used, or kept up another round: the game
+        takes each maintained power's cost every round) or back up."""
+        out = []
+        for index in range(game.PARTY_SIZE):
+            rec = self.game.creature(index)
+            if len(rec) < 4:
+                continue
+            psp = struct.unpack_from("<h", rec, game.CREATURE_PSP)[0]
+            before, self._psp[index] = self._psp.get(index), psp
+            if before is None or before == psp:
+                continue
+            who = self.game.creature_name(index)
+            if psp < before:
+                out.append(f"    {who} spends {before - psp} PSP ({before} -> {psp})")
+            else:
+                out.append(f"    {who} regains {psp - before} PSP ({before} -> {psp})")
         return out
 
     def hp_changes(self, now: float) -> List[str]:
@@ -751,7 +773,7 @@ class DiceLog:
                 pending = PendingDice(f"{count}d{sides} = {faces_text} = {sum(faces)}", now,
                                       damage=e.parent_code.startswith(SPELL_DAMAGE_RETURN))
                 target, spell = e.parent_arg(6), e.parent_arg(8)
-                if count == 1 and sides == 100 and target is not None and 1 <= spell <= game.SPELL_COUNT \
+                if count == 1 and sides == 100 and target is not None and 1 <= spell < game.PSIONIC_FIRST + game.PSIONIC_COUNT \
                         and self.game.combatant_creature(target) is not None:
                     pending.resistance = (target, spell, faces[0])
                 self._pending.append(pending)
@@ -788,7 +810,7 @@ class DiceLog:
         if not e.parent_code.startswith(OVERLAY_TRAP):
             return False
         spell, level = e.parent_arg(6), e.parent_arg(8)
-        if spell is None or level is None or not 1 <= spell <= game.SPELL_COUNT or not 1 <= level <= 40:
+        if spell is None or level is None or not 1 <= spell < game.PSIONIC_FIRST + game.PSIONIC_COUNT or not 1 <= level <= 40:
             return False
         rec = self.game.spell_record(spell)
         return len(rec) > 4 and (rec[4] & 0x0F, rec[4] >> 4) == (count, sides)
@@ -819,7 +841,7 @@ class DiceLog:
         if not e.parent_code.startswith(OVERLAY_TRAP):
             return None
         spell = e.arg(0x0C)
-        if spell is None or spell != e.parent_arg(6) or not 1 <= spell <= game.SPELL_COUNT:
+        if spell is None or spell != e.parent_arg(6) or not 1 <= spell < game.PSIONIC_FIRST + game.PSIONIC_COUNT:
             return None
         rule = self.game.spell_damage(spell)
         if rule is None or rule.sides != sides or sides < 2:
@@ -1049,11 +1071,23 @@ class DiceLog:
 
     def _magic_resistance(self, target: int, spell: int, roll: int) -> List[str]:
         """The d100 the game rolls against a target's magic resistance before its saving throw."""
-        resistance = self.game.magic_resistance(target) or 0
+        g = self.game
+        resistance = g.magic_resistance(target) or 0
+        how = []
+        # the game's rules (its routine at 7A4A1h): Mind Bar +75 against mind-affecting spells,
+        # then Lower Resistance halves it
+        on = {x.id for x in g.effects() if x.owner == target}
+        if MIND_BAR in on and g.mind_affecting(spell):
+            resistance += MIND_BAR_RESISTANCE
+            how.append(f"+{MIND_BAR_RESISTANCE} Mind Bar")
+        if LOW_RESISTANCE in on and resistance:
+            resistance //= 2
+            how.append("halved by Lower Resistance")
         if not resistance:  # the roll can't matter
             return []
-        return [f"{self.game.combatant_name(target)} magic resistance {resistance}% vs "
-                f"{self.game.spell_name(spell)}: d100 = {roll} -> {'resisted' if roll < resistance else 'not resisted'}"]
+        detail = f" ({', '.join(how)})" if how else ""
+        return [f"{g.combatant_name(target)} magic resistance {resistance}%{detail} vs "
+                f"{g.spell_name(spell)}: d100 = {roll} -> {'resisted' if roll < resistance else 'not resisted'}"]
 
     def _flush_spell(self, spell: int) -> List[str]:
         """Dice rolled just before a spell's saving throws belong to that spell."""
