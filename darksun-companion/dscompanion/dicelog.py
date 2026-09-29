@@ -822,8 +822,10 @@ class DiceLog:
         if spell is None or spell != e.parent_arg(6) or not 1 <= spell <= game.SPELL_COUNT:
             return None
         rule = self.game.spell_damage(spell)
-        if rule is None or rule.sides != sides or sides < 2 or not rule.step_dice:
+        if rule is None or rule.sides != sides or sides < 2:
             return None
+        if not rule.step_dice:  # fixed dice (Slay Living's 4d8)
+            return 0 if count == rule.base_dice else None
         steps, extra = divmod(count - rule.base_dice, rule.step_dice)
         return steps if steps >= 1 and not extra else None
 

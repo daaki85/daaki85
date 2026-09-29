@@ -281,6 +281,13 @@ class SaveTests(unittest.TestCase):
         self.assertEqual(lines, ["Fireball damage: 3d6 = [1 + 2 + 3] = 6 (1d6 for each caster level, counted up "
                                  "to level 10: 3)"])
 
+    def test_missile_fixed_dice(self):
+        log = make_game()
+        self.damage_formula(log, FIREBALL, 0, 0x20, 0x08)  # 4d8, nothing more for levels
+        dice = [entry(raw_for(f, 8), dicelog.DICE_SITE, words(0, 0, 4, 8, 0, FIREBALL), words(0, 0, FIREBALL, -748),
+                      parent_code=dicelog.OVERLAY_TRAP + bytes(8)) for f in (1, 7, 5, 1)]
+        self.assertEqual(sum((log.describe(d) for d in dice), []), ["Fireball damage: 4d8 = [1 + 7 + 5 + 1] = 14"])
+
     def test_out_cold_takes_the_most(self):
         log = make_game()
         m = log.guest.mem
