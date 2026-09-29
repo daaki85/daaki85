@@ -234,8 +234,15 @@ Other things the game does its own way:
   weapon ready the game says "Failed, weapon in hand" and nothing happens.
 - Death spells (Slay Living, Dismissal) do the target's HP + 10 on a failed save.
 - In the arena, summonings fail ("Your summoning goes unanswered").
-- A caster's level for a spell comes from the class that has it. In testing,
-  a character given spells of a class she didn't have cast them at level 0.
+- A spell's caster level is the caster's highest level in a class that shares
+  a sphere with the spell. Priests have one element each (cleric, druid and
+  ranger classes come in air, earth, fire and water): Flame Blade, Focus Heat
+  and Flame Strike are fire spells, Blood Flow and Dehydrate water, Deflection
+  air, while spells such as Bless, Barkskin or Spiritual Hammer belong to
+  every sphere. Cast by a priest of another element, an elemental spell counts
+  caster level 0. The game shows each priest only their element's spells, so
+  this only happens if a character somehow has the others. The log's
+  `caster level 0` lines in testing came from an earth druid given every spell.
 
 The spell's area catches its caster too. Cilla's Scare made her Afraid, and her
 Fireball, cast at a Slig next to her, killed her.
@@ -515,7 +522,7 @@ parties, plus the in-game View Character screens.
 | sheet | `+0x19` | u8 | Gender: 1 male, 2 female | |
 | sheet | `+0x1a` | u8 | Alignment: 1 LG, 2 LN, 3 LE, 4 NG, 5 TN, 6 NE, 7 CG, 8 CN, 9 CE | 1, 5, 7 confirmed in game |
 | sheet | `+0x1b` | u8 ×6 | STR DEX CON INT WIS CHA | |
-| sheet | `+0x21` | u8 ×3 | Class: 1–4 Cleric, 5–8 Druid, 9 Fighter, 10 Gladiator, 11 Preserver, 12 Psionicist, 13–16 Ranger, 17 Thief (0 = none) | 2, 7, 8, 9, 11, 12, 13, 14, 17 confirmed in game; the rest follow the pattern (four each, probably one per element) |
+| sheet | `+0x21` | u8 ×3 | Class: 1–4 Cleric, 5–8 Druid, 9 Fighter, 10 Gladiator, 11 Preserver, 12 Psionicist, 13–16 Ranger, 17 Thief (0 = none); each four is air, earth, fire, water | 2, 7, 8, 9, 11, 12, 13, 14, 17 confirmed in game; the elements from the spheres in the game's class and spell tables (see Spells and effects) |
 | sheet | `+0x24` | u8 ×3 | Level in each class | |
 | sheet | `+0x27` | s8 | Base AC for the AC calculation | read by the game's AC code |
 | sheet | `+0x29` | u8 | Magic resistance (%) | read by the game's magic resistance check |

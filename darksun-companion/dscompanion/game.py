@@ -239,9 +239,13 @@ class Effect(NamedTuple):
     id: int
 
 
-CLASS_NAMES = {1: "Cleric", 2: "Cleric", 3: "Cleric", 4: "Cleric", 5: "Druid", 6: "Druid", 7: "Druid",
-               8: "Druid", 9: "Fighter", 10: "Gladiator", 11: "Preserver", 12: "Psionicist",
-               13: "Ranger", 14: "Ranger", 15: "Ranger", 16: "Ranger", 17: "Thief"}
+# Class numbers: a cleric, druid and ranger class for each element, in the order air, earth,
+# fire, water (from the spheres in the game's class and spell tables: Flame Blade and Flame
+# Strike belong to the third, Blood Flow and Dehydrate to the fourth, Deflection to the first)
+CLASS_NAMES = {1: "Cleric (air)", 2: "Cleric (earth)", 3: "Cleric (fire)", 4: "Cleric (water)",
+               5: "Druid (air)", 6: "Druid (earth)", 7: "Druid (fire)", 8: "Druid (water)", 9: "Fighter",
+               10: "Gladiator", 11: "Preserver", 12: "Psionicist", 13: "Ranger (air)", 14: "Ranger (earth)",
+               15: "Ranger (fire)", 16: "Ranger (water)", 17: "Thief"}
 
 
 def ordinal(n: int) -> str:
