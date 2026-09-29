@@ -32,6 +32,10 @@ FIELD_SPECIAL = {0x25, 0x26, 0x27, 0x28, 0x2B, 0x2C}  # object numbers the game 
 # skill check: (3, who, skill, bonus); for the party, the member with the best chance rolls.
 DO_ACTION = 0x22
 ACTION_SKILL = 3
+# Action 7 sets off a trap-like object at a map square: (7, object, x, y). The party's best at
+# find/remove traps rolls first (no bonus); success, or Detect Traps, avoids it. The game uses
+# it for traps and for scripted blasts (a thrown sphere, a summoning circle...).
+ACTION_TRAP = 7
 # Command 59h: an ability check, (who, modifier number, ability), a d20 under the ability.
 ABILITY_CHECK = 0x59
 SKILLS = ("pick pockets", "open locks", "find/remove traps", "move silently", "hide in shadows",
@@ -278,7 +282,7 @@ def load_scripts(gpldata: bytes) -> Tuple[Dict[Tuple[str, int], bytes], bytes]:
 class Check(NamedTuple):
     script: str  # "GPL 71"
     at: int
-    kind: str  # "skill" or "ability"
+    kind: str  # "skill", "trap" or "ability"
     what: str  # "open locks", "DEX"
     who: str  # "party", "the active character"...
     bonus: Optional[int]  # a skill check's bonus; None when it isn't a number
@@ -299,7 +303,8 @@ def _who(e) -> str:
 
 
 def checks(scripts: Dict[Tuple[str, int], bytes], field_types: bytes, context: int = 300) -> List[Check]:
-    """Every thief skill check and ability check in the scripts, with the text near each."""
+    """Every thief skill check (including the trap roll) and ability check in the scripts, with
+    the text near each."""
     out = []
     for (ctype, cid), data in sorted(scripts.items()):
         ops = decode(data, field_types)
@@ -309,6 +314,10 @@ def checks(scripts: Dict[Tuple[str, int], bytes], field_types: bytes, context: i
                 skill = _number(op.args[2])
                 what = SKILLS[skill] if skill is not None and 0 <= skill < len(SKILLS) else "a skill"
                 kind, who, bonus = "skill", _who(op.args[1]), _number(op.args[3])
+            elif op.code == DO_ACTION and _number(op.args[0]) == ACTION_TRAP:
+                obj = _number(op.args[1])
+                kind, what, bonus = "trap", "find/remove traps", 0
+                who = "party (best chance rolls)" + (f", object {obj}" if obj is not None else "")
             elif op.code == ABILITY_CHECK:
                 ability = _number(op.args[2])
                 what = ABILITIES[ability] if ability is not None and 0 <= ability < 6 else "an ability"

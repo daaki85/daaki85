@@ -352,18 +352,25 @@ noise, climb walls, read languages): the checks above fit them.
 
 #### Where the game rolls them
 
-There is no hide or sneak command: a thief skill is only rolled when the game
-asks for one, and it asks in two places.
-- **Traps.** When a trap on an object goes off, the party tries to find/remove
-  it: the member with the best chance rolls, with no bonus. Detect Traps on the
-  character setting it off also avoids it.
-- **The game's scripts** (conversations, doors, walls...). Every script in
-  GPLDATA.GFF decodes (see `dscompanion/gpl.py`), and between them they make 13
-  thief checks: find/remove traps 4 times (hidden passages, a secret door, a
-  rug, a trip cord; bonuses −10 to +3), open locks 4 times (a safe, a grate and
-  cell doors; −4 to +8), climb walls 3 times, and pick pockets and hear noise
-  once each (a key in a trustee's pocket; two men arguing by a wagon, a check
-  for the whole party). Most are made by the character who acted.
+There is no hide or sneak command, and nothing in the game's code rolls a thief
+skill on its own: every roll comes from the game's scripts (conversations,
+doors, walls...), which ask in two ways. Every script in GPLDATA.GFF decodes
+(see `dscompanion/gpl.py`), so these are all of them:
+- **13 skill checks**: find/remove traps 4 times (a hidden passage, a secret
+  door, a loose rug, a cord on a lava-dome egg; bonuses −10 to +3), open locks
+  4 times (a safe, a grate and cell doors; −4 to +8), climb walls 3 times, and
+  pick pockets and hear noise once each (a key in a trustee's pocket; two men
+  arguing by a wagon, a check for the whole party). Most are made by the
+  character who acted.
+- **50 trap triggers, in 16 scripts.** A script sets off an object at a spot on
+  the map (a trap, or a blast: the bound prisoners in the arena, a Drajian
+  messenger's thrown sphere, a summoning circle, a breaking mirror...). First
+  the party's best at find/remove traps rolls, with no bonus; success, or
+  Detect Traps on the character who set it off, avoids it. This is the roll the
+  arena prisoner makes.
+
+A party check always goes to the member with the best chance. (The game also
+has a script command that lets each member try in turn, but no script uses it.)
 
 **Move silently, hide in shadows and read languages are never rolled** anywhere
 in the game, so they make no difference; nor does the equipment penalty on

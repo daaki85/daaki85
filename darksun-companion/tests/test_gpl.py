@@ -52,10 +52,13 @@ class CheckTests(unittest.TestCase):
                   bytes([0x22, 0x8F, 0x03, 0x89, 0x25, 0x8F, 0x06, 0x8F, 0xFE]) +  # climb walls, -2
                   bytes([0x22, 0x8F, 0x03, 0x7F, 0xFE, 0x8F, 0x05, 0x8F, 0x00]) +  # the party hears noise
                   bytes([0x22, 0x8F, 0x10, 0x8F, 0x00, 0x8F, 0x00, 0x8F, 0x00]) +  # another action
+                  bytes([0x22, 0x8F, 0x07, 0x91, 0x07, 0xF7, 0x8F, 0x3B, 0x8F, 0x0F]) +  # a trap goes off
                   bytes([0x59, 0x89, 0x25, 0x8F, 0x01, 0x8F, 0x05]))  # a CHA check
         found = gpl.checks({("GPL ", 7): script}, FIELDS)
         self.assertEqual([(c.kind, c.what, c.bonus) for c in found],
-                         [("skill", "climb walls", -2), ("skill", "hear noise", 0), ("ability", "CHA", None)])
+                         [("skill", "climb walls", -2), ("skill", "hear noise", 0),
+                          ("trap", "find/remove traps", 0), ("ability", "CHA", None)])
+        self.assertIn("object -2039", found[2].who)
         self.assertEqual(found[0].who, "the character acting")
         self.assertTrue(found[1].who.startswith("party"))
         self.assertEqual(found[0].script, "GPL 7")
