@@ -131,6 +131,7 @@ def cmd_dicelog(args) -> None:
             print(f"{e} Waiting...", flush=True)
             time.sleep(2)
     log = DiceLog(guest, record_everything=args.raw)
+    log.popups = args.popups
     log.speaker_names = speaker_names()
 
     def attach() -> None:
@@ -220,6 +221,8 @@ def main(argv=None) -> int:
     s = sub.add_parser("dicelog", parents=[common], help="print the game's dice rolls as they happen")
     s.add_argument("--all", action="store_true", help="also show rolls the log can't label")
     s.add_argument("--raw", action="store_true", help="record every rand() call, not just rolls (noisy)")
+    s.add_argument("--popups", action="store_true",
+                   help="in a fight, have the game show each turn's attacks when the turn ends")
     s.set_defaults(func=cmd_dicelog)
 
     s = sub.add_parser("save", help="show the party stored in a save file (SAVEnn.SAV)")

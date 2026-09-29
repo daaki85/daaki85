@@ -30,7 +30,9 @@ parts:
   you picked, kept in a tab you can scroll back through.
 - **In the game itself:** the inventory screen also shows each character's
   THAC0, saving throws and (for thieves) thief skills, in the game's own
-  lettering (see [In the game](#in-the-game-thac0-saves-and-thief-skills)).
+  lettering (see [In the game](#in-the-game-thac0-saves-and-thief-skills)),
+  and, if you like, the game stops after each turn in a fight to show that
+  turn's attack rolls (see [each turn's attacks](#in-the-game-each-turns-attacks)).
 
 Nothing in the game folder or your save files is changed. The viewer only reads
 memory. For the dice log, the launcher runs a patched copy of the game that it
@@ -314,7 +316,9 @@ game's code works the chance out as:
 - plus the situation's bonus or penalty (a hard lock, say).
 
 Only characters with thief levels have the skills. The exception is finding
-traps: anyone with Find Traps on them can try. The character must be Okay.
+traps: anyone with Find Traps on them can try. The character's condition must
+be Okay (the status the character screen shows under HP): a thief who is
+Stunned, Out Cold, Dying and so on can't use the skills.
 
 Some effects rule out a skill:
 - Blind, Afraid, Confused, Berserk and Paralyzed stop them all, except that a
@@ -479,6 +483,30 @@ whose address, like the selected character, it reads from the game's code
 around the patch (overlays move, so nothing is fixed in advance). Nothing else
 in the game changes.
 
+### In the game: each turn's attacks
+
+With **Show each turn's attacks in the game** ticked on the Dice log tab (or
+`python -m dscompanion dicelog --popups`), the game stops at the end of every
+turn in a fight in which someone attacked, and shows that turn's rolls in its
+own dialogue window, with **Continue** to go on:
+
+![The game's window at the end of a Mountain Stalker's turn](docs/turn-summary.png)
+
+`12 vs 8+ HIT, 9 damage` is the d20, the roll it needed (THAC0 − the target's
+AC; a natural 20 always hits, a 1 always misses), and the damage the hit did.
+The turn's own attacker comes first, then anyone else who attacked during it:
+a character on Guard striking an enemy that comes close, for instance. The
+full breakdown is in the Ledger's dice log as usual.
+
+How: the patched game calls the helper (`INT F1h`) in its combat loop, right
+after the call that may pass the turn on. When whose turn it is has changed,
+the helper counts it and waits up to a third of a second for the Ledger,
+which writes the summary into the helper's memory; the helper then feeds it to
+the game's dialogue window the way the game's scripts do for a narration
+(the emblem, the text, "Press continue"). If the Ledger isn't running, or the
+box is unticked, the game doesn't wait at all. (INT 66h-6Fh can't be used: the
+game calls those itself, looking for sound drivers.)
+
 ### The Dialogue tab
 
 Everything the game shows in its dialogue window, one entry per window of
@@ -513,8 +541,8 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    (`dscompanion/gamepatch.py`). The start of `rand()`, the end of the saving
    throw, the end of the AC calculation, the start of the routine that fills
    the dialogue window and the start of the message box routine become
-   `INT 60h` to `64h`, the inventory screen's panel calls `INT 65h` (see
-   In the game), and the copy looks for its data files in the current
+   `INT 60h` to `64h`, the inventory screen's panel calls `INT 65h` and the
+   combat loop `INT F1h` (see In the game), and the copy looks for its data files in the current
    folder rather than next to itself. DOSBox runs it from the game folder, so
    it uses your saves as usual.
 2. `dos\DSCLOG.EXE` (source in `dos\dsclog.asm`) is a tiny DOS program loaded

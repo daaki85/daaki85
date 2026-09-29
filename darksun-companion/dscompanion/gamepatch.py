@@ -26,7 +26,8 @@ from typing import NamedTuple
 
 GOG_SIZE = 611408  # DSUN.EXE of the GOG release (1.1)
 
-VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR = 0x60, 0x61, 0x62, 0x63, 0x64, 0x65  # as in dsclog.asm
+VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR = range(0x60, 0x66)  # as in dsclog.asm
+VEC_TURN = 0xF1  # not 66h-6Fh: the game calls those itself, looking for drivers
 
 
 class Patch(NamedTuple):
@@ -54,6 +55,9 @@ PATCHES = (
     # the inventory screen's right-hand panel, just after its weapon lines: add sp,0Eh
     # (DSCLOG then adds THAC0, the saves and thief skills, in the game's own lettering)
     Patch("inventory", 0x6F6BF, bytes.fromhex("83c40e"), _interrupt(VEC_CHAR, 3)),
+    # the combat loop, straight after the call that may pass the turn on: add sp,4
+    # (DSCLOG then shows the companion's summary of the turn that ended, if it wants to)
+    Patch("turn", 0x1C953, bytes.fromhex("83c404"), _interrupt(VEC_TURN, 3)),
     # The data path is argv[0] cut after its last \ or :, kept at DS:4B81h. The
     # code that finds the cut becomes: path = ".\", then on to "mov byte [si],0"
     # which ends it. (Not an empty path: the save list needs a \ in it.)

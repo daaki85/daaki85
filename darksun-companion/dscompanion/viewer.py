@@ -131,6 +131,10 @@ class Viewer:
         ttk.Checkbutton(dice, text="Show details (the sums behind each roll)", variable=self.show_details,
                         command=lambda: self.dice_text.tag_configure("detail", elide=not self.show_details.get())
                         ).pack(anchor="w", pady=(4, 0))
+        # the game's own window, at the end of each turn in a fight: that turn's attacks
+        self.popups = tk.BooleanVar(value=bool(launch.load_settings().get("turn_popups")))
+        ttk.Checkbutton(dice, text="Show each turn's attacks in the game (click Continue to go on)",
+                        variable=self.popups, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
         self.dice_status = tk.StringVar(value="Waiting for the game...")
         ttk.Label(dice, textvariable=self.dice_status).pack(fill="x", pady=(4, 0))
         box = ttk.Frame(dice)
@@ -449,6 +453,7 @@ class Viewer:
             if self.dice is None:
                 self.dice = DiceLog(self.guest)
                 self.dice.speaker_names = launch.speaker_names()
+                self.dice.popups = self.popups.get()
             try:
                 self.dice_status.set(self.dice.attach())
             except DiceLogError as e:
@@ -466,6 +471,14 @@ class Viewer:
         talk = self.dice.take_dialogue()
         if talk:
             self._append_dialogue(talk)
+
+    def _popups_changed(self) -> None:
+        on = self.popups.get()
+        settings = launch.load_settings()
+        settings["turn_popups"] = on
+        launch.save_settings(settings)
+        if self.dice is not None:
+            self.dice.set_popups(on)
 
     def _speaker_clicked(self, event) -> None:
         tags = self.talk_text.tag_names(f"@{event.x},{event.y}")

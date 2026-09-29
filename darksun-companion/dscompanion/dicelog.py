@@ -30,7 +30,10 @@ from .guestmem import GuestMemory
 from .textlog import KIND_MESSAGE, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGv6"
+HDR_SIG = b"DSCLOGv7"
+# DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
+TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
+MSG_SIZE = 256
 RAND_PATCHED = b"\xcd\x60"  # INT 60h at the start of rand() in DSUNLOG.EXE
 RAND_IP = 0x822  # rand()'s offset in the game's first code segment
 SEED = 0x4122  # DS offset of rand()'s 32-bit seed
@@ -275,6 +278,11 @@ class DiceLog:
         self._turn: Optional[int] = None  # whose turn it was when last looked at
         self._reply: Optional[Tuple[int, str]] = None  # the reply being flashed when last looked at
         self.speaker_names: Dict[int, str] = {}  # portrait -> the name the player gave it
+        self.popups = False  # in-game turn summaries (set_popups)
+        self._turn_seq = 0
+        self._turn_attacks: Dict[int, List[dict]] = {}  # creature -> this turn's attacks
+        self._own_text: set = set()  # summaries shown in the game's window, not to log as dialogue
+        self._skip_choice = False
         self._hits: Dict[int, int] = {}  # creature -> damage of weapon hits not yet seen in its HP
         self._round, self._round_time = 0, None  # this fight's round, and the game time it began
         self._save_rolls: Dict[Tuple[int, int], int] = {}  # (SS, save frame BP) -> natural d20
@@ -324,6 +332,8 @@ class DiceLog:
         self.tracker = PartyTracker(self.game)
         self.text = TextBuffer(self.guest.read, hdr)
         self.set_record_everything(self.record_everything)
+        self.set_popups(self.popups)
+        self._turn_seq = struct.unpack("<H", self.guest.read(hdr + TSR_TURN_SEQ, 2))[0]
         self.last_seq = struct.unpack("<H", self.guest.read(hdr + 8, 2))[0]
         self._effects = None
         return "Dice log attached."
@@ -335,6 +345,67 @@ class DiceLog:
             filters = () if record_everything else FILTERS
             packed = b"".join(bytes([len(f)]) + f.ljust(8, b"\0") for f in filters)
             self.guest.write(self.tsr_hdr + 32, struct.pack("<H", len(filters)) + packed)
+
+    def set_popups(self, on: bool) -> None:
+        """Have the game show, when a turn in a fight ends, a summary of that turn's attacks."""
+        self.popups = on
+        if self.tsr_hdr is not None:
+            self.guest.write(self.tsr_hdr + TSR_POPUPS, struct.pack("<H", int(on)))
+
+    def turn_summary(self, combatant: int) -> str:
+        """The attacks made during that combatant's turn (theirs first, then anyone else's, such as
+        a guarding character striking back), for the game's window:
+        "Daaki attacks Guard: 18 vs 8+ HIT, 13 damage; 5 vs 8+ miss"."""
+        own = self.game.combatant_creature(combatant)
+        order = sorted(self._turn_attacks, key=lambda c: c != own)  # stable: the rest in order of attacking
+        parts = []
+        for creature in order:
+            target = None
+            for a in self._turn_attacks[creature]:
+                roll = f"{a['d20']} vs {min(max(a['need'], 2), 20)}+"
+                roll += (f" HIT, {a['damage']} damage" if a["damage"] is not None else " HIT") if a["hit"] else " miss"
+                if a["target"] != target:
+                    target = a["target"]
+                    parts.append(f"{self.game.creature_name(creature)} attacks {target}: {roll}")
+                else:
+                    parts[-1] += f"; {roll}"
+        text = ". ".join(parts)
+        if len(text) > MSG_SIZE - 1:  # the window holds about five lines
+            text = text[:MSG_SIZE - 4].rsplit(" ", 1)[0] + "..."
+        return text
+
+    def _not_ours(self, entries: List[DialogueEntry]) -> List[DialogueEntry]:
+        """Dialogue without the turn summaries the log itself had the game show (and their
+        "Continue")."""
+        out = []
+        for entry in entries:
+            if entry.text in self._own_text:
+                self._own_text.discard(entry.text)
+                self._skip_choice = True
+            elif entry.chosen and self._skip_choice:
+                self._skip_choice = False
+            else:
+                out.append(entry)
+        return out
+
+    def _answer_turn(self) -> None:
+        """DSCLOG counts a turn's end and waits a moment for the summary: give it."""
+        if self.tsr_hdr is None:
+            return
+        seq = struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_TURN_SEQ, 2))[0]
+        if seq == self._turn_seq:
+            return
+        self._turn_seq = seq
+        ended = struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_ENDED, 2))[0]
+        summary = self.turn_summary(ended) if self.popups else ""
+        if summary:
+            self._own_text.add(summary)  # to leave out of the Dialogue tab
+        text = summary.encode("cp437", "replace")[:MSG_SIZE - 1]
+        base = self.tsr_hdr - struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_HDR_OFF, 2))[0]
+        msg = base + struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_MSG_OFF, 2))[0]
+        self.guest.write(msg, text + b"\0")
+        self.guest.write(self.tsr_hdr + TSR_REPLY_SEQ, struct.pack("<H", seq))
+        self._turn_attacks.clear()
 
     @property
     def attached(self) -> bool:
@@ -378,6 +449,7 @@ class DiceLog:
         out: List[str] = []
         for e in self.poll():
             out += self.describe(e, show_all, now)
+        self._answer_turn()  # after the entries: they hold the turn's last attack
         changes = self.hp_changes(now) + self.psp_changes()
         if not self._party_check(now):  # not while a game is loading: its records are half-filled
             out += changes
@@ -386,9 +458,9 @@ class DiceLog:
                 if rec.text.strip():
                     out.append(f"Message: {' '.join(rec.text.split())}")
             else:
-                self._dialogue += self.dialogue.add(rec, now)
-        self._dialogue += self.dialogue.idle(now)
-        self._dialogue += self._reply_choice(now)
+                self._dialogue += self._not_ours(self.dialogue.add(rec, now))
+        self._dialogue += self._not_ours(self.dialogue.idle(now))
+        self._dialogue += self._not_ours(self._reply_choice(now))
         if now >= self._next_effect_check:
             self._next_effect_check = now + EFFECT_INTERVAL
             out += self.effect_changes(now)
@@ -717,6 +789,8 @@ class DiceLog:
         needs = ("hits on anything but a 1" if need <= 2 else "only a 20 hits" if need > 20 else f"needs {need}+")
         head = (f"{g.creature_name(attacker)} attacks {target}{how}{with_what}: d20 = {d20}{note}, "
                 f"{needs} ({chance}%), hits AC {thac0 - d20}, target AC {ac} -> {'HIT' if hit else 'miss'}")
+        self._turn_attacks.setdefault(attacker, []).append(
+            {"target": target, "d20": d20, "need": need, "hit": hit, "damage": None})
         return [head, "    " + self._thac0_breakdown(e, thac0, attacker, attacker_combatant,
                                                      target_combatant, weapon, mode)]
 
@@ -894,6 +968,10 @@ class DiceLog:
         target = g.combatant_creature(e.glob[0])
         if target is not None:  # so the HP it takes isn't put down to a spell being cast
             self._hits[target] = self._hits.get(target, 0) + total
+        last = next((a for a in reversed(self._turn_attacks.get(attacker, [])) if a["hit"] and a["damage"] is None),
+                    None)
+        if last is not None:  # for the turn's summary in the game
+            last["damage"] = total
         return [f"  {g.creature_name(attacker)} hits {g.combatant_name(e.glob[0])} for {total}: {steps}"]
 
     def _overlay_duration(self, e: Entry, count: int, sides: int) -> bool:

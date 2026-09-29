@@ -206,6 +206,31 @@ class AttackTests(unittest.TestCase):
         self.assertEqual(log.describe(dice[1]),
                          ["  Dag hits Mountain Stalker for 20: 2d8 = [2 + 5] +1 weapon +12 STR 24"])
 
+    def test_turn_summary_for_the_game(self):
+        log = make_game()
+        log.describe(self.attack(18, 8, 4, 5, 9, after_f1=9, hit_bonus=1))  # Dag hits (needs 4)
+        parent = words(0, 0, 0, 0, 10, 4, 0, 0, 0, 0, 1)
+        for face in (2, 5):
+            log.describe(entry(raw_for(face, 8), dicelog.DICE_SITE, words(0, 0, 2, 8, 1), parent, (0x29, 0, 0, 0),
+                               parent_code=dicelog.WEAPON_DAMAGE_RETURN))
+        log.describe(self.attack(3, 8, 4, 5, 9, after_f1=9, hit_bonus=1))  # and misses
+        self.assertEqual(log.turn_summary(0), "Dag attacks Mountain Stalker: 18 vs 4+ HIT, 20 damage; 3 vs 4+ miss")
+        # anyone's attacks during a turn go in its summary (a guarding character striking back...)
+        self.assertEqual(log.turn_summary(1), "Dag attacks Mountain Stalker: 18 vs 4+ HIT, 20 damage; 3 vs 4+ miss")
+        # DSCLOG's side: it counts the turn's end (Dag's, combatant 0) and waits for the text
+        m = log.guest.mem
+        struct.pack_into("<H", m, HDR + dicelog.TSR_HDR_OFF, 0)
+        struct.pack_into("<H", m, HDR + dicelog.TSR_MSG_OFF, 0x400)
+        log.set_popups(True)
+        self.assertEqual(struct.unpack_from("<H", m, HDR + dicelog.TSR_POPUPS)[0], 1)
+        struct.pack_into("<H", m, HDR + dicelog.TSR_ENDED, 0)
+        struct.pack_into("<H", m, HDR + dicelog.TSR_TURN_SEQ, 1)
+        log._answer_turn()
+        self.assertEqual(struct.unpack_from("<H", m, HDR + dicelog.TSR_REPLY_SEQ)[0], 1)
+        self.assertEqual(bytes(m[HDR + 0x400:HDR + 0x400 + 68]).split(b"\0")[0],
+                         b"Dag attacks Mountain Stalker: 18 vs 4+ HIT, 20 damage; 3 vs 4+ miss")
+        self.assertEqual(log.turn_summary(0), "")  # a new turn starts afresh
+
 
 class BackstabTests(unittest.TestCase):
     def test_backstab_multiplies_the_damage(self):

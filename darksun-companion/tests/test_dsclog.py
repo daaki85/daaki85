@@ -12,7 +12,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dscompanion.dicelog import FILTERS, Entry
+from dscompanion.dicelog import FILTERS, HDR_SIG, Entry
 from dscompanion.textlog import TextBuffer
 from dscompanion.gamepatch import VEC_AC, VEC_MSG, VEC_RAND, VEC_SAVE, VEC_TEXT
 
@@ -57,7 +57,7 @@ class HeaderTests(unittest.TestCase):
     def test_built_in_filters_match_the_companion(self):
         image = load_image()
         hdr = struct.unpack_from("<H", image, 20)[0]
-        self.assertEqual(image[hdr:hdr + 8], b"DSCLOGv6")
+        self.assertEqual(image[hdr:hdr + 8], HDR_SIG)
         n = struct.unpack_from("<H", image, hdr + 32)[0]
         built_in = tuple(image[hdr + 34 + i * 9 + 1:hdr + 34 + i * 9 + 1 + image[hdr + 34 + i * 9]]
                          for i in range(n))

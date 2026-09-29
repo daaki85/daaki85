@@ -27,6 +27,7 @@ VEC_AC   equ 0x62     ; PROBE_AC
 VEC_TEXT equ 0x63     ; PROBE_TEXT
 VEC_MSG  equ 0x64     ; PROBE_MSG
 VEC_CHAR equ 0x65     ; PROBE_CHAR
+VEC_TURN equ 0xF1     ; PROBE_TURN (not 66h-6Fh: the game calls those, looking for drivers)
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -55,7 +56,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGv6'          ; +0
+sig      db 'DSCLOGv7'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -92,6 +93,11 @@ tsize    dw TSIZE               ; +130 its size (a power of two)
 probe_text_off dw probe_text    ; +132 offset of PROBE_TEXT in this segment
 probe_msg_off dw probe_msg      ; +134 offset of PROBE_MSG in this segment
 probe_char_off dw probe_char    ; +136 offset of PROBE_CHAR in this segment
+turn_seq  dw 0                  ; +138 turns that have ended in a fight (PROBE_TURN counts them)
+reply_seq dw 0                  ; +140 the companion sets this to TURN_SEQ once MSG_BUF is ready
+popups_on dw 0                  ; +142 the companion sets 1 to have turn summaries shown
+msg_off   dw msg_buf            ; +144 offset of MSG_BUF: the summary, NUL-terminated
+ended     dw 0                  ; +146 the combatant whose turn just ended
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -716,6 +722,118 @@ c_draw  dd 0
 c_winptr dd 0
 
 
+; PROBE_TURN: INT VEC_TURN replaces "add sp,4" (3 bytes: INT + NOP) in the game's combat
+; loop, straight after the call that runs combat and may pass the turn on (it is given the
+; address of DS:4979h, whose turn it is). When the turn has changed and the companion wants
+; summaries, note whose turn ended, wait a moment (at most TURN_WAIT timer ticks) for the
+; companion to put that turn's summary in MSG_BUF, and show it with the game's own message
+; window, as the game's scripts do for a narration: the emblem instead of a portrait, the
+; text, then "Continue" to click (the scripts' own "Press continue"), then CLOSE.
+; The dialogue window's routines are reached through the game's overlay stub for them,
+; whose segment is a fixed distance from the game's data segment.
+DLG_STUB  equ 0x42CA - 0x4356   ; the stub's segment (DSUN.EXE: 42CAh) less the data segment's
+DLG_FEED  equ 0x25              ; the window's input: (kind, far text, word), see the text buffer
+DLG_WAIT  equ 0x34              ; wait for a reply to be clicked
+S_PRESS   equ 0x15E8            ; DS: "Press continue"
+S_CONT    equ 0x15F7            ; DS: "Continue"
+S_CLOSE   equ 0x1F11            ; DS: "CLOSE"
+TURN_WAIT equ 7                 ; timer ticks (55 ms each)
+probe_turn:                     ; (re-entered while the window waits: all state on the stack)
+        push bp                 ; the replaced "add sp,4": move the interrupt frame (and BP)
+        mov bp, sp              ; up over the 4 bytes, so IRET returns with them gone
+        push ax
+        mov ax, [bp + 6]
+        mov [bp + 10], ax       ; flags
+        mov ax, [bp + 4]
+        mov [bp + 8], ax        ; CS
+        mov ax, [bp + 2]
+        mov [bp + 6], ax        ; IP
+        mov ax, [bp]
+        mov [bp + 4], ax        ; BP
+        pop ax
+        mov sp, bp
+        add sp, 4
+        pop bp
+        sti
+        pushad
+        push es
+        cmp byte [cs:showing], 0
+        jne .out                ; a summary is up: leave the game's loop alone meanwhile
+        mov bx, [0x4979]        ; whose turn it is now
+        xchg bx, [cs:last_turn]
+        cmp bx, [cs:last_turn]
+        je .out                 ; the same as last time
+        cmp word [cs:popups_on], 0
+        je .out
+        mov [cs:ended], bx
+        inc word [cs:turn_seq]
+        xor ax, ax
+        mov es, ax
+        mov dx, [es:0x46C]      ; the BIOS timer
+.wait:  mov ax, [cs:reply_seq]
+        cmp ax, [cs:turn_seq]
+        je .ready
+        mov ax, [es:0x46C]
+        sub ax, dx
+        cmp ax, TURN_WAIT
+        jb .wait
+        jmp .out                ; no answer: the companion isn't reading
+.ready: cmp byte [cs:msg_buf], 0
+        je .out                 ; nothing to say about that turn
+        mov byte [cs:showing], 1
+        mov ax, ds
+        add ax, DLG_STUB
+        mov [cs:dlg + 2], ax
+        mov word [cs:dlg], DLG_FEED
+        xor bx, bx
+        push word 0             ; the emblem (portrait 0)
+        push bx
+        push bx
+        push word 1
+        call far [cs:dlg]
+        add sp, 8
+        push word 0             ; the summary
+        push cs
+        push word msg_buf
+        push word 2
+        call far [cs:dlg]
+        add sp, 8
+        push word 0             ; "Press continue": the replies' title, then the one reply
+        push ds
+        push word S_PRESS
+        push word 0
+        call far [cs:dlg]
+        add sp, 8
+        push word 0
+        push ds
+        push word S_CONT
+        push word 0
+        call far [cs:dlg]
+        add sp, 8
+        push word 0             ; show the reply
+        push dword 0
+        push word 3
+        call far [cs:dlg]
+        add sp, 8
+        mov word [cs:dlg], DLG_WAIT
+        call far [cs:dlg]       ; until it's clicked
+        mov word [cs:dlg], DLG_FEED
+        push word 0             ; and close the window
+        push ds
+        push word S_CLOSE
+        push word 2
+        call far [cs:dlg]
+        add sp, 8
+        mov byte [cs:showing], 0
+.out:   pop es
+        popad
+        iret
+
+dlg     dd 0                    ; the dialogue window routine being called
+showing db 0                    ; 1 while PROBE_TURN has a summary up
+last_turn dw 0xFFFF
+msg_buf times 256 db 0
+
 tput:                           ; AL -> text buffer at position BX
         push bx
         and bx, TSIZE - 1
@@ -747,7 +865,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 6
+        mov cx, 7
 .check:
         lodsb
         mov ah, 35h
@@ -781,6 +899,9 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_CHAR
         mov dx, probe_char
         int 21h
+        mov ax, 2500h + VEC_TURN
+        mov dx, probe_turn
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -796,8 +917,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR
+busy    db 'DSCLOG: interrupts 60h-65h or F1h are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN
 
         align 16, db 0
 image_len equ $ - $$
