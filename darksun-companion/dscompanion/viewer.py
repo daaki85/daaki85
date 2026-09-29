@@ -575,7 +575,7 @@ class Viewer:
     def _refresh_cards(self, slots) -> None:
         """The Characters tab: each slot's card, with its condition and current AC."""
         gd = game.GameData(self.guest, self.ds) if self.ds is not None else None
-        effects = gd.effects() if gd else []
+        effects = gd.effects_left() if gd else []
         combatants = gd.combatants() if gd else {}
         table = game.far_pointer(self.guest, self.ds, game.CREATURES_PTR) if gd else None
         spell_slots = self._member_slots(slots)
@@ -587,7 +587,8 @@ class Viewer:
                 code = self.guest.read(addr + game.CREATURE_STATUS, 1)[0]
                 status = game.STATUS_NAMES.get(code, "")
                 mine = [c for c, i in combatants.items() if i == index]
-                names = sorted({game.EFFECT_NAMES.get(e.id, f"effect {e.id}") for e in effects if e.owner in mine})
+                names = sorted({game.effect_text(e, charges, seconds) for e, charges, seconds in effects
+                                if e.owner in mine})
                 if names:
                     status += (", " if status else "") + ", ".join(names)
                 ac = self.dice.last_ac.get(index) if self.dice and self.dice.attached else None

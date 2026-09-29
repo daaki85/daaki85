@@ -65,6 +65,11 @@ NO_ITEM = 9999
 EQUIP_SLOTS = ("arm", "ammo", "missile", "right hand", "finger", "waist", "legs", "head", "neck", "chest",
                "left hand", "cloak", "foot")
 EFFECTS_SEG, EFFECTS_OFF = 0x3BF6, 0x106  # 10 bytes per active effect
+# The game's clock and event queue: a far pointer to the time (a dword, divided by the byte at
+# GAME_TIME_SCALE); the first queue's entries (17 bytes: due time, kind, then the event's data),
+# sorted by time, with their count. An effect ending is kind 7, its data the owner and handle.
+GAME_TIME_PTR, GAME_TIME_SCALE = 0x9B72, 0x9B70
+EVENT_QUEUE, EVENT_COUNT, EVENT_SIZE, EVENT_EFFECT_ENDS = 0x2FBE, 0x2FC6, 0x11, 7
 # Each round, per creature (4 bytes each): the initiative score (-1 once it has
 # acted) and the 0-199 roll that breaks ties
 INITIATIVE_SEG, INITIATIVE_OFF = 0x37BD, 0xD9
@@ -192,6 +197,17 @@ SMALL_WORDS = {"of", "from", "to", "the", "and", "or", "in"}
 
 def signed_text(n: int) -> str:
     return f"+{n}" if n >= 0 else str(n)
+
+
+def effect_text(effect: "Effect", charges: Optional[int], seconds: Optional[int]) -> str:
+    """ "Blur (23 rounds)", "Stoneskin (5 charges)", or just the name."""
+    name = EFFECT_NAMES.get(effect.id, f"effect {effect.id}")
+    if charges:
+        return f"{name} ({charges} charge{'' if charges == 1 else 's'})"
+    if seconds is not None:
+        rounds = -(-seconds // 60)  # a round started counts
+        return f"{name} ({rounds} round{'' if rounds == 1 else 's'})"
+    return name
 
 
 def ordinal(n: int) -> str:
@@ -394,6 +410,42 @@ class GameData:
 
     def difficulty(self) -> int:
         return self._word(DIFFICULTY)
+
+    def effects_left(self) -> List[Tuple[Effect, Optional[int], Optional[int]]]:
+        """Each active effect with its charges left (None if it has none) and its game seconds
+        left (None if untimed). A timed effect sits in the game's event queue as an entry of
+        type 7 holding its owner and handle (the effect's byte +7), due at a game time."""
+        count = self._word(EFFECT_COUNT)
+        if not 0 <= count <= 400:
+            return []
+        data = self.guest.read((self.load_seg + EFFECTS_SEG) * 16 + EFFECTS_OFF, count * 10)
+        due = {}
+        queued = self._word(EVENT_COUNT)
+        if 0 <= queued <= 500:
+            events = self.guest.read(far_pointer(self.guest, self.ds, EVENT_QUEUE), queued * EVENT_SIZE)
+            for i in range(queued):
+                at, kind, owner, handle = struct.unpack_from("<iBhB", events, i * EVENT_SIZE)
+                if kind == EVENT_EFFECT_ENDS:
+                    due[(owner, handle)] = at
+        now = self.game_time()
+        out = []
+        for i in range(count):
+            rec = data[i * 10:i * 10 + 10]
+            effect = Effect(*struct.unpack_from("<hh", rec), rec[6])
+            at = due.get((effect.owner, rec[7]))
+            charges = rec[8] or None
+            spell, = struct.unpack_from("<h", rec, 4)
+            spell_rec = self.spell_record(spell) if 0 < spell < 256 else b""
+            if len(spell_rec) >= SPELL_SIZE and struct.unpack_from("<h", spell_rec, 7)[0] == PERMANENT:
+                charges = None  # a permanent effect keeps a meaningless 15 there
+            out.append((effect, charges, max(at - now, 0) if at is not None and now is not None else None))
+        return out
+
+    def game_time(self) -> Optional[int]:
+        """Game seconds since the start (60 to a round): the dword the game keeps its clock in."""
+        scale = self.guest.read(self.ds * 16 + GAME_TIME_SCALE, 1)[0]
+        raw = self.guest.read(far_pointer(self.guest, self.ds, GAME_TIME_PTR), 4)
+        return struct.unpack("<i", raw)[0] // scale if scale and len(raw) == 4 else None
 
     def effects(self) -> List[Effect]:
         count = self._word(EFFECT_COUNT)

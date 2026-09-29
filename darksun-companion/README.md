@@ -495,7 +495,9 @@ The party pane has two tabs:
   on the character creation screen, read from your install) and their name.
   Then HP and PSP as the game shows them (PSP in blue). Then their condition
   (the game's Okay, Stunned, Out Cold, Dying, Dead, Animated, Petrified or
-  Gone, followed by any spells and effects on them). Then the character
+  Gone, followed by any spells and effects on them, with the rounds or charges
+  each has left: `Blur (22 rounds)`, `Stoneskin (5 charges)`; from the game's own
+  clock and timers). Then the character
   sheet: scores, sex, race and alignment, classes and levels, experience,
   AC, THAC0, movement and attacks. AC is the one the game last used in a
   fight, with the base AC beside it; before the first fight only the base AC
