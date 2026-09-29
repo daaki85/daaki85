@@ -662,6 +662,10 @@ class NewLinesTests(unittest.TestCase):
         struct.pack_into("<h", m, CREATURES + game.CREATURE_PSP, 40)
         struct.pack_into("<h", m, CREATURES, 25)
         self.assertEqual([l for l in log.lines(now=10.5) if "HP" in l or "PSP" in l], [])
+        struct.pack_into("<h", m, CREATURES + game.CREATURE_PSP, -4096)  # half-loaded, after the pause
+        log.lines(now=20.0)
+        struct.pack_into("<h", m, CREATURES + game.CREATURE_PSP, 418)
+        self.assertEqual([l for l in log.lines(now=21.0) if "PSP" in l], [])
 
 
 class InitiativeTests(unittest.TestCase):

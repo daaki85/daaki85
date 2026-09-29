@@ -415,8 +415,8 @@ class DiceLog:
                 continue
             psp = struct.unpack_from("<h", rec, game.CREATURE_PSP)[0]
             before, self._psp[index] = self._psp.get(index), psp
-            if before is None or before == psp or not rec[game.CREATURE_NAME]:
-                continue  # unchanged, or an empty party slot
+            if before is None or before == psp or not rec[game.CREATURE_NAME] or not 0 <= before <= 1000:
+                continue  # unchanged, an empty party slot, or a record still being loaded
             who = self.game.creature_name(index)
             if psp < before:
                 out.append(f"    {who} spends {before - psp} PSP ({before} -> {psp})")
@@ -440,8 +440,8 @@ class DiceLog:
             was_out_cold = self._out_cold.get(index, False)
             self._out_cold[index] = rec[game.CREATURE_STATUS] == game.OUT_COLD
             before = self._hp.get(index)
-            if before is None or before == hp:
-                continue
+            if before is None or before == hp or not -100 <= before <= 2000:
+                continue  # unchanged, or a record still being loaded
             who = g.creature_name(index)
             sheet = g.sheet(index)
             most = struct.unpack_from("<h", sheet, game.SHEET_MAX_HP)[0] if len(sheet) >= game.SHEET_SIZE else None
