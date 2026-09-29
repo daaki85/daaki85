@@ -249,7 +249,20 @@ class SaveTests(unittest.TestCase):
         self.assertEqual(log.describe(self.save_roll(log, 13), now=1.1), [])
         self.assertEqual(log.describe(self.probe(15)),
                          ["Mountain Stalker saves vs Hold Person from Dag (spell): d20 = 13 +2 modifiers = 15, "
-                          "needs 14 -> saved"])
+                          "needs 14 (45% to save) -> saved"])
+
+    def test_save_shows_what_it_leaves(self):
+        """Fireball's damage for this target, then its save: the save line says what's left."""
+        log = make_game()
+        self.damage_formula(log, FIREBALL, 0x20, 0x01, 0x06)  # 1d6 a caster level
+        dice = [entry(raw_for(f, 6), dicelog.DICE_SITE, words(0, 0, 3, 6), words(0, 0, FIREBALL, 3),
+                      parent_code=dicelog.SPELL_DAMAGE_RETURN) for f in (6, 5, 4)]
+        for d in dice:
+            log.describe(d, now=1.0)
+        log.describe(self.save_roll(log, 9, spell=FIREBALL), now=1.1)
+        self.assertEqual(log.describe(self.probe(18, needed=14, spell=FIREBALL)),
+                         ["Mountain Stalker saves vs Fireball from Dag (spell): d20 = 9, doubled for this spell = 18, "
+                          "needs 14 (70% to save) -> saved: half damage, 7 of 15"])
 
     def damage_formula(self, log, spell, b0, b1, b2):
         rules = (LOAD_SEG + game.SPELLS_SEG) * 16 + game.SPELLS_OFF + spell * game.SPELL_SIZE
@@ -392,21 +405,21 @@ class SaveTests(unittest.TestCase):
         struct.pack_into("<h", m, stalker, 27)
         self.assertEqual(log.hp_changes(1.5), ["    Mountain Stalker takes 3 from Fireball (HP 30 -> 27)"])
         struct.pack_into("<h", m, stalker, 20)  # long after: not the spell's doing
-        self.assertEqual(log.hp_changes(9.0), [])
+        self.assertEqual(log.hp_changes(30.0), [])
 
     def test_doubled_roll(self):
         log = make_game()
         log.describe(self.save_roll(log, 7, spell=FIREBALL))
         self.assertEqual(log.describe(self.probe(14, needed=15, spell=FIREBALL)),
                          ["Mountain Stalker saves vs Fireball from Dag (spell): d20 = 7, doubled for this spell "
-                          "= 14, needs 15 -> failed"])
+                          "= 14, needs 15 (65% to save) -> failed"])
 
     def test_modifiers_name_the_effects_that_count(self):
         log = make_game()
         set_effects(log, [(0x29, 0, 7), (0x29, 0, 58)])  # Blessed (saves), Displacement (AC only)
         log.describe(self.save_roll(log, 7))
         self.assertTrue(log.describe(self.probe(9))[0].endswith(
-            "d20 = 7 +2 modifiers (incl. Blessed) = 9, needs 14 -> failed"))
+            "d20 = 7 +2 modifiers (incl. Blessed) = 9, needs 14 (45% to save) -> failed"))
 
     def test_natural_20_needs_no_probe(self):
         log = make_game()

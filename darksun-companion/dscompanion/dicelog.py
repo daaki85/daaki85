@@ -131,7 +131,7 @@ THIEF = 17  # class number
 EFFECT_INTERVAL = 0.25  # seconds between looks at the active effects
 LOAD_SETTLE = 3.0  # seconds after the party changes (a game was loaded) when effects are not news
 PENDING_SECONDS = 1.0  # how long dice wait to learn which spell they belong to
-SPELL_WINDOW = 4.0  # seconds after a spell's roll in which HP changes are put down to the spell
+SPELL_WINDOW = 15.0  # seconds after a spell's roll in which HP changes are put down to the spell
 
 
 class DiceLogError(Exception):
@@ -197,6 +197,13 @@ def scaled(raw: int, sides: int) -> int:
     return raw * sides // 0x8000
 
 
+def save_chance(needed: int, doubled: bool) -> int:
+    """The chance (percent) that a d20 (doubled for some spells) reaches `needed` after the rest
+    is added; a natural 20 always saves and a natural 1 always fails."""
+    wins = sum(1 for d in range(1, 21) if d == 20 or (d != 1 and (d * 2 if doubled else d) >= needed))
+    return wins * 5
+
+
 def signed(n: int) -> str:
     return f"+{n}" if n >= 0 else f"-{abs(n)}"
 
@@ -258,6 +265,7 @@ class DiceLog:
         self._pending: List[PendingDice] = []
         self._out_cold: Dict[int, bool] = {}  # creature index -> Out Cold when last looked at
         self._psp: Dict[int, int] = {}  # party member -> PSP when last looked at
+        self._last_damage: Optional[Tuple[int, int]] = None  # (spell, damage) last rolled
         self._save_rolls: Dict[Tuple[int, int], int] = {}  # (SS, save frame BP) -> natural d20
         self._effects: Optional[Counter] = None
         self._party: Optional[bytes] = None
@@ -879,10 +887,12 @@ class DiceLog:
         name = g.spell_name(spell) if spell is not None else "Spell"
         text = f"{name} damage: {count}d{sides} = [" + " + ".join(map(str, faces)) + "]"
         rule = g.spell_damage(spell) if spell is not None else None
+        self._last_damage = (spell, sum(faces))
         if rule is None or rule.sides != sides:
             return f"{text} = {sum(faces)}"
         steps = rule.steps(level) if missile_steps is None else missile_steps
         bonus = rule.step_bonus * steps
+        self._last_damage = (spell, sum(faces) + bonus)
         if bonus:
             text += f" {signed(bonus)}"
         text += f" = {sum(faces) + bonus}"
@@ -1186,16 +1196,25 @@ class DiceLog:
                 steps += " " + " ".join(parts) + f" = {total}"
         else:
             steps += f" total {total}"
-        return f"{who}: {steps}, needs {needed} -> {self._save_result(spell, total >= needed)}"
+        chance = ""
+        if natural is not None:
+            doubled = bool(rules and rules.doubles_roll)
+            chance = f" ({save_chance(needed - (total - (rolled or 0)), doubled)}% to save)"
+        return f"{who}: {steps}, needs {needed}{chance} -> {self._save_result(spell, total >= needed)}"
 
     def _save_result(self, spell: int, saved: bool) -> str:
-        """'saved' or 'failed', and what a save does to the spell's damage."""
-        if not saved:
-            return "failed"
+        """'saved' or 'failed', and what that does to the spell's damage: the amount from the
+        damage roll just before (the game rolls each target's damage, then its save; resistances
+        and protections can still lower it, which the HP line after shows)."""
         rule = self.game.spell_damage(spell)
+        rolled = self._last_damage[1] if self._last_damage and self._last_damage[0] == spell else None
         if rule is None or rule.sides < 2:  # no damage dice (1d1 is the game's "none")
-            return "saved"
-        return "saved: no damage" if self.game.save_negates_damage(spell) else "saved: half damage"
+            return "saved" if saved else "failed"
+        if not saved:
+            return f"failed: full damage, {rolled}" if rolled is not None else "failed: full damage"
+        if self.game.save_negates_damage(spell):
+            return f"saved: no damage (not {rolled})" if rolled is not None else "saved: no damage"
+        return f"saved: half damage, {rolled // 2} of {rolled}" if rolled is not None else "saved: half damage"
 
     def _save_modifier_sources(self, target: int) -> str:
         """'modifiers', naming the target's effects the game counts in saving throws."""
