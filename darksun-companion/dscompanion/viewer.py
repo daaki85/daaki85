@@ -9,12 +9,13 @@ name search and a live hex view of a record that highlights bytes as they
 change. Click a byte to see it decoded as each value type.
 """
 
+import struct
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Dict, List, Optional, Tuple
 
-from . import game, theme, values
+from . import art, game, launch, partyview, theme, values
 from .dicelog import DiceLog, DiceLogError
 from .guestmem import GuestMemory
 from .layout import Layout
@@ -54,6 +55,9 @@ class Viewer:
         self.ds: Optional[int] = None  # the game's data segment, once found
         self.dice: Optional[DiceLog] = None
         self.next_try = 0.0  # when to retry connecting / attaching
+        # the game's portraits and font, from the player's own install (if it can be found)
+        self.art = art.GameArt(launch.find_game_dir())
+        self._images: List[tk.PhotoImage] = []  # Tk shows an image only while it's referenced
 
         root.title(f"{theme.NAME} - {layout.game or 'party viewer'}")
         root.geometry("1320x780")
@@ -69,6 +73,8 @@ class Viewer:
     def _build(self) -> None:
         self.banner = theme.Banner(self.root)
         self.banner.pack(fill="x")
+        if self.art.font:
+            self.banner.use_game_font(self.art.font)
         top = ttk.Frame(self.root, padding=(6, 6, 6, 0))
         top.pack(fill="x")
         self.status = tk.StringVar(value="Not connected")
@@ -91,13 +97,20 @@ class Viewer:
         # room for all four characters' columns before the logs take the rest
         self.root.after(200, self._fit_party)
 
-        party = ttk.Frame(panes)
+        party_tabs = ttk.Notebook(panes)
+        party_tabs.enable_traversal()
+        panes.add(party_tabs, weight=1)
+        # the party as the game's View Character screen shows it
+        self.cards = partyview.PartyCards(party_tabs, self.layout.count)
+        party_tabs.add(self.cards, text="Characters", underline=0)
+        # every field the layout maps, in a table
+        party = ttk.Frame(party_tabs)
+        party_tabs.add(party, text="All fields", underline=0)
         self.table = ttk.Treeview(party, show="headings")
         across = ttk.Scrollbar(party, orient="horizontal", command=self.table.xview)
         self.table.configure(xscrollcommand=across.set)
         across.pack(side="bottom", fill="x")
         self.table.pack(fill="both", expand=True)
-        panes.add(party, weight=1)
 
         tabs = ttk.Notebook(panes)
         panes.add(tabs, weight=1)
@@ -112,6 +125,12 @@ class Viewer:
             side="right", padx=4)
         self.show_all = tk.BooleanVar(value=False)
         ttk.Checkbutton(dice, text="Show unlabelled rolls", variable=self.show_all).pack(anchor="w", pady=(4, 0))
+        # the indented lines under a roll (what a THAC0 or save was made of); hiding them leaves
+        # the rolls, results, turns and HP
+        self.show_details = tk.BooleanVar(value=True)
+        ttk.Checkbutton(dice, text="Show details (the sums behind each roll)", variable=self.show_details,
+                        command=lambda: self.dice_text.tag_configure("detail", elide=not self.show_details.get())
+                        ).pack(anchor="w", pady=(4, 0))
         self.dice_status = tk.StringVar(value="Waiting for the game...")
         ttk.Label(dice, textvariable=self.dice_status).pack(fill="x", pady=(4, 0))
         box = ttk.Frame(dice)
@@ -124,15 +143,19 @@ class Viewer:
         self.dice_text.pack(side="left", fill="both", expand=True)
         for tag, colour in theme.LOG_COLOURS.items():
             self.dice_text.tag_configure(tag, foreground=colour)
+        self.dice_text.tag_configure("round", underline=True, spacing1=8)  # a gap before each round
 
         talk = ttk.Frame(tabs, padding=6)
         tabs.add(talk, text="Dialogue", underline=1)
         row = ttk.Frame(talk)
         row.pack(fill="x")
-        ttk.Label(row, text="What characters say, and the replies offered").pack(side="left")
-        ttk.Button(row, text="Clear", command=lambda: self.talk_text.delete("1.0", "end")).pack(side="right")
+        ttk.Button(row, text="Clear", command=self.clear_dialogue).pack(side="right")
         ttk.Button(row, text="Save...", command=lambda: self.save_text(self.talk_text, "dialogue")).pack(
             side="right", padx=4)
+        # the game shows only a face; the player can name it (right-click a name, or this button
+        # for the latest speaker), and the name sticks for every line from that portrait
+        ttk.Button(row, text="Name speaker...", command=lambda: self.name_speaker(self._last_portrait)).pack(
+            side="right")
         box = ttk.Frame(talk)
         box.pack(fill="both", expand=True, pady=(6, 0))
         self.talk_text = tk.Text(box, wrap="word", height=20, font="TkTextFont")
@@ -144,6 +167,9 @@ class Viewer:
         self.talk_text.pack(side="left", fill="both", expand=True)
         self.talk_text.tag_configure("speaker", font=theme.fonts()[1], foreground=theme.YELLOW)
         self.talk_text.tag_configure("reply", foreground=theme.PALE)
+        self.talk_text.tag_configure("chosen", foreground=theme.GREEN)
+        self._last_portrait: Optional[int] = None
+        self.talk_text.tag_bind("speaker", "<Button-3>", self._speaker_clicked)
 
         tools = ttk.Frame(tabs, padding=6)
         tabs.add(tools, text="Memory tools", underline=0)
@@ -235,7 +261,13 @@ class Viewer:
             self.table.column(f"slot{i}", width=slot, minwidth=slot)
         # at large text sizes the table scrolls sideways rather than squeezing the logs
         wanted = field + slot * self.layout.count + 24
-        self.panes.sashpos(0, min(wanted, int(self.root.winfo_width() * 0.55)))
+        width = self.panes.winfo_width()
+        if width < 200:  # not laid out yet (a slow start): placing the divider now would hide the party
+            self.root.after(200, self._fit_party)
+            return
+        place = min(wanted, int(width * 0.55))
+        if self.panes.sashpos(0, place) < place // 2:  # the panes weren't ready after all: again soon
+            self.root.after(200, self._fit_party)
 
     def save_text(self, widget: tk.Text, what: str) -> None:
         """Save a log as a text file (to read with other tools, such as a screen reader)."""
@@ -414,7 +446,9 @@ class Viewer:
             if now < self.next_try:
                 return
             self.next_try = now + RETRY_SECONDS
-            self.dice = self.dice or DiceLog(self.guest)
+            if self.dice is None:
+                self.dice = DiceLog(self.guest)
+                self.dice.speaker_names = launch.speaker_names()
             try:
                 self.dice_status.set(self.dice.attach())
             except DiceLogError as e:
@@ -433,10 +467,58 @@ class Viewer:
         if talk:
             self._append_dialogue(talk)
 
+    def _speaker_clicked(self, event) -> None:
+        tags = self.talk_text.tag_names(f"@{event.x},{event.y}")
+        portrait = next((int(t.split()[1]) for t in tags if t.startswith("portrait ")), None)
+        self.name_speaker(portrait)
+
+    def name_speaker(self, portrait: Optional[int]) -> None:
+        """Ask for a name for a dialogue portrait, remember it, and show it on every line from it."""
+        from tkinter import simpledialog
+        if portrait is None or self.dice is None:
+            messagebox.showinfo("Name speaker", "No one with a portrait has spoken yet.", parent=self.root)
+            return
+        shown = self.dice.speaker(portrait)
+        name = simpledialog.askstring(
+            "Name speaker", f"Name for the speaker shown as \"{shown}\" (portrait {portrait}).\n"
+            "Leave it empty to go back to the default.", initialvalue=self.dice.speaker_names.get(portrait, ""),
+            parent=self.root)
+        if name is None:
+            return
+        name = " ".join(name.split())
+        launch.set_speaker_name(portrait, name)
+        if name:
+            self.dice.speaker_names[portrait] = name
+        else:
+            self.dice.speaker_names.pop(portrait, None)
+        tag = f"portrait {portrait}"
+        ranges = self.talk_text.tag_ranges(tag)
+        for start, end in reversed(list(zip(ranges[0::2], ranges[1::2]))):
+            self.talk_text.delete(start, end)
+            self.talk_text.insert(start, self.dice.speaker(portrait), ("speaker", tag))
+
+    def clear_dialogue(self) -> None:
+        self.talk_text.delete("1.0", "end")
+        self._images.clear()
+
     def _append_dialogue(self, entries) -> None:
         at_end = self.talk_text.yview()[1] >= 0.999
         for entry in entries:
-            self.talk_text.insert("end", self.dice.speaker(entry.portrait) + "\n", "speaker")
+            if entry.chosen:  # the player's answer to the replies above
+                self.talk_text.delete("end-2c")  # into the gap under the replies
+                self.talk_text.insert("end", f"  You chose: {entry.chosen}\n\n", "chosen")
+                continue
+            face = self.art.portrait(entry.portrait) if entry.portrait else None
+            if face:  # the game's portrait, twice its size (more at larger text sizes)
+                image = art.photo(self.root, face, max(2, round(2 * theme.scale())), background=theme.DEEP)
+                self._images.append(image)
+                self.talk_text.image_create("end", image=image, padx=2, pady=4, align="center")
+                self.talk_text.insert("end", " ")
+            tags = ("speaker", f"portrait {entry.portrait}") if entry.portrait else ("speaker",)
+            self.talk_text.insert("end", self.dice.speaker(entry.portrait), tags)
+            self.talk_text.insert("end", "\n")
+            if entry.portrait:
+                self._last_portrait = entry.portrait
             if entry.text:
                 self.talk_text.insert("end", entry.text + "\n")
             if entry.title:
@@ -450,7 +532,9 @@ class Viewer:
     def _append_dice(self, lines: List[str]) -> None:
         at_end = self.dice_text.yview()[1] >= 0.999
         for line in lines:
-            tag = ("save" if " saves vs " in line or " magic resistance " in line else
+            tag = ("round" if line.startswith(("Round ", "Initiative: ")) else
+                   "turn" if line.endswith("'s turn") else
+                   "save" if " saves vs " in line or " magic resistance " in line else
                    "hit" if "-> HIT" in line else
                    "miss" if "-> miss" in line else
                    "detail" if line.startswith("    ") else
@@ -480,6 +564,44 @@ class Viewer:
                 columns.append([str(ac)] + [f"{v:+d}" for v in (detail.armour, detail.dex, detail.other)])
         return [(label, [c[i] for c in columns]) for i, label in enumerate(labels)]
 
+    def _member_slots(self, slots) -> List[list]:
+        """Each slot's spell slots (GameData.spell_slots), or [] when the game isn't running."""
+        if self.ds is None:
+            return [[] for _ in slots]
+        gd = game.GameData(self.guest, self.ds)
+        table = game.far_pointer(self.guest, self.ds, game.CREATURES_PTR)
+        out = []
+        for s in slots:
+            addr = s[1].get("creature")
+            index = (addr - table) // game.CREATURE_SIZE if addr is not None else None
+            try:
+                out.append(gd.spell_slots(index) if index is not None and 0 <= index < 4 else [])
+            except (struct.error, IndexError):
+                out.append([])
+        return out
+
+    def _slot_rows(self, slots) -> List[Tuple[str, List[str]]]:
+        """'Wizard spells left' / 'Priest spells left': '1st 3/5, 2nd 2/3', left of the most."""
+        per_member = [dict(m) for m in self._member_slots(slots)]
+        rows = [(f"{kind} spells left", [game.slots_text(m.get(kind, [])) for m in per_member])
+                for kind, _ in game.MAGIC_KINDS]
+        if self.ds is not None:  # each thief's skills, before armour and the situation
+            gd = game.GameData(self.guest, self.ds)
+            table = game.far_pointer(self.guest, self.ds, game.CREATURES_PTR)
+            cells = []
+            for s in slots:
+                addr = s[1].get("creature")
+                skills = gd.thief_skills((addr - table) // game.CREATURE_SIZE) if addr is not None else []
+                cells.append(" ".join(f"{n}" for _, n in skills))
+            rows.append(("Thief skills PP/OL/FT/MS/HS/HN/CW/RL", cells))
+            worn = []
+            for s in slots:
+                addr = s[1].get("creature")
+                items = gd.equipment((addr - table) // game.CREATURE_SIZE) if addr is not None else []
+                worn.append(", ".join(f"{slot}: {item}" if slot else item for slot, item in items))
+            rows.append(("Equipment", worn))
+        return rows
+
     def _refresh_table(self) -> None:
         slots = [self.layout.decode_slot(i, self.guest.read) for i in range(self.layout.count)]
         rows = [(f"{r} @", [f"{s[1][r]:#x}" if s[1][r] is not None else "" for s in slots])
@@ -497,13 +619,40 @@ class Viewer:
             rows.append((f.label, cells))
             if f.label == "Base AC":
                 rows += self._ac_rows(slots)
+        rows += self._slot_rows(slots)
 
+        self._refresh_cards(slots)
         existing = self.table.get_children()
         if len(existing) != len(rows):
             self.table.delete(*existing)
             existing = [self.table.insert("", "end") for _ in rows]
         for item, (label, cells) in zip(existing, rows):
             self.table.item(item, values=[label] + cells)
+
+    def _refresh_cards(self, slots) -> None:
+        """The Characters tab: each slot's card, with its condition and current AC."""
+        gd = game.GameData(self.guest, self.ds) if self.ds is not None else None
+        effects = gd.effects_left() if gd else []
+        combatants = gd.combatants() if gd else {}
+        table = game.far_pointer(self.guest, self.ds, game.CREATURES_PTR) if gd else None
+        spell_slots = self._member_slots(slots)
+        for card, (name, bases, fields), member_slots in zip(self.cards.cards, slots, spell_slots):
+            status, ac = "", None
+            addr = bases.get("creature")
+            if gd and addr is not None and table is not None:
+                index = (addr - table) // game.CREATURE_SIZE
+                code = self.guest.read(addr + game.CREATURE_STATUS, 1)[0]
+                status = game.STATUS_NAMES.get(code, "")
+                mine = [c for c, i in combatants.items() if i == index]
+                names = sorted({game.effect_text(e, charges, seconds) for e, charges, seconds in effects
+                                if e.owner in mine})
+                if names:
+                    status += (", " if status else "") + ", ".join(names)
+                ac = self.dice.last_ac.get(index) if self.dice and self.dice.attached else None
+            known = gd and addr is not None and table is not None
+            thief = gd.thief_skills(index) if known else []
+            equipment = gd.equipment(index) if known else []
+            card.show(name, dict(fields), status, ac, self.art, member_slots, thief, equipment)
 
     def _hex_base(self) -> Optional[int]:
         record = self.layout.records.get(self.hex_record.get())

@@ -83,6 +83,7 @@ class DialogueEntry:
     text: str = ""
     replies: List[str] = field(default_factory=list)
     title: str = ""  # of the replies, e.g. "Answer Yes or No"
+    chosen: str = ""  # the reply the player picked (an entry of its own, after the replies)
 
 
 class Dialogue:

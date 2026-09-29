@@ -39,20 +39,52 @@ SHEET_SIZE = 0x47
 ITEM_SIZE = 0x15
 ITEM_TYPE_SIZE = 0x14
 CREATURE_SHEET_INDEX = 0x04
+CREATURE_PSP = 0x02  # word: PSP now
 CREATURE_THAC0 = 0x1F
 CREATURE_SIDE = 0x1D  # creatures on the same side share this value
 CREATURE_ABILITIES = 0x22
 CREATURE_NAME = 0x28
+# +1Ch: the character's condition, as the party screen shows it (the game shows the most
+# important active effect instead of "Okay")
+CREATURE_STATUS = 0x1C
+OUT_COLD = 3
+STATUS_NAMES = {1: "Okay", 2: "Stunned", 3: "Out Cold", 4: "Dying", 5: "Dead", 6: "Animated",
+                7: "Petrified", 8: "Gone"}
 PARTY_SIZE = 4  # the party are the first creatures in the table
 
 # Segments relative to the load segment
 COMBATANTS_SEG, COMBATANTS_OFF = 0x3972, 0xC36  # 3 bytes per combatant: kind (2 = creature), creature index
+# The same table holds every object the game tracks ("things": kind 1 an item, 2 a creature).
+# A creature's items: two lists, each starting at an object number in the creature's record;
+# each item names the next by item number (9999 ends the list). An item's slot is where it is
+# worn (the game's own slot names, in this order), 255 if only carried.
+THING_ITEM = 1
+CREATURE_ITEM_LISTS = (0x08, 0x0A)
+ITEM_NEXT, ITEM_SLOT, ITEM_TYPE, ITEM_NAME, ITEM_PLUS = 0x04, 0x11, 0x0A, 0x12, 0x14
+NO_ITEM = 9999
+EQUIP_SLOTS = ("arm", "ammo", "missile", "right hand", "finger", "waist", "legs", "head", "neck", "chest",
+               "left hand", "cloak", "foot")
 EFFECTS_SEG, EFFECTS_OFF = 0x3BF6, 0x106  # 10 bytes per active effect
+# The game's clock and event queue: a far pointer to the time (a dword, divided by the byte at
+# GAME_TIME_SCALE); the first queue's entries (17 bytes: due time, kind, then the event's data),
+# sorted by time, with their count. An effect ending is kind 7, its data the owner and handle.
+GAME_TIME_PTR, GAME_TIME_SCALE = 0x9B72, 0x9B70
+WHOSE_TURN = 0x4979  # DS word: the combatant whose turn it is
+# Speakers the game names in its own text (the dialogue window shows only a portrait):
+# 119 is asked about as "Yell something back at the Announcer?"
+SPEAKERS = {119: "The Announcer"}
+# The dialogue window's replies: the game copies each into DS:5537 + n * 33h; the row the
+# player clicks goes in DS:1F0A (FFh until then), plus the list's scroll position at DS:5502
+REPLY_CHOSEN, REPLY_SCROLL, REPLY_TEXTS, REPLY_SIZE = 0x1F0A, 0x5502, 0x5537, 0x33
+EVENT_QUEUE, EVENT_COUNT, EVENT_SIZE, EVENT_EFFECT_ENDS = 0x2FBE, 0x2FC6, 0x11, 7
 # Each round, per creature (4 bytes each): the initiative score (-1 once it has
 # acted) and the 0-199 roll that breaks ties
 INITIATIVE_SEG, INITIATIVE_OFF = 0x37BD, 0xD9
 # Wizard and cleric spells, 7 bytes each from id 1: level, ..., DS offset of the name (+5)
 SPELL_INFO_OFF, SPELL_INFO_SIZE, SPELL_COUNT = 0x3FD33, 7, 137
+# Psionic powers are numbered after the spells (Detonate 138 ... Thought Shield 171) and share
+# the spells' records and casting code; higher numbers are monsters' own powers
+PSIONIC_FIRST, PSIONIC_COUNT = 138, 34
 # The spells' rules, 32 bytes each; the saving throw reads a flags word at +0Ah
 # (0x86: the d20 is doubled) and a byte at +0Fh (bits 1-4: a save modifier,
 # bits 5-7: the kind of save)
@@ -118,11 +150,44 @@ EFFECT_RULES = {
     45: "-1 on saves", 46: "AC 4 except from behind", 47: "-4 to hit, AC 4 worse", 49: "+1 to hit",
     52: "AC -7 against evil", 55: "attackers -2 to hit", 56: "armour AC at most 4, +3 on saves",
     57: "AC at most 6 - level/4, +1 on saves", 58: "AC -2", 59: "AC at most 10 - level",
-    60: "AC 5, 1 better per 3 caster levels above 5", 63: "higher STR", 64: "higher STR", 67: "higher STR",
-    68: "lower STR",
+    60: "AC 5, 1 better per 3 caster levels above 5", 63: "higher STR", 64: "STR + the amount borrowed, at most 24",
+    67: "STR + 1d6, at most 24", 68: "STR - the amount, at least 3",
     73: "+1 to hit and saves for the caster's side, -1 for the other",
+    # what the game's turn, movement, casting and damage code does with the rest
+    1: "2d4 acid damage each round",
+    3: "fights for a side picked at random each turn; can't cast spells",
+    9: "ends fear, and the next fear fails (which ends it)",
+    10: "joins the caster's side, the computer controlling it",
+    11: "each turn a d10: 1 runs off, 2-6 does nothing, 7-9 fights for a random side, 10 acts normally",
+    17: "the computer controls it; can't attack or cast spells (undead are immune; Bravery stops it)",
+    18: "whoever hits the wearer has Cause Fear cast on them (once)",
+    19: "can't cast spells",
+    21: "can't be Paralyzed, Slowed or Stuck",
+    # attacking uses a charge, and only effects with charges end that way: Invisibility has
+    # one, Improved Invisibility (timed) has none
+    23: "attacking or casting at an enemy ends it, unless it is Improved Invisibility",
+    24: "ends when it attacks or casts at an enemy",
+    25: "each weapon attack has a 75% chance to hit an image instead, using one up",
+    29: "can't be Paralyzed or Slowed",
+    33: "can't attack or cast harmful spells",
+    34: "loses its turns, can't move, fails every saving throw",
+    35: "fatal (1000 damage) if time passes out of combat, such as resting, before it ends or is cured",
+    44: "turns spells cast at it back on their caster, one per charge",
+    48: "no damage from weapons; any damage uses up one charge",
+    50: "can't cast spells",
+    51: "can't move (Free Action prevents it; some creatures are immune)",
+    53: "no damage from weapons, using up one charge each time",
+    # psionic powers' effects
+    31: "magic resistance halved",
+    32: "+75% magic resistance against mind-affecting spells (charms, holds, fear, confusion...)",
+    61: "unarmed attacks do at least 1d10",
+    62: "unarmed attacks do 2d4 (the arm is the weapon)",
 }
-
+# Effects that change a rule already listed above, from the same code
+EFFECT_RULES[8] += "; can't cast spells that need sight"
+EFFECT_RULES[47] += ", half movement and attacks, loses every other turn; ends Haste (Free Action and " \
+                    "Protection from Paralysis prevent it)"
+EFFECT_RULES[22] = "double movement and attacks; ends Slow"
 # AD&D 2e strength damage adjustments (Dark Sun has no exceptional strength). The
 # game adds these after rolling melee damage; seen in play for STR 20 and 24.
 STR_DAMAGE = {1: -4, 2: -2, 3: -1, 4: -1, 5: -1, 16: 1, 17: 1, 18: 2, 19: 7, 20: 8, 21: 9,
@@ -135,6 +200,38 @@ CREATION_CLASS_NAMES = {1: "Cleric", 2: "Druid", 3: "Fighter", 4: "Gladiator", 5
                         6: "Psionicist", 7: "Ranger", 8: "Thief"}
 
 SMALL_WORDS = {"of", "from", "to", "the", "and", "or", "in"}
+
+
+def signed_text(n: int) -> str:
+    return f"+{n}" if n >= 0 else str(n)
+
+
+def effect_text(effect: "Effect", charges: Optional[int], seconds: Optional[int]) -> str:
+    """ "Blur (23 rounds)", "Stoneskin (5 charges)", or just the name."""
+    name = EFFECT_NAMES.get(effect.id, f"effect {effect.id}")
+    if charges:
+        return f"{name} ({charges} charge{'' if charges == 1 else 's'})"
+    if seconds is not None:
+        rounds = -(-seconds // 60)  # a round started counts
+        return f"{name} ({rounds} round{'' if rounds == 1 else 's'})"
+    return name
+
+
+def ordinal(n: int) -> str:
+    return f"{n}{'st' if n == 1 else 'nd' if n == 2 else 'rd' if n == 3 else 'th'}"
+
+
+def slots_text(levels) -> str:
+    """ "1st 3/5, 2nd 2/3": spell slots left and the most, by spell level."""
+    return ", ".join(f"{ordinal(level)} {left}/{most}" for level, left, most in levels)
+
+
+def game_time(seconds: int) -> str:
+    """Game time: seconds, 60 to a round (AD&D's one-minute round)."""
+    if seconds % 60 == 0:
+        rounds = seconds // 60
+        return f"{rounds} round{'' if rounds == 1 else 's'}"
+    return f"{seconds} seconds ({seconds / 60:.1f} rounds)"
 
 
 def title(text: str) -> str:
@@ -184,9 +281,13 @@ class Effect(NamedTuple):
     id: int
 
 
-CLASS_NAMES = {1: "Cleric", 2: "Cleric", 3: "Cleric", 4: "Cleric", 5: "Druid", 6: "Druid", 7: "Druid",
-               8: "Druid", 9: "Fighter", 10: "Gladiator", 11: "Preserver", 12: "Psionicist",
-               13: "Ranger", 14: "Ranger", 15: "Ranger", 16: "Ranger", 17: "Thief"}
+# Class numbers: a cleric, druid and ranger class for each element, in the order air, earth,
+# fire, water (from the spheres in the game's class and spell tables: Flame Blade and Flame
+# Strike belong to the third, Blood Flow and Dehydrate to the fourth, Deflection to the first)
+CLASS_NAMES = {1: "Cleric (air)", 2: "Cleric (earth)", 3: "Cleric (fire)", 4: "Cleric (water)",
+               5: "Druid (air)", 6: "Druid (earth)", 7: "Druid (fire)", 8: "Druid (water)", 9: "Fighter",
+               10: "Gladiator", 11: "Preserver", 12: "Psionicist", 13: "Ranger (air)", 14: "Ranger (earth)",
+               15: "Ranger (fire)", 16: "Ranger (water)", 17: "Thief"}
 
 
 def ordinal(n: int) -> str:
@@ -199,9 +300,63 @@ class LevelHp(NamedTuple):
     fixed: int  # hit points per level after that
 
 
+class SpellDamage(NamedTuple):
+    """A spell's damage, from its record (+0Ch..+0Eh): base dice, then per step some dice and a
+    flat bonus; steps = (caster level, at most 10, + adjust) // per_levels, at least 1."""
+    base_dice: int
+    step_dice: int
+    step_bonus: int
+    per_levels: int
+    adjust: int
+    sides: int
+
+    def steps(self, level: int) -> int:
+        return max(1, (min(level, SPELL_LEVEL_CAP) + self.adjust) // self.per_levels)
+
+
+SPELL_LEVEL_CAP = 10  # damage stops growing at caster level 10
+PERMANENT = -9999  # a spell record's time unit for effects that last until removed
+MIND_AFFECTING = 0x26  # flags in the spell record's word at +11h
+
+# Spell slots. What's left: a byte for each spell level (index 1-9) for each party member,
+# 1Eh apart, wizard and priest apart; casting takes one, resting refills them.
+SLOTS_LEFT = {"Wizard": 0x4B08, "Priest": 0x4B11}
+SLOTS_STRIDE, SPELL_LEVELS = 0x1E, 9
+MAGIC_KINDS = (("Wizard", 1), ("Priest", 2))
+# The most: each class's magic (bit 1 wizard, bit 2 priest; a byte every 4, by class number)...
+CLASS_MAGIC_SEG, CLASS_MAGIC_OFF = 0x3800, 0x118
+# ...and its slot rules: DS byte per class number, a rule number in each nibble (low first:
+# class level, then WIS), and the rule words, a DS word each
+SLOT_CLASS_RULES, SLOT_RULES = 0x664, 0x678
+# Each spell's spheres (a dword, 7 bytes a spell), matched against each class's (above)
+SPELL_SPHERES_SEG, SPELL_SPHERES_OFF, SPELL_SPHERES_SIZE = 0x3FB9, 0x19D, 7
+RANGER_CLASSES = range(13, 17)
+SLOTS_ALL_19 = 0x1164  # a DS word the game checks: 1 gives the party 19 of everything
+HUMAN = 1
+
+# Thief skills (the game's routine at 8023Bh in DSUN.EXE). Their order is AD&D's; the game
+# never names them, but its checks fit: blindness stops all but hearing noise, Fire Shield
+# and Mirror Image stop hiding, Graft Weapon stops picking pockets, opening locks and
+# climbing, Detect Traps lets anyone find traps, Feeblemind stops reading languages.
+THIEF_SKILLS = ("pick pockets", "open locks", "find/remove traps", "move silently", "hide in shadows",
+                "hear noise", "climb walls", "read languages")
+THIEF = 17  # class number
+# Tables (a byte per skill): base; then 8 per race (race 1 first); DEX below which each point
+# costs 5, above which each gives 5, above which each costs 3 again; the armour penalty
+THIEF_TABLE_SEG = 0x3FAA
+THIEF_BASE, THIEF_RACE, THIEF_DEX_LOW, THIEF_DEX_HIGH, THIEF_DEX_TOP, THIEF_ARMOUR = 0, 8, 0x90, 0x98, 0xA0, 0xA8
+THIEF_PER_LEVEL = 4
+
+
+# The spell's damage kinds (its flags word): the saving throw doubles the d20 against fire,
+# cold and electricity, and no other kind
+DOUBLED_KINDS = {0x02: "fire", 0x04: "cold", 0x80: "electricity"}
+
+
 class SpellRules(NamedTuple):
     doubles_roll: bool  # the saving throw's d20 counts double
     save_modifier: int  # added to every saving throw against the spell
+    doubled_for: str = ""  # the damage kind that doubles it: "fire", "cold" or "electricity"
 
 
 class Weapon(NamedTuple):
@@ -272,6 +427,66 @@ class GameData:
     def difficulty(self) -> int:
         return self._word(DIFFICULTY)
 
+    def effects_left(self) -> List[Tuple[Effect, Optional[int], Optional[int]]]:
+        """Each active effect with its charges left (None if it has none) and its game seconds
+        left (None if untimed). A timed effect sits in the game's event queue as an entry of
+        type 7 holding its owner and handle (the effect's byte +7), due at a game time."""
+        count = self._word(EFFECT_COUNT)
+        if not 0 <= count <= 400:
+            return []
+        data = self.guest.read((self.load_seg + EFFECTS_SEG) * 16 + EFFECTS_OFF, count * 10)
+        due = {}
+        queued = self._word(EVENT_COUNT)
+        if 0 <= queued <= 500:
+            events = self.guest.read(far_pointer(self.guest, self.ds, EVENT_QUEUE), queued * EVENT_SIZE)
+            for i in range(queued):
+                at, kind, owner, handle = struct.unpack_from("<iBhB", events, i * EVENT_SIZE)
+                if kind == EVENT_EFFECT_ENDS:
+                    due[(owner, handle)] = at
+        now = self.game_time()
+        out = []
+        for i in range(count):
+            rec = data[i * 10:i * 10 + 10]
+            effect = Effect(*struct.unpack_from("<hh", rec), rec[6])
+            at = due.get((effect.owner, rec[7]))
+            charges = rec[8] or None
+            spell, = struct.unpack_from("<h", rec, 4)
+            spell_rec = self.spell_record(spell) if 0 < spell < 256 else b""
+            if len(spell_rec) >= SPELL_SIZE and struct.unpack_from("<h", spell_rec, 7)[0] == PERMANENT:
+                charges = None  # a permanent effect keeps a meaningless 15 there
+            out.append((effect, charges, max(at - now, 0) if at is not None and now is not None else None))
+        return out
+
+    def effect_spells(self) -> List[Tuple[Effect, int]]:
+        """Each active effect with the spell (or power) that made it."""
+        count = self._word(EFFECT_COUNT)
+        if not 0 <= count <= 400:
+            return []
+        data = self.guest.read((self.load_seg + EFFECTS_SEG) * 16 + EFFECTS_OFF, count * 10)
+        return [(Effect(*struct.unpack_from("<hh", data, i * 10), data[i * 10 + 6]),
+                 struct.unpack_from("<h", data, i * 10 + 4)[0]) for i in range(count)]
+
+    def reply_chosen(self) -> Optional[Tuple[int, str]]:
+        """The reply the player has just clicked (its place in the list, and its text), while
+        the game flashes it; None the rest of the time."""
+        row = self.guest.read(self.ds * 16 + REPLY_CHOSEN, 1)[0]
+        if row == 0xFF:
+            return None
+        n = row + self.guest.read(self.ds * 16 + REPLY_SCROLL, 1)[0]
+        text = self.guest.read(self.ds * 16 + REPLY_TEXTS + n * REPLY_SIZE, REPLY_SIZE)
+        return n, text.split(b"\0", 1)[0].decode("cp437", "replace").strip()
+
+    def whose_turn(self) -> Optional[int]:
+        """The combatant whose turn it is in a fight (the game's word at WHOSE_TURN)."""
+        turn = self._word(WHOSE_TURN)
+        return turn if 0 <= turn < 256 else None
+
+    def game_time(self) -> Optional[int]:
+        """Game seconds since the start (60 to a round): the dword the game keeps its clock in."""
+        scale = self.guest.read(self.ds * 16 + GAME_TIME_SCALE, 1)[0]
+        raw = self.guest.read(far_pointer(self.guest, self.ds, GAME_TIME_PTR), 4)
+        return struct.unpack("<i", raw)[0] // scale if scale and len(raw) == 4 else None
+
     def effects(self) -> List[Effect]:
         count = self._word(EFFECT_COUNT)
         if not 0 <= count <= 400:
@@ -280,6 +495,11 @@ class GameData:
         return [Effect(*struct.unpack_from("<hh", data, i * 10), data[i * 10 + 6]) for i in range(count)]
 
     def spell_name(self, spell: int) -> str:
+        if PSIONIC_FIRST <= spell < PSIONIC_FIRST + PSIONIC_COUNT:
+            # the psionic powers' names come first in the names list, in number order
+            names = self.guest.read(self.ds * 16 + SPELL_NAMES, 0x400).split(b"\0")
+            text = names[spell - PSIONIC_FIRST].decode("cp437", "replace") if spell - PSIONIC_FIRST < len(names) else ""
+            return title(text) if text else f"psionic power {spell}"
         if spell > SPELL_COUNT:  # monsters' powers, such as a paralysing touch
             return f"special attack {spell}"
         if 1 <= spell <= SPELL_COUNT:
@@ -298,7 +518,73 @@ class GameData:
         if len(rec) < SPELL_SIZE:
             return None
         nibble = (rec[0x0F] >> 1) & 0x0F
-        return SpellRules(bool(struct.unpack_from("<H", rec, 0x0A)[0] & 0x86), nibble - 16 if nibble & 8 else nibble)
+        flags = struct.unpack_from("<H", rec, 0x0A)[0]
+        kinds = " and ".join(name for bit, name in DOUBLED_KINDS.items() if flags & bit)
+        return SpellRules(bool(kinds), nibble - 16 if nibble & 8 else nibble, kinds)
+
+    def spell_record(self, spell: int) -> bytes:
+        """The spell's whole 32-byte record (it starts 10h before the fields SPELLS_OFF names)."""
+        if not 0 <= spell < 256:
+            return b""
+        return self.guest.read((self.load_seg + SPELLS_SEG) * 16 + SPELLS_OFF - 0x10 + spell * SPELL_SIZE,
+                               SPELL_SIZE)
+
+    def spell_duration(self, spell: int, level: int, roll: int) -> Optional[Tuple[int, str]]:
+        """(game seconds, how) for a spell cast at `level` whose duration dice came up `roll`:
+        ((level + adjust) * per_level // per_levels + dice) * unit. 60 seconds are a round."""
+        rec = self.spell_record(spell)
+        if len(rec) < SPELL_SIZE:
+            return None
+        unit, = struct.unpack_from("<h", rec, 7)
+        if unit <= 0:
+            return None  # not timed: charges (see spell_charges), or -9999: permanent
+        return self._spell_amount(rec, spell, level, roll, unit)
+
+    def spell_charges(self, spell: int, level: int, roll: int) -> Optional[Tuple[int, str]]:
+        """(charges, how) for an effect that lasts a number of uses rather than a time: the
+        game stores a negative duration as that many charges (Stoneskin's blows, Mirror
+        Image's images, Invisibility's one attack)."""
+        rec = self.spell_record(spell)
+        if len(rec) < SPELL_SIZE:
+            return None
+        unit, = struct.unpack_from("<h", rec, 7)
+        if not PERMANENT < unit < 0:
+            return None
+        found = self._spell_amount(rec, spell, level, roll, -unit)
+        return (found[0], found[1]) if found[0] > 0 else None
+
+    def _spell_amount(self, rec: bytes, spell: int, level: int, roll: int, unit: int) -> Tuple[int, str]:
+        per_level, = struct.unpack_from("<H", rec, 5)
+        rule = self.spell_damage(spell)
+        per_levels, adjust = (rule.per_levels, rule.adjust) if rule else (1, 0)
+        levels = (max(level, 1) + adjust) * per_level // per_levels
+        total = min((levels + roll) * unit, 0x7FFF)
+        how = []
+        if per_level:
+            how.append(f"{per_level} for each " + ("caster level" if per_levels == 1 else f"{per_levels} caster levels")
+                       + (f" ({signed_text(adjust)})" if adjust else "") + f" = {levels}")
+        how.append(f"{roll} from the dice")
+        return total, " + ".join(how)
+
+    def save_negates_damage(self, spell: int) -> bool:
+        """A successful save stops all the damage (else it halves it): flag 8000h of the word at +11h."""
+        rec = self.spell_record(spell)
+        return len(rec) >= SPELL_SIZE and bool(struct.unpack_from("<H", rec, 0x11)[0] & 0x8000)
+
+    def spell_damage(self, spell: int) -> Optional[SpellDamage]:
+        if not 0 <= spell < 256:
+            return None
+        rec = self.guest.read((self.load_seg + SPELLS_SEG) * 16 + SPELLS_OFF + spell * SPELL_SIZE, SPELL_SIZE)
+        if len(rec) < SPELL_SIZE:
+            return None
+        b0, b1, b2 = rec[0x0C], rec[0x0D], rec[0x0E]
+        adjust = (b2 >> 4) - 16 if b2 & 0x80 else b2 >> 4
+        return SpellDamage(b1 >> 3, b0 >> 5, b0 & 0x1F, (b1 & 7) or 1, adjust, b2 & 0x0F)
+
+    def mind_affecting(self, spell: int) -> bool:
+        """A mind-affecting spell (charms, fear, feeblemind...): bits 26h of the word at +11h."""
+        rec = self.spell_record(spell)
+        return len(rec) >= SPELL_SIZE and bool(struct.unpack_from("<H", rec, 0x11)[0] & MIND_AFFECTING)
 
     def magic_resistance(self, combatant: int) -> Optional[int]:
         """The base magic resistance (percent) on a creature's character sheet."""
@@ -324,6 +610,140 @@ class GameData:
             return b""
         index = struct.unpack_from("<H", rec, CREATURE_SHEET_INDEX)[0]
         return self.guest.read(far_pointer(self.guest, self.ds, SHEETS_PTR) + index * SHEET_SIZE, SHEET_SIZE)
+
+    def spell_slots(self, member: int) -> List[Tuple[str, List[Tuple[int, int, int]]]]:
+        """A party member's spell slots: [(kind, [(spell level, left, most), ...]), ...] for
+        the kinds of magic (Wizard, Priest) their classes cast, at the levels they have any."""
+        out = []
+        for kind, bit in MAGIC_KINDS:
+            left = self.guest.read(self.ds * 16 + SLOTS_LEFT[kind] + member * SLOTS_STRIDE, SPELL_LEVELS + 1)
+            levels = [(lvl, left[lvl], self.max_spell_slots(member, bit, lvl)) for lvl in range(1, SPELL_LEVELS + 1)]
+            levels = [x for x in levels if x[1] or x[2]]
+            if levels:
+                out.append((kind, levels))
+        return out
+
+    def max_spell_slots(self, member: int, bit: int, spell_level: int) -> int:
+        """The slots the game gives on resting (its routine at 5E0ACh in DSUN.EXE): for each class
+        casting this kind of magic, rules from its tables applied to the class level and then WIS.
+        A rule word: bits 8-11 the most it gives, bits 4-7 one more than the spell level it
+        starts below, bit 0 how odd values round. A human's later (dual) classes count only while
+        their level is below the first class's."""
+        if member < 4 and self._word(SLOTS_ALL_19) == 1:  # the game's own test switch
+            return 19
+        sheet = self.sheet(member)
+        if len(sheet) < SHEET_SIZE:
+            return 0
+        wis = self.creature(member)[CREATURE_ABILITIES + 4]
+        magic = self.guest.read((self.load_seg + CLASS_MAGIC_SEG) * 16 + CLASS_MAGIC_OFF, 4 * 32)
+        total = 0
+        for n in range(3):
+            cls, level = sheet[SHEET_CLASSES + n], sheet[SHEET_LEVELS + n]
+            if not cls or cls >= 32 or not magic[cls * 4] & bit:
+                continue
+            if n and sheet[SHEET_RACE] == HUMAN and level >= sheet[SHEET_LEVELS]:
+                continue
+            rules = self.guest.read(self.ds * 16 + SLOT_CLASS_RULES + cls, 1)[0]
+            for value in (level, wis):
+                if not rules:
+                    break
+                word, = struct.unpack("<H", self.guest.read(self.ds * 16 + SLOT_RULES + (rules & 0x0F) * 2, 2))
+                start, odd, most = ((word >> 4) & 0x0F) - 1, word & 1, (word >> 8) & 0x0F
+                count = value - (value + odd) // 2 - (spell_level + start)
+                if count == 1 and (value & 1) == odd:
+                    count += 1
+                total += min(max(count, 0), most)
+                rules >>= 4
+        return total
+
+    def class_level(self, creature: int, cls: int) -> int:
+        """The creature's level in one class (0 if it hasn't that class)."""
+        sheet = self.sheet(creature)
+        if len(sheet) < SHEET_SIZE:
+            return 0
+        return next((sheet[SHEET_LEVELS + n] for n in range(3) if sheet[SHEET_CLASSES + n] == cls), 0)
+
+    def effect_caster_level(self, creature: int, spell: int) -> Optional[int]:
+        """The level a spell effect counts as having been cast at, as Dispel Magic weighs it (the
+        game's routine at 81B16h): the caster's best level in a class sharing a sphere with the
+        spell, rangers 7 levels less. None for psionic powers and monsters' own powers."""
+        if not 0 < spell < PSIONIC_FIRST:
+            return None
+        spheres, = struct.unpack("<I", self.guest.read(
+            (self.load_seg + SPELL_SPHERES_SEG) * 16 + SPELL_SPHERES_OFF + spell * SPELL_SPHERES_SIZE, 4))
+        classes = self.guest.read((self.load_seg + CLASS_MAGIC_SEG) * 16 + CLASS_MAGIC_OFF, 4 * 20)
+        best = 0
+        for cls in range(1, 20):
+            if struct.unpack_from("<I", classes, cls * 4)[0] & spheres:
+                level = self.class_level(creature, cls) - (7 if cls in RANGER_CLASSES else 0)
+                best = max(best, level)
+        return best
+
+    def thief_skill_parts(self, creature: int, skill: int) -> Optional[List[Tuple[str, int]]]:
+        """What a thief skill's chance (percent) is made of, before armour, effects and the
+        situation: [(what, amount), ...], or None for a character without thief levels."""
+        sheet = self.sheet(creature)
+        rec = self.creature(creature)
+        if len(sheet) < SHEET_SIZE or len(rec) < CREATURE_SIZE or not 0 <= skill < len(THIEF_SKILLS):
+            return None
+        level = next((sheet[SHEET_LEVELS + n] for n in range(3) if sheet[SHEET_CLASSES + n] == THIEF), 0)
+        if not level:
+            return None
+        table = self.guest.read((self.load_seg + THIEF_TABLE_SEG) * 16, THIEF_ARMOUR + 8)
+        signed_byte = lambda offset: struct.unpack_from("b", table, offset)[0]
+        race, dex = sheet[SHEET_RACE], rec[CREATURE_ABILITIES + 1]
+        parts = [("base", signed_byte(THIEF_BASE + skill)),
+                 (f"thief level {level}", level * THIEF_PER_LEVEL)]
+        if 1 <= race <= 8:
+            parts.append((RACE_NAMES[race], signed_byte(THIEF_RACE + race * 8 + skill)))
+        low, high, top = (table[o + skill] for o in (THIEF_DEX_LOW, THIEF_DEX_HIGH, THIEF_DEX_TOP))
+        dex_part = -5 * max(low - dex, 0) + 5 * max(dex - high, 0) - 3 * max(dex - top, 0)
+        parts.append((f"DEX {dex}", dex_part))
+        return [(what, n) for what, n in parts if n or what == "base"]
+
+    def thief_skills(self, creature: int) -> List[Tuple[str, int]]:
+        """[(skill, chance before armour and the situation), ...] for a thief, else []."""
+        out = []
+        for skill, name in enumerate(THIEF_SKILLS):
+            parts = self.thief_skill_parts(creature, skill)
+            if parts is None:
+                return []
+            out.append((name, sum(n for _, n in parts)))
+        return out
+
+    def equipment(self, creature: int) -> List[Tuple[Optional[str], str]]:
+        """A creature's items: [(slot it's worn in or None if only carried, "Leather Chest Armor"), ...],
+        worn items first, in the game's slot order."""
+        rec = self.creature(creature)
+        if len(rec) < CREATURE_SIZE:
+            return []
+        things = (self.load_seg + COMBATANTS_SEG) * 16 + COMBATANTS_OFF
+        items = far_pointer(self.guest, self.ds, ITEMS_PTR)
+        types = far_pointer(self.guest, self.ds, ITEM_TYPES_PTR)
+        out, seen = [], set()
+        for field in CREATURE_ITEM_LISTS:
+            thing, = struct.unpack_from("<h", rec, field)
+            if not 0 <= thing < 0x1000:
+                continue
+            kind, index = struct.unpack("<Bh", self.guest.read(things + thing * 3, 3))
+            if kind != THING_ITEM:
+                continue
+            while 0 <= index < 0x1000 and index not in seen and len(seen) < 100:
+                seen.add(index)
+                item = self.guest.read(items + index * ITEM_SIZE, ITEM_SIZE)
+                typ = self.guest.read(types + struct.unpack_from("<H", item, ITEM_TYPE)[0] * ITEM_TYPE_SIZE,
+                                      ITEM_TYPE_SIZE)
+                material = typ[0x08] & 0x0F if len(typ) == ITEM_TYPE_SIZE else len(MATERIALS)
+                plus = struct.unpack("b", item[ITEM_PLUS:ITEM_PLUS + 1])[0]
+                name = (f"{MATERIALS[material]} " if material < len(MATERIALS) else "") + \
+                    self.item_name(item[ITEM_NAME]) + (f" {plus:+d}" if plus else "")
+                slot = item[ITEM_SLOT]
+                out.append((EQUIP_SLOTS[slot] if slot < len(EQUIP_SLOTS) else None, name, slot))
+                index, = struct.unpack_from("<h", item, ITEM_NEXT)
+                if index == NO_ITEM:
+                    break
+        out.sort(key=lambda x: x[2])
+        return [(slot, name) for slot, name, _ in out]
 
     def dex_ac(self, dex: int) -> int:
         """The game's AC adjustment for a DEX score."""

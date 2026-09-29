@@ -55,6 +55,38 @@ WEAPON_DAMAGE_RETURN = bytes.fromhex("83c4068946fc0bc07f05")
 SPECIAL_EFFECT_RETURN = bytes.fromhex("83c4043d01007510")
 # ... and in the routine that adds up a spell's damage dice
 SPELL_DAMAGE_RETURN = bytes.fromhex("83c4045a03d0")
+# ... and in the routine that works out a spell's duration (its arguments: spell, caster level);
+# the dice are often NdS with S = 1, a fixed number
+SPELL_DURATION_RETURN = bytes.fromhex("83c406660fbfc0665a66")
+# The routine run whenever an effect uses up a charge (arguments: creature, effect): it rolls
+# 2d4 first, and deals it as acid damage only for the acid effect (Acid Arrow, each round)
+CHARGE_USED_RETURN = bytes.fromhex("83c4048946fe8b4608")
+ACID = 1
+# A confused creature's turn (its routine's first argument is the creature): d10, 1 it runs
+# off, 2-6 it does nothing, 7-9 it fights for a side picked with a d2 (as a berserk creature
+# always does), 10 it acts normally
+CONFUSION_ROLL_RETURN = bytes.fromhex("83c4048ad080fa0174da")
+RANDOM_SIDE_RETURN = bytes.fromhex("83c4048bde6bdb03ba")
+CONFUSION_RESULTS = ((1, "runs off"), (6, "does nothing"), (9, "fights for a side picked at random"),
+                     (10, "acts normally"))
+# Strength (and the psionic Adrenalin Control): the special handler rolls 1d6 and stores it in
+# the effect; while it lasts the game adds it to STR, keeping STR between 3 and 24
+STRENGTH_ROLL_RETURN = bytes.fromhex("83c40450660fbf4618")
+STR_MOST = 24
+MIND_BAR, LOW_RESISTANCE, MIND_BAR_RESISTANCE = 32, 31, 75
+# The magic resistance roll made straight from the spell code (arguments: target, spell, level)
+RESISTANCE_ROLL_RETURN = bytes.fromhex("83c404508a460a50ff76")
+# Dispel Magic, for each effect on the target (the effect id in [BP-2], the dispeller's level
+# the handler's argument at +14h): d100 at or under 50 + 5 x (that level - the effect's level)
+DISPEL_ROLL_RETURN = bytes.fromhex("83c4045a3bd07c108a46")
+# Abjure: d20, which must reach 11 - the caster's level + the target's level; a creature of
+# kind 14 (a summoned one) is then sent away (1000 damage)
+ABJURE_ROLL_RETURN = bytes.fromhex("83c4045a3bd07e03e968")
+ABJURE_KIND = 14
+# A summoning spell picking which of its three creatures comes
+SUMMON_ROLL_RETURN = bytes.fromhex("83c4043d0100740d3d02")
+# What a return address shows when the overlay manager has redirected it (INT 3Fh)
+OVERLAY_TRAP = b"\xcd\x3f"
 # DSCLOG only records calls whose calling code starts like one of these, so
 # bursts of other randomness (animations) don't crowd out the rolls that
 # matter: the "rand()*N/32768" rolls (attacks, checks, saves, damage dice)
@@ -81,6 +113,14 @@ CREATION_ABILITY_TRIES = 4
 LEVEL_HP_RETURN = bytes.fromhex("83c4048bc8c45efc268a")
 CREATION_HP_CALLER = 0x0232
 CREATION_HP_WAIT = 0.3  # seconds after the last hit point roll before the total is shown
+# ... and in the handler for spells with rules of their own (its arguments: caster, target, ...,
+# spell at +0Eh): code after its dice calls -> what the roll is and what the game adds
+SPELL_HANDLER_RETURNS = (
+    (bytes.fromhex("83c40440e988"), 1),  # Cure Serious Wounds: 2d8 + 1
+    (bytes.fromhex("83c404050300eb"), 3),  # Cure Critical Wounds: 3d8 + 3
+    (bytes.fromhex("83c4045057900e"), 0),  # Cure Light Wounds 1d8, Blood Flow 2d6 (healing)
+    (bytes.fromhex("83c40450ff7608"), 0),  # Aid 1d8, Vampiric Touch (level / 2)d6, drains
+)
 # ... and a name picked at random from the game's lists (the code after the dice call)
 RANDOM_NAME_RETURNS = (bytes.fromhex("83c40448eb11"), bytes.fromhex("83c4040563008b"),
                        bytes.fromhex("83c40405c700eb"))
@@ -91,6 +131,8 @@ THIEF = 17  # class number
 EFFECT_INTERVAL = 0.25  # seconds between looks at the active effects
 LOAD_SETTLE = 3.0  # seconds after the party changes (a game was loaded) when effects are not news
 PENDING_SECONDS = 1.0  # how long dice wait to learn which spell they belong to
+SPELL_WINDOW = 15.0  # seconds after a spell's roll in which HP changes are put down to the spell
+FIGHT_GAP = 120  # game seconds without a new round after which the fight is over
 
 
 class DiceLogError(Exception):
@@ -156,6 +198,18 @@ def scaled(raw: int, sides: int) -> int:
     return raw * sides // 0x8000
 
 
+def hit_chance(need: int) -> int:
+    """The chance (percent) of a d20 attack roll reaching `need`: a 20 always hits, a 1 always misses."""
+    return 5 * sum(1 for d in range(1, 21) if d == 20 or (d != 1 and d >= need))
+
+
+def save_chance(needed: int, doubled: bool) -> int:
+    """The chance (percent) that a d20 (doubled for some spells) reaches `needed` after the rest
+    is added; a natural 20 always saves and a natural 1 always fails."""
+    wins = sum(1 for d in range(1, 21) if d == 20 or (d != 1 and (d * 2 if doubled else d) >= needed))
+    return wins * 5
+
+
 def signed(n: int) -> str:
     return f"+{n}" if n >= 0 else f"-{abs(n)}"
 
@@ -215,6 +269,14 @@ class DiceLog:
         self.ac_detail: Dict[int, AcDetail] = {}  # creature index -> how that AC was made up
         self._dice: Dict[Tuple[int, int, int, int], List[int]] = {}
         self._pending: List[PendingDice] = []
+        self._out_cold: Dict[int, bool] = {}  # creature index -> Out Cold when last looked at
+        self._psp: Dict[int, int] = {}  # party member -> PSP when last looked at
+        self._last_damage: Optional[Tuple[int, int]] = None  # (spell, damage) last rolled
+        self._turn: Optional[int] = None  # whose turn it was when last looked at
+        self._reply: Optional[Tuple[int, str]] = None  # the reply being flashed when last looked at
+        self.speaker_names: Dict[int, str] = {}  # portrait -> the name the player gave it
+        self._hits: Dict[int, int] = {}  # creature -> damage of weapon hits not yet seen in its HP
+        self._round, self._round_time = 0, None  # this fight's round, and the game time it began
         self._save_rolls: Dict[Tuple[int, int], int] = {}  # (SS, save frame BP) -> natural d20
         self._effects: Optional[Counter] = None
         self._party: Optional[bytes] = None
@@ -231,6 +293,9 @@ class DiceLog:
         self._creation_hp: List[Tuple[int, int, int, str]] = []  # (sheet, class, hit points, text)
         self._creation_hp_at = 0.0
         self._creation_con: Optional[int] = None  # the CON just rolled
+        self._hp: Dict[int, int] = {}  # creature index -> HP at the last look
+        self._spell_until = 0.0  # HP changes before this are a spell's doing
+        self._spell_name = ""
         self.tracker: Optional[PartyTracker] = None
         self.text: Optional[TextBuffer] = None
         self.dialogue = Dialogue()
@@ -313,6 +378,9 @@ class DiceLog:
         out: List[str] = []
         for e in self.poll():
             out += self.describe(e, show_all, now)
+        changes = self.hp_changes(now) + self.psp_changes()
+        if not self._party_check(now):  # not while a game is loading: its records are half-filled
+            out += changes
         for rec in self.text.poll():
             if rec.kind == KIND_MESSAGE:
                 if rec.text.strip():
@@ -320,6 +388,7 @@ class DiceLog:
             else:
                 self._dialogue += self.dialogue.add(rec, now)
         self._dialogue += self.dialogue.idle(now)
+        self._dialogue += self._reply_choice(now)
         if now >= self._next_effect_check:
             self._next_effect_check = now + EFFECT_INTERVAL
             out += self.effect_changes(now)
@@ -327,6 +396,7 @@ class DiceLog:
                 out += self.tracker.check(now)
         if self._initiative and now - self._initiative_at >= INITIATIVE_WAIT:
             out += self.initiative_lines()
+        out += self.turn_lines()  # after the round's order and the last turn's XP
         if self._creation_hp and now - self._creation_hp_at >= CREATION_HP_WAIT:
             out += self.creation_hp_lines()
         out += self.flush(now)
@@ -335,13 +405,83 @@ class DiceLog:
             self.missed = 0
         return out
 
+    def psp_changes(self) -> List[str]:
+        """The party's PSP going down (a psionic power used, or kept up another round: the game
+        takes each maintained power's cost every round) or back up."""
+        out = []
+        for index in range(game.PARTY_SIZE):
+            rec = self.game.creature(index)
+            if len(rec) < 4:
+                continue
+            psp = struct.unpack_from("<h", rec, game.CREATURE_PSP)[0]
+            before, self._psp[index] = self._psp.get(index), psp
+            if before is None or before == psp or not rec[game.CREATURE_NAME] or not 0 <= before <= 1000:
+                continue  # unchanged, an empty party slot, or a record still being loaded
+            who = self.game.creature_name(index)
+            if psp < before:
+                out.append(f"    {who} spends {before - psp} PSP ({before} -> {psp})")
+            else:
+                out.append(f"    {who} regains {psp - before} PSP ({before} -> {psp})")
+        return out
+
+    def hp_changes(self, now: float) -> List[str]:
+        """Every combatant's HP going down or up, with what's left (the game never shows a
+        monster's HP). Put down to a spell while one is being cast (the damage after saves,
+        resistances and protections, or the healing)."""
+        g = self.game
+        out = []
+        current = {}
+        for combatant, index in sorted(g.combatants().items()):
+            rec = g.creature(index)
+            if len(rec) < 2:
+                continue
+            hp = struct.unpack_from("<h", rec, 0)[0]
+            current[index] = hp
+            was_out_cold = self._out_cold.get(index, False)
+            self._out_cold[index] = rec[game.CREATURE_STATUS] == game.OUT_COLD
+            before = self._hp.get(index)
+            if before is None or before == hp or not -100 <= before <= 2000:
+                continue  # unchanged, or a record still being loaded
+            who = g.creature_name(index)
+            sheet = g.sheet(index)
+            most = struct.unpack_from("<h", sheet, game.SHEET_MAX_HP)[0] if len(sheet) >= game.SHEET_SIZE else None
+            left = f"now {hp}/{most} HP" if most and most > 0 else f"now {hp} HP"
+            hit = min(self._hits.pop(index, 0), max(before - hp, 0))
+            if now <= self._spell_until and before - hp > hit:
+                # the game's damage code gives a creature that was Out Cold the most the dice can do
+                out_cold = " (Out Cold: the most the dice can do)" if was_out_cold else ""
+                also = f" and {hit} from the hit" if hit else ""
+                out.append(f"  {who} takes {before - hp - hit} from {self._spell_name}{out_cold}{also}, {left}")
+            elif now <= self._spell_until and hp > before:
+                out.append(f"  {who} regains {hp - before} HP from {self._spell_name}, {left}")
+            elif hp < before:
+                out.append(f"  {who} {left} (-{before - hp})")
+            else:
+                out.append(f"  {who} {left} (+{hp - before})")
+        self._hp = current
+        return out
+
+    def _spell_cast(self, spell: Optional[int], now: float) -> None:
+        """A spell is taking effect: HP changes for the next few seconds are its doing."""
+        if spell is not None:
+            self._spell_name = self.game.spell_name(spell)
+            self._spell_until = now + SPELL_WINDOW
+
     def speaker(self, portrait: Optional[int]) -> str:
         """Who a dialogue portrait belongs to, as far as is known."""
         if portrait is None:
             return "(no portrait)"
         if portrait == 0:
             return "Narration"  # the window shows an emblem, not a face
-        return f"Portrait {portrait}"
+        return self.speaker_names.get(portrait) or game.SPEAKERS.get(portrait) or f"Portrait {portrait}"
+
+    def _reply_choice(self, now: float) -> List[DialogueEntry]:
+        """The player's answer, once, when they click a reply."""
+        chosen, before = self.game.reply_chosen(), self._reply
+        self._reply = chosen
+        if chosen is None or chosen == before or not chosen[1]:
+            return []
+        return self.dialogue.flush() + [DialogueEntry(None, chosen=chosen[1])]
 
     def take_dialogue(self) -> List[DialogueEntry]:
         """Dialogue that has come in since the last call (lines() collects it)."""
@@ -388,7 +528,10 @@ class DiceLog:
             name = EFFECT_NAMES.get(eid, f"effect {eid}")
             targets = ", ".join(self._name(o) for o in owners)
             rule = f": {EFFECT_RULES[eid]}" if eid in EFFECT_RULES else ""
-            out.append(f"{self._name(caster)} gives {name} to {targets}{rule}")
+            if owners == [caster] * len(owners):  # on itself (or from a spell on the ground)
+                out.append(f"{name} on {targets}{rule}")
+            else:
+                out.append(f"{self._name(caster)} gives {name} to {targets}{rule}")
         by_end: Dict[int, List[int]] = {}
         for eff in ended.elements():
             by_end.setdefault(eff.id, []).append(eff.owner)
@@ -430,11 +573,38 @@ class DiceLog:
             return []
         return self.initiative_lines() + self._describe_entry(e, show_all, now)
 
+    def turn_lines(self) -> List[str]:
+        """'Gerakis's turn' whenever the turn passes during a fight."""
+        if self._initiative or self._initiative_roll is not None:
+            return []  # a round is starting: its order comes first
+        turn = self.game.whose_turn()
+        if turn is None or turn == self._turn:
+            return []
+        self._turn = turn
+        now = self.game.game_time()
+        if self._round_time is None or now is None or now - self._round_time > FIGHT_GAP:
+            return []  # not in a fight
+        name = self.game.combatant_name(turn)
+        return [f"{name}'s turn"] if name != "?" else []
+
+    def _round_number(self) -> int:
+        """The round of this fight: the game's clock moves 60 seconds a round, and a longer gap
+        means a new fight."""
+        now = self.game.game_time()
+        if now is None:
+            return 0
+        if self._round_time is None or now - self._round_time > FIGHT_GAP:
+            self._round = 0
+        self._round_time = now
+        self._round += 1
+        return self._round
+
     def initiative_lines(self) -> List[str]:
         """The round's order, from the rolls collected since the round began."""
         pairs, self._initiative = self._initiative, []
         if not pairs:
             return []
+        self._hits.clear()  # a new round: hits not seen in HP by now never will be (Stoneskin...)
         g = self.game
         combatants = g.combatants()
         table = g.initiative(max(combatants.values(), default=0) + 1)
@@ -463,7 +633,9 @@ class DiceLog:
             rows.append((score, tie, f"{g.creature_name(index)} {score}", steps))
         rows.sort(key=lambda r: (-r[0], -r[1]))
         scores = Counter(r[0] for r in rows)
-        out = ["Initiative, highest acts first:"]
+        number = self._round_number()
+        order = ", ".join(who for _, _, who, _ in rows)
+        out = [f"Round {number}" + (f": {order}" if order else "") if number else f"Initiative: {order}"]
         for score, tie, who, steps in rows:
             tied = f", tie broken by {tie} (0-199 roll)" if scores[score] > 1 else ""
             out.append(f"    {who} = {INITIATIVE_BASE} + {steps}{tied}")
@@ -476,6 +648,7 @@ class DiceLog:
             return self._ac(e, show_all)
         code = e.code
         if code.startswith(ATTACK_SITE):
+            self._spell_until = 0.0
             return self.flush(now, force=True) + self._attack(e)
         if code.startswith(DICE_SITE):
             return self._dice_roll(e, show_all, now)
@@ -484,9 +657,7 @@ class DiceLog:
         if code.startswith(BREAK_ROLL_1) or code.startswith(BREAK_ROLL_2):
             return self._break_check(e, code.startswith(BREAK_ROLL_1), show_all)
         if code.startswith(PERCENT_SITE):
-            chance, roll = e.local(-2), e.raw % 100 + 1
-            return [f"Percentile check: d100 = {roll}, needs {chance} or less "
-                    f"-> {'success' if roll <= chance else 'failure'}"]
+            return self._thief_skill(e)
         if show_all:
             generic = generic_roll(code, e)
             where = f"{e.cs:04x}:{e.ip:04x}"
@@ -494,6 +665,32 @@ class DiceLog:
                 return [f"{generic[0]} = {generic[1]}  (at {where})"]
             return [f"rand() = {e.raw}  (at {where})"]
         return []
+
+    def _thief_skill(self, e: Entry) -> List[str]:
+        """A thief skill check (the game's routine at 803B8h): d100 under the skill's chance plus
+        the situation's bonus. Its arguments are (character, skill, bonus); [BP-2] the chance.
+        Effects change the bonus in place before the roll (Enlarge scales it; an effect that
+        rules the skill out takes 1000 off), so the frame holds the bonus as it was used."""
+        chance, roll = e.local(-2), e.raw % 100 + 1
+        who, skill, bonus = e.arg(6), e.arg(8), e.arg(0x0C) or 0
+        if chance is None or who is None or skill is None:
+            return []
+        name = game.THIEF_SKILLS[skill] if 0 <= skill < len(game.THIEF_SKILLS) else f"skill {skill}"
+        head = f"{self._name(who)} tries to {name}: d100 = {roll}"
+        if chance <= -500:  # the game takes 1000 off when an effect makes it impossible
+            return [f"{head} -> failure (an effect stops it)"]
+        head += f", needs {chance} or less -> {'success' if roll <= chance else 'failure'}"
+        creature = self.game.combatant_creature(who)
+        parts = self.game.thief_skill_parts(creature, skill) if creature is not None else None
+        if parts is None:
+            return [head]
+        rest = chance - bonus - sum(n for _, n in parts)
+        steps = [f"{n}" if what == "base" else f"{signed(n)} {what}" for what, n in parts]
+        if bonus:
+            steps.append(f"{signed(bonus)} this attempt")
+        if rest:  # the only other part of the chance: the penalty for armour other than leather
+            steps.append(f"{signed(rest)} armour")
+        return [head, f"    {name} {chance} = " + " ".join(steps).replace(" +", " + ").replace(" -", " - ")]
 
     # attacks ---------------------------------------------------------------------
 
@@ -516,8 +713,10 @@ class DiceLog:
         target = g.combatant_name(target_combatant)
         # the attack's own arguments: [BP+1Eh] a backstab, [BP+20h] from behind
         how = " BACKSTAB" if e.arg(0x1E) and e.arg(0x20) else " from behind" if e.arg(0x20) else ""
+        chance = hit_chance(need)
+        needs = ("hits on anything but a 1" if need <= 2 else "only a 20 hits" if need > 20 else f"needs {need}+")
         head = (f"{g.creature_name(attacker)} attacks {target}{how}{with_what}: d20 = {d20}{note}, "
-                f"hits AC {thac0 - d20}, target AC {ac} -> {'HIT' if hit else 'miss'}")
+                f"{needs} ({chance}%), hits AC {thac0 - d20}, target AC {ac} -> {'HIT' if hit else 'miss'}")
         return [head, "    " + self._thac0_breakdown(e, thac0, attacker, attacker_combatant,
                                                      target_combatant, weapon, mode)]
 
@@ -599,7 +798,7 @@ class DiceLog:
         faces_text = "[" + " + ".join(map(str, faces)) + "]"
         if not weapon:
             if count == 1 and sides == 20 and self._is_save_roll(e):
-                return self._save_roll(e)
+                return self._save_roll(e, now)
             if count == 1 and sides == 10 and e.parent_code.startswith(SPECIAL_EFFECT_RETURN):
                 target, attacker = e.parent_arg(6), e.parent_arg(8)
                 return [f"    {self._name(attacker)}'s special effect on {self._name(target)}: d10 = {faces[0]}, "
@@ -614,11 +813,57 @@ class DiceLog:
                 level_up = self._level_hp(e, sides, faces[0])
                 if level_up:
                     return level_up
+            if count == 1 and sides == 10 and e.parent_code.startswith(CONFUSION_ROLL_RETURN):
+                what = next(text for top, text in CONFUSION_RESULTS if faces[0] <= top)
+                return self.flush(now, force=True) + [
+                    f"{self._name(e.parent_arg(6))} is confused: d10 = {faces[0]} -> {what}"]
+            if count == 1 and sides == 2 and e.parent_code.startswith(RANDOM_SIDE_RETURN):
+                side = "the party's" if faces[0] == 1 else "the monsters'"
+                return [f"    {self._name(e.parent_arg(6))} fights on {side} side this turn (d2 = {faces[0]})"]
+            if count == 1 and e.parent_code.startswith(STRENGTH_ROLL_RETURN) and e.parent_arg(0x0E) is not None:
+                spell, target = e.parent_arg(0x0E), e.parent_arg(6)
+                self._spell_cast(spell, now)
+                return self.flush(now, force=True) + [
+                    f"{self.game.spell_name(spell)}: 1d{sides} = {faces[0]} -> {self._name(target)}'s STR "
+                    f"+{faces[0]} while it lasts (at most {STR_MOST})"]
+            if count == 1 and sides == 100 and e.parent_code.startswith(RESISTANCE_ROLL_RETURN):
+                return self._magic_resistance(e.parent_arg(6), e.parent_arg(8), faces[0])
+            if count == 1 and sides == 100 and e.parent_code.startswith(DISPEL_ROLL_RETURN):
+                return self._dispel(e, faces[0])
+            if count == 1 and sides == 20 and e.parent_code.startswith(ABJURE_ROLL_RETURN):
+                return self._abjure(e, faces[0])
+            if count == 1 and e.parent_code.startswith(SUMMON_ROLL_RETURN):
+                return [f"    Summoning: 1d{sides} = {faces[0]} picks which of its {sides} creatures comes"]
+            if e.parent_code.startswith(CHARGE_USED_RETURN):
+                who, eid = self._name(e.parent_arg(6)), e.parent_arg(8)
+                if eid == ACID:
+                    return self.flush(now, force=True) + [
+                        f"    {EFFECT_NAMES[ACID]} on {who}: {count}d{sides} = {faces_text} = {sum(faces)} acid damage"]
+                # the 2d4 means nothing here: a Stoneskin, Ironskin, Mirror Image... used a charge
+                name = EFFECT_NAMES.get(eid, f"effect {eid}")
+                return [f"    {name} on {who}: one charge used"]
+            handler = next((bonus for code, bonus in SPELL_HANDLER_RETURNS if e.parent_code.startswith(code)), None)
+            if handler is not None and e.parent_arg(0x0E) is not None:
+                spell = e.parent_arg(0x0E)
+                self._spell_cast(spell, now)
+                total = sum(faces) + handler
+                return self.flush(now, force=True) + [
+                    f"{self.game.spell_name(spell)}: {count}d{sides} = [" + " + ".join(map(str, faces)) + "]"
+                    + (f" {signed(handler)}" if handler else "") + f" = {total}"]
+            if e.parent_code.startswith(SPELL_DURATION_RETURN) or self._overlay_duration(e, count, sides):
+                return self._spell_duration(e, count, sides, faces)
+            if e.parent_code.startswith(SPELL_DAMAGE_RETURN):
+                self._spell_cast(e.parent_arg(6), now)
+                return self.flush(now, force=True) + [self._spell_damage(e, count, sides, faces)]
+            steps = self._missile_steps(e, count, sides)
+            if steps is not None:
+                self._spell_cast(e.parent_arg(6), now)
+                return self.flush(now, force=True) + [self._spell_damage(e, count, sides, faces, steps)]
             if sides > 1:  # the game sometimes "rolls" 1d1
                 pending = PendingDice(f"{count}d{sides} = {faces_text} = {sum(faces)}", now,
                                       damage=e.parent_code.startswith(SPELL_DAMAGE_RETURN))
                 target, spell = e.parent_arg(6), e.parent_arg(8)
-                if count == 1 and sides == 100 and target is not None and 1 <= spell <= game.SPELL_COUNT \
+                if count == 1 and sides == 100 and target is not None and 1 <= spell < game.PSIONIC_FIRST + game.PSIONIC_COUNT \
                         and self.game.combatant_creature(target) is not None:
                     pending.resistance = (target, spell, faces[0])
                 self._pending.append(pending)
@@ -646,7 +891,92 @@ class DiceLog:
             times = min(2 + (max(thief[0], 1) - 1) // 4, 5) if thief else 2
             total *= times
             steps = f"({steps}) x{times} backstab"
+        target = g.combatant_creature(e.glob[0])
+        if target is not None:  # so the HP it takes isn't put down to a spell being cast
+            self._hits[target] = self._hits.get(target, 0) + total
         return [f"  {g.creature_name(attacker)} hits {g.combatant_name(e.glob[0])} for {total}: {steps}"]
+
+    def _overlay_duration(self, e: Entry, count: int, sides: int) -> bool:
+        """The duration routine's roll when the overlay manager has swapped its return address
+        for an INT 3Fh stub (so its code can't be matched): its arguments are still (spell,
+        caster level), and the dice are the spell record's duration dice."""
+        if not e.parent_code.startswith(OVERLAY_TRAP):
+            return False
+        spell, level = e.parent_arg(6), e.parent_arg(8)
+        if spell is None or level is None or not 1 <= spell < game.PSIONIC_FIRST + game.PSIONIC_COUNT or not 1 <= level <= 40:
+            return False
+        rec = self.game.spell_record(spell)
+        return len(rec) > 4 and (rec[4] & 0x0F, rec[4] >> 4) == (count, sides)
+
+    def _spell_duration(self, e: Entry, count: int, sides: int, faces: List[int]) -> List[str]:
+        g = self.game
+        spell, level = e.parent_arg(6), (e.parent_arg(8) or 0) & 0xFF
+        if spell is None:
+            return []
+        dice = f"{count}d{sides}" + (f" = [{' + '.join(map(str, faces))}]" if sides > 1 else "")
+        found = g.spell_duration(spell, level, sum(faces))
+        if found is not None:
+            units, how = found
+            return [f"    {g.spell_name(spell)} lasts {game.game_time(units)} (caster level {level}: {how}; "
+                    f"dice {dice})"]
+        charges = g.spell_charges(spell, level, sum(faces))
+        if charges is not None:  # lasts until used up (blows taken, images struck...)
+            count, how = charges
+            return [f"    {g.spell_name(spell)} has {count} charge{'' if count == 1 else 's'} "
+                    f"(caster level {level}: {how}; dice {dice})"]
+        return []  # permanent until removed
+
+    def _missile_steps(self, e: Entry, count: int, sides: int) -> Optional[int]:
+        """Magic Missile, Flame Arrow, Minute Meteors: their damage is rolled by another routine,
+        whose return address the overlay manager has taken, but the dice routine's own
+        arguments name the spell (as does its caller's first). The steps of caster level the
+        roll stands for, when the dice fit the spell's formula; else None."""
+        if not e.parent_code.startswith(OVERLAY_TRAP):
+            return None
+        spell = e.arg(0x0C)
+        if spell is None or spell != e.parent_arg(6) or not 1 <= spell < game.PSIONIC_FIRST + game.PSIONIC_COUNT:
+            return None
+        rule = self.game.spell_damage(spell)
+        if rule is None or rule.sides != sides or sides < 2:
+            return None
+        if not rule.step_dice:  # fixed dice (Slay Living's 4d8)
+            return 0 if count == rule.base_dice else None
+        steps, extra = divmod(count - rule.base_dice, rule.step_dice)
+        return steps if steps >= 1 and not extra else None
+
+    def _spell_damage(self, e: Entry, count: int, sides: int, faces: List[int],
+                      missile_steps: Optional[int] = None) -> str:
+        """A spell's damage dice, rolled by the routine whose arguments are (spell, caster level):
+        the game adds a flat bonus for each step of caster level."""
+        g = self.game
+        spell, level = e.parent_arg(6), (e.parent_arg(8) or 0) & 0xFF
+        name = g.spell_name(spell) if spell is not None else "Spell"
+        text = f"{name} damage: {count}d{sides} = [" + " + ".join(map(str, faces)) + "]"
+        rule = g.spell_damage(spell) if spell is not None else None
+        self._last_damage = (spell, sum(faces))
+        if rule is None or rule.sides != sides:
+            return f"{text} = {sum(faces)}"
+        steps = rule.steps(level) if missile_steps is None else missile_steps
+        bonus = rule.step_bonus * steps
+        self._last_damage = (spell, sum(faces) + bonus)
+        if bonus:
+            text += f" {signed(bonus)}"
+        text += f" = {sum(faces) + bonus}"
+        per = (f"{rule.step_dice}d{sides}" if rule.step_dice else "") + \
+            (f"{signed(rule.step_bonus)}" if rule.step_dice and rule.step_bonus else
+             f"{rule.step_bonus}" if rule.step_bonus else "")
+        if not per:
+            return text
+        unit = "caster level" if rule.per_levels == 1 else f"{rule.per_levels} caster levels"
+        counted = min(level, game.SPELL_LEVEL_CAP) + rule.adjust
+        how = f"{per} for each {unit}"
+        if rule.adjust:
+            how += f" (counting {signed(rule.adjust)})"
+        base = f"{rule.base_dice}d{sides} + " if rule.base_dice else ""
+        if missile_steps is not None:  # the caster's level isn't in this routine's arguments
+            return f"{text} ({base}{how}, counted up to level {game.SPELL_LEVEL_CAP}: {steps})"
+        cap = f", which counts as {game.SPELL_LEVEL_CAP}" if level > game.SPELL_LEVEL_CAP else ""
+        return f"{text} ({base}{how}: {steps} at caster level {level}{cap})" if counted >= 0 else text
 
     # weapons breaking and levels ------------------------------------------------------
 
@@ -813,11 +1143,12 @@ class DiceLog:
         table = game.far_pointer(self.guest, self.game.ds, game.CREATURES_PTR)
         return (seg & 0xFFFF) * 16 + (off & 0xFFFF) == table + index * game.CREATURE_SIZE
 
-    def _save_roll(self, e: Entry) -> List[str]:
+    def _save_roll(self, e: Entry, now: float = 0.0) -> List[str]:
         """The d20 of a saving throw. A natural 1 or 20 ends the save here; otherwise the
         save probe reports the total."""
         natural = scaled(e.raw, 20) + 1
         spell, target, caster = e.parent_arg(0x0A), e.parent_arg(6), e.parent_arg(8)
+        self._spell_cast(spell, now)
         needed = e.parent_locals[0x28 - 1]
         index = e.parent_local(-6)
         pending = self._flush_spell(spell)
@@ -833,13 +1164,60 @@ class DiceLog:
         return self._flush_spell(spell) + [
             self._save_line(target, caster, spell, e.local(-6), natural, total, needed)]
 
+    def _dispel(self, e: Entry, roll: int) -> List[str]:
+        """One effect's chance against Dispel Magic."""
+        g = self.game
+        target, level, eid = e.parent_arg(6), (e.parent_arg(0x14) or 0) & 0xFF, e.parent_local(-2)
+        if target is None or eid is None:
+            return []
+        name = EFFECT_NAMES.get(eid, f"effect {eid}")
+        # the game weighs every effect of that kind on the target (usually one): each effect's level
+        levels = []
+        for effect, spell in g.effect_spells():
+            if effect.owner == target and effect.id == eid:
+                caster = g.combatant_creature(effect.caster)
+                found = g.effect_caster_level(caster, spell) if caster is not None else None
+                levels.append(found or 0)
+        chance = 50 + 5 * level - 5 * sum(levels)
+        against = f" - 5 x {sum(levels)} (its caster's level)" if levels else ""
+        return [f"    Dispel Magic on {self._name(target)}'s {name}: d100 = {roll}, needs {chance} or less "
+                f"(50 + 5 x {level}{against}) -> {'dispelled' if roll <= chance else 'stays'}"]
+
+    def _abjure(self, e: Entry, roll: int) -> List[str]:
+        g = self.game
+        target, level = e.parent_arg(6), (e.parent_arg(0x14) or 0) & 0xFF
+        creature = g.combatant_creature(target) if target is not None else None
+        sheet = g.sheet(creature) if creature is not None else b""
+        if len(sheet) < game.SHEET_SIZE:
+            return [f"    Abjure: d20 = {roll}"]
+        their = sheet[game.SHEET_LEVELS]
+        need = 11 - level + their
+        kind = sheet[game.SHEET_RACE]
+        works = roll >= need
+        result = ("sent away" if kind == ABJURE_KIND else "no effect: only summoned creatures can be sent away") \
+            if works else "fails"
+        return [f"    Abjure on {self._name(target)}: d20 = {roll}, needs {need} or more (11 - caster level {level} "
+                f"+ its level {their}) -> {result}"]
+
     def _magic_resistance(self, target: int, spell: int, roll: int) -> List[str]:
         """The d100 the game rolls against a target's magic resistance before its saving throw."""
-        resistance = self.game.magic_resistance(target) or 0
+        g = self.game
+        resistance = g.magic_resistance(target) or 0
+        how = []
+        # the game's rules (its routine at 7A4A1h): Mind Bar +75 against mind-affecting spells,
+        # then Lower Resistance halves it
+        on = {x.id for x in g.effects() if x.owner == target}
+        if MIND_BAR in on and g.mind_affecting(spell):
+            resistance += MIND_BAR_RESISTANCE
+            how.append(f"+{MIND_BAR_RESISTANCE} Mind Bar")
+        if LOW_RESISTANCE in on and resistance:
+            resistance //= 2
+            how.append("halved by Lower Resistance")
         if not resistance:  # the roll can't matter
             return []
-        return [f"{self.game.combatant_name(target)} magic resistance {resistance}% vs "
-                f"{self.game.spell_name(spell)}: d100 = {roll} -> {'resisted' if roll < resistance else 'not resisted'}"]
+        detail = f" ({', '.join(how)})" if how else ""
+        return [f"{g.combatant_name(target)} magic resistance {resistance}%{detail} vs "
+                f"{g.spell_name(spell)}: d100 = {roll} -> {'resisted' if roll < resistance else 'not resisted'}"]
 
     def _flush_spell(self, spell: int) -> List[str]:
         """Dice rolled just before a spell's saving throws belong to that spell."""
@@ -856,10 +1234,11 @@ class DiceLog:
     def _save_line(self, target, caster, spell, index, natural, total, needed) -> str:
         g = self.game
         kind = SAVE_NAMES.get(index, "?")
-        who = f"{g.combatant_name(target)} saves vs {g.spell_name(spell)} from {g.combatant_name(caster)} ({kind})"
+        # a spell left on the ground (Grease, a cloud) makes its victims save with themselves as the caster
+        source = f" from {g.combatant_name(caster)}" if caster != target else ""
+        who = f"{g.combatant_name(target)} saves vs {g.spell_name(spell)}{source} ({kind})"
         if total is None:
-            result = "saved" if natural == 20 else "failed"
-            return f"{who}: d20 = {natural} (natural {natural}) -> {result}"
+            return f"{who}: d20 = {natural} (natural {natural}) -> {self._save_result(spell, natural == 20)}"
         if total >= 0x80:  # the game adds -100 / +100 for "can't save" / "always saves"
             total -= 0x100
         if total < -50:
@@ -872,7 +1251,7 @@ class DiceLog:
             steps, rolled = f"d20 = {natural}", natural
             if rules and rules.doubles_roll:
                 rolled = natural * 2
-                steps += f", doubled for this spell = {rolled}"
+                steps += f", doubled against {rules.doubled_for} = {rolled}"
             parts = []
             if rules and rules.save_modifier:
                 parts.append(f"{signed(rules.save_modifier)} spell")
@@ -883,7 +1262,25 @@ class DiceLog:
                 steps += " " + " ".join(parts) + f" = {total}"
         else:
             steps += f" total {total}"
-        return f"{who}: {steps}, needs {needed} -> {'saved' if total >= needed else 'failed'}"
+        chance = ""
+        if natural is not None:
+            doubled = bool(rules and rules.doubles_roll)
+            chance = f" ({save_chance(needed - (total - (rolled or 0)), doubled)}% to save)"
+        return f"{who}: {steps}, needs {needed}{chance} -> {self._save_result(spell, total >= needed)}"
+
+    def _save_result(self, spell: int, saved: bool) -> str:
+        """'saved' or 'failed', and what that does to the spell's damage: the amount from the
+        damage roll just before (the game rolls each target's damage, then its save; resistances
+        and protections can still lower it, which the HP line after shows)."""
+        rule = self.game.spell_damage(spell)
+        rolled = self._last_damage[1] if self._last_damage and self._last_damage[0] == spell else None
+        if rule is None or rule.sides < 2:  # no damage dice (1d1 is the game's "none")
+            return "saved" if saved else "failed"
+        if not saved:
+            return f"failed: full damage, {rolled}" if rolled is not None else "failed: full damage"
+        if self.game.save_negates_damage(spell):
+            return f"saved: no damage (not {rolled})" if rolled is not None else "saved: no damage"
+        return f"saved: half damage, {rolled // 2} of {rolled}" if rolled is not None else "saved: half damage"
 
     def _save_modifier_sources(self, target: int) -> str:
         """'modifiers', naming the target's effects the game counts in saving throws."""

@@ -46,6 +46,8 @@ LOG_COLOURS = {
     "damage": AMBER,
     "save": PSI_BLUE,
     "detail": DETAIL,
+    "round": PALE,
+    "turn": SAND,
     "other": YELLOW,
 }
 
@@ -55,6 +57,7 @@ TEXT_PAIRS: Dict[str, Tuple[str, str]] = {
     "log text": (PALE, DEEP),
     "dialogue": (AMBER, DEEP),
     "speaker": (YELLOW, DEEP),
+    "dialogue, chosen reply": (GREEN, DEEP),
     "label": (PALE, STONE),
     "status": (YELLOW, STONE),
     "section title": (YELLOW, STONE),
@@ -67,6 +70,10 @@ TEXT_PAIRS: Dict[str, Tuple[str, str]] = {
     "table, selected row": (AMBER, DARK),
     "table heading": (PALE, DARK),
     "entry": (YELLOW, DEEP),
+    "character card text": (PALE, DEEP),
+    "character card name and numbers": (YELLOW, DEEP),
+    "character card PSP": (PSI_BLUE, DEEP),
+    "character card condition": (AMBER, DEEP),
     "selected text": (YELLOW, PANEL),
     "hex, changed byte": (SHADOW, AMBER),
     "hex, selected byte": (SHADOW, PSI_BLUE),

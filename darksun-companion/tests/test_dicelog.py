@@ -154,7 +154,7 @@ class AttackTests(unittest.TestCase):
         set_effects(log, [(0, 2, 7)])  # Dag is Blessed
         lines = log.describe(self.attack(18, 8, 4, 5, 9, after_f1=9, hit_bonus=1))
         self.assertEqual(lines, [
-            "Dag attacks Mountain Stalker with Long Sword +1 (1d8+1): d20 = 18, hits AC -10, target AC 4 -> HIT",
+            "Dag attacks Mountain Stalker with Long Sword +1 (1d8+1): d20 = 18, needs 4+ (85%), hits AC -10, target AC 4 -> HIT",
             "    THAC0 16, +1 Blessed, +6 STR, +1 weapon = 8"])
         self.assertEqual(log.last_ac, {STALKER: 4})  # the target's AC, for the viewer
 
@@ -163,7 +163,7 @@ class AttackTests(unittest.TestCase):
         # base 16 - 2 (rear) - 6 (STR) = 8; wooden -3 -> 11
         lines = log.describe(self.attack(5, 11, 2, 6, 10, after_f1=8, hit_bonus=-3, m1a=1))
         self.assertEqual(lines, [
-            "Dag attacks Mountain Stalker from behind with Wooden Long Sword (1d8): d20 = 5, hits AC 6, target AC 2 -> miss",
+            "Dag attacks Mountain Stalker from behind with Wooden Long Sword (1d8): d20 = 5, needs 9+ (60%), hits AC 6, target AC 2 -> miss",
             "    THAC0 16, +2 from behind, +6 STR, -3 wooden = 11"])
 
     def test_backstab_is_named(self):
@@ -193,7 +193,7 @@ class AttackTests(unittest.TestCase):
         log = make_game()
         lines = log.describe(self.attack(20, 11, 1, -1, -1, after_f1=11, hit_bonus=0, attacker=STALKER,
                                          combatant=0x29))
-        self.assertEqual(lines[0], "Mountain Stalker attacks Mountain Stalker: d20 = 20 (natural 20), "
+        self.assertEqual(lines[0], "Mountain Stalker attacks Mountain Stalker: d20 = 20 (natural 20), needs 10+ (55%), "
                                    "hits AC -9, target AC 1 -> HIT")
         self.assertEqual(lines[1], "    THAC0 11 = 11")
 
@@ -243,25 +243,199 @@ class SaveTests(unittest.TestCase):
         log = make_game()
         damage = [entry(raw_for(f, 6), dicelog.DICE_SITE, words(0, 0, 2, 6), words(0, 0, HOLD_PERSON),
                         parent_code=dicelog.SPELL_DAMAGE_RETURN) for f in (6, 4)]
-        self.assertEqual(log.describe(damage[0], now=1.0) + log.describe(damage[1], now=1.0), [])
-        self.assertEqual(log.describe(self.save_roll(log, 13), now=1.1), ["Hold Person damage: 2d6 = [6 + 4] = 10"])
+        # the damage routine's arguments name the spell, so the line needn't wait for the save
+        self.assertEqual(log.describe(damage[0], now=1.0) + log.describe(damage[1], now=1.0),
+                         ["Hold Person damage: 2d6 = [6 + 4] = 10"])
+        self.assertEqual(log.describe(self.save_roll(log, 13), now=1.1), [])
         self.assertEqual(log.describe(self.probe(15)),
                          ["Mountain Stalker saves vs Hold Person from Dag (spell): d20 = 13 +2 modifiers = 15, "
-                          "needs 14 -> saved"])
+                          "needs 14 (45% to save) -> saved"])
+
+    def test_save_shows_what_it_leaves(self):
+        """Fireball's damage for this target, then its save: the save line says what's left."""
+        log = make_game()
+        self.damage_formula(log, FIREBALL, 0x20, 0x01, 0x06)  # 1d6 a caster level
+        dice = [entry(raw_for(f, 6), dicelog.DICE_SITE, words(0, 0, 3, 6), words(0, 0, FIREBALL, 3),
+                      parent_code=dicelog.SPELL_DAMAGE_RETURN) for f in (6, 5, 4)]
+        for d in dice:
+            log.describe(d, now=1.0)
+        log.describe(self.save_roll(log, 9, spell=FIREBALL), now=1.1)
+        self.assertEqual(log.describe(self.probe(18, needed=14, spell=FIREBALL)),
+                         ["Mountain Stalker saves vs Fireball from Dag (spell): d20 = 9, doubled against fire = 18, "
+                          "needs 14 (70% to save) -> saved: half damage, 7 of 15"])
+
+    def damage_formula(self, log, spell, b0, b1, b2):
+        rules = (LOAD_SEG + game.SPELLS_SEG) * 16 + game.SPELLS_OFF + spell * game.SPELL_SIZE
+        log.guest.mem[rules + 0x0C:rules + 0x0F] = bytes((b0, b1, b2))
+
+    def test_damage_formula(self):
+        log = make_game()
+        self.damage_formula(log, FIREBALL, 0x20, 0x01, 0x06)  # 1d6 a caster level
+        dice = [entry(raw_for(f, 6), dicelog.DICE_SITE, words(0, 0, 3, 6), words(0, 0, FIREBALL, 3),
+                      parent_code=dicelog.SPELL_DAMAGE_RETURN) for f in (1, 2, 3)]
+        lines = sum((log.describe(d) for d in dice), [])
+        self.assertEqual(lines, ["Fireball damage: 3d6 = [1 + 2 + 3] = 6 (1d6 for each caster level: 3 at caster "
+                                 "level 3)"])
+        # 1d3 + 2 a level (Burning Hands' numbers), from a 20th level caster: counted as 10
+        self.damage_formula(log, HOLD_PERSON, 0x02, 0x09, 0x03)
+        e = entry(raw_for(2, 3), dicelog.DICE_SITE, words(0, 0, 1, 3), words(0, 0, HOLD_PERSON, 20),
+                  parent_code=dicelog.SPELL_DAMAGE_RETURN)
+        self.assertEqual(log.describe(e), ["Hold Person damage: 1d3 = [2] +20 = 22 (1d3 + 2 for each caster level: "
+                                           "10 at caster level 20, which counts as 10)"])
+
+    def test_missile_damage(self):
+        """Flame Arrow, Minute Meteors, Magic Missile: rolled behind the overlay manager, with
+        the spell in the dice routine's own arguments; the steps come from the dice."""
+        log = make_game()
+        self.damage_formula(log, FIREBALL, 0x20, 0x01, 0x06)  # 1d6 a caster level
+        dice = [entry(raw_for(f, 6), dicelog.DICE_SITE, words(0, 0, 3, 6, 0, FIREBALL), words(0, 0, FIREBALL, -748),
+                      parent_code=dicelog.OVERLAY_TRAP + bytes(8)) for f in (1, 2, 3)]
+        lines = sum((log.describe(d) for d in dice), [])
+        self.assertEqual(lines, ["Fireball damage: 3d6 = [1 + 2 + 3] = 6 (1d6 for each caster level, counted up "
+                                 "to level 10: 3)"])
+
+    def test_missile_fixed_dice(self):
+        log = make_game()
+        self.damage_formula(log, FIREBALL, 0, 0x20, 0x08)  # 4d8, nothing more for levels
+        dice = [entry(raw_for(f, 8), dicelog.DICE_SITE, words(0, 0, 4, 8, 0, FIREBALL), words(0, 0, FIREBALL, -748),
+                      parent_code=dicelog.OVERLAY_TRAP + bytes(8)) for f in (1, 7, 5, 1)]
+        self.assertEqual(sum((log.describe(d) for d in dice), []), ["Fireball damage: 4d8 = [1 + 7 + 5 + 1] = 14"])
+
+    def test_dispel_and_abjure(self):
+        log = make_game()
+        # Dispel Magic at level 7 on the stalker's Blessed (no such effect listed: nothing to weigh)
+        e = entry(raw_for(60, 100), dicelog.DICE_SITE, words(0, 0, 1, 100),
+                  words(0, 0, 0x29, 0, 0, 0, 0, 0, 0, 7), parent_locals=locals_at(0x28, m2=7),
+                  parent_code=dicelog.DISPEL_ROLL_RETURN)
+        self.assertEqual(log.describe(e), ["    Dispel Magic on Mountain Stalker's Blessed: d100 = 60, needs 85 or "
+                                           "less (50 + 5 x 7) -> dispelled"])
+        # Abjure at level 5 against the stalker (level 0 on its sheet): needs 6
+        e = entry(raw_for(4, 20), dicelog.DICE_SITE, words(0, 0, 1, 20), words(0, 0, 0x29, 0, 0, 0, 0, 0, 0, 5),
+                  parent_code=dicelog.ABJURE_ROLL_RETURN)
+        self.assertEqual(log.describe(e), ["    Abjure on Mountain Stalker: d20 = 4, needs 6 or more (11 - caster "
+                                           "level 5 + its level 0) -> fails"])
+
+    def test_psp(self):
+        log = make_game()
+        dag = CREATURES + game.CREATURE_PSP
+        struct.pack_into("<h", log.guest.mem, dag, 52)
+        self.assertEqual(log.psp_changes(), [])  # the first look
+        struct.pack_into("<h", log.guest.mem, dag, 34)
+        self.assertEqual(log.psp_changes(), ["    Dag spends 18 PSP (52 -> 34)"])
+
+    def test_psionic_names(self):
+        log = make_game()
+        m = log.guest.mem
+        m[DS * 16 + game.SPELL_NAMES:DS * 16 + game.SPELL_NAMES + 30] = b"DETONATE\0DISINTEGRATE\0" + bytes(7)
+        self.assertEqual(game.GameData(log.guest, DS).spell_name(139), "Disintegrate")
+
+    def test_out_cold_takes_the_most(self):
+        log = make_game()
+        m = log.guest.mem
+        stalker = CREATURES + STALKER * game.CREATURE_SIZE
+        struct.pack_into("<h", m, stalker, 30)
+        m[stalker + game.CREATURE_STATUS] = game.OUT_COLD
+        log.hp_changes(0.5)
+        e = entry(raw_for(3, 6), dicelog.DICE_SITE, words(0, 0, 1, 6), words(0, 0, FIREBALL, 3),
+                  parent_code=dicelog.SPELL_DAMAGE_RETURN)
+        log.describe(e, now=1.0)
+        struct.pack_into("<h", m, stalker, 24)
+        self.assertEqual(log.hp_changes(1.5), ["  Mountain Stalker takes 6 from Fireball "
+                                               "(Out Cold: the most the dice can do), now 24 HP"])
+
+    def test_confusion(self):
+        log = make_game()
+        e = entry(raw_for(8, 10), dicelog.DICE_SITE, words(0, 0, 1, 10), words(0, 0, 0x29),
+                  parent_code=dicelog.CONFUSION_ROLL_RETURN)
+        self.assertEqual(log.describe(e), ["Mountain Stalker is confused: d10 = 8 -> fights for a side picked at random"])
+        e = entry(raw_for(1, 2), dicelog.DICE_SITE, words(0, 0, 1, 2), words(0, 0, 0x29),
+                  parent_code=dicelog.RANDOM_SIDE_RETURN)
+        self.assertEqual(log.describe(e), ["    Mountain Stalker fights on the party's side this turn (d2 = 1)"])
+
+    def test_charges(self):
+        """A negative duration unit: the effect lasts that many uses (Stoneskin: 1 a level + 1d4)."""
+        log = make_game()
+        self.damage_formula(log, FIREBALL, 0, 0x01, 0)  # divisor 1, no level adjustment
+        record = (LOAD_SEG + game.SPELLS_SEG) * 16 + game.SPELLS_OFF - 0x10 + FIREBALL * game.SPELL_SIZE
+        struct.pack_into("<Hh", log.guest.mem, record + 5, 1, -1)
+        e = entry(raw_for(3, 4), dicelog.DICE_SITE, words(0, 0, 1, 4), words(0, 0, FIREBALL, 5),
+                  parent_code=dicelog.SPELL_DURATION_RETURN)
+        self.assertEqual(log.describe(e), ["    Fireball has 8 charges (caster level 5: 1 for each caster level "
+                                           "= 5 + 3 from the dice; dice 1d4 = [3])"])
+        # the same roll with its return address taken by the overlay manager: known by the
+        # spell record's duration dice (1d4 here) and the (spell, level) arguments
+        log.guest.mem[record + 4] = 0x41
+        e = entry(raw_for(2, 4), dicelog.DICE_SITE, words(0, 0, 1, 4), words(0, 0, FIREBALL, 5),
+                  parent_code=dicelog.OVERLAY_TRAP + bytes(8))
+        self.assertEqual(log.describe(e), ["    Fireball has 7 charges (caster level 5: 1 for each caster level "
+                                           "= 5 + 2 from the dice; dice 1d4 = [2])"])
+
+    def test_acid_each_round(self):
+        log = make_game()
+        e = [entry(raw_for(f, 4), dicelog.DICE_SITE, words(0, 0, 2, 4), words(0, 0, 0x29, 1),
+                   parent_code=dicelog.CHARGE_USED_RETURN) for f in (3, 1)]
+        self.assertEqual(log.describe(e[0]) + log.describe(e[1]),
+                         ["    Acid on Mountain Stalker: 2d4 = [3 + 1] = 4 acid damage"])
+        # the same routine for any other effect using a charge (Ironskin stopping a blow)
+        e = [entry(raw_for(f, 4), dicelog.DICE_SITE, words(0, 0, 2, 4), words(0, 0, 0x29, 53),
+                   parent_code=dicelog.CHARGE_USED_RETURN) for f in (3, 1)]
+        self.assertEqual(log.describe(e[0]) + log.describe(e[1]), ["    Ironskin on Mountain Stalker: one charge used"])
+
+    def test_strength_roll(self):
+        log = make_game()
+        e = entry(raw_for(6, 6), dicelog.DICE_SITE, words(0, 0, 1, 6), words(0, 0, 1, 0, 0, 0, HOLD_PERSON),
+                  parent_code=dicelog.STRENGTH_ROLL_RETURN)
+        self.assertEqual(log.describe(e), ["Hold Person: 1d6 = 6 -> Daaki's STR +6 while it lasts (at most 24)"])
+
+    def test_spell_handler_dice(self):
+        log = make_game()
+        e = [entry(raw_for(f, 8), dicelog.DICE_SITE, words(0, 0, 2, 8), words(0, 0, 0, 0x29, 0, 0, HOLD_PERSON),
+                   parent_code=dicelog.SPELL_HANDLER_RETURNS[0][0]) for f in (3, 5)]
+        self.assertEqual(log.describe(e[0]) + log.describe(e[1]), ["Hold Person: 2d8 = [3 + 5] +1 = 9"])
+
+    def test_hp_after_a_spell(self):
+        log = make_game()
+        m = log.guest.mem
+        stalker = CREATURES + STALKER * game.CREATURE_SIZE
+        struct.pack_into("<h", m, stalker, 30)
+        self.assertEqual(log.hp_changes(0.5), [])  # the first look
+        e = entry(raw_for(3, 6), dicelog.DICE_SITE, words(0, 0, 1, 6), words(0, 0, FIREBALL, 3),
+                  parent_code=dicelog.SPELL_DAMAGE_RETURN)
+        log.describe(e, now=1.0)
+        struct.pack_into("<h", m, stalker, 27)
+        self.assertEqual(log.hp_changes(1.5), ["  Mountain Stalker takes 3 from Fireball, now 27 HP"])
+        struct.pack_into("<h", m, stalker, 20)  # long after: not the spell's doing
+        self.assertEqual(log.hp_changes(30.0), ["  Mountain Stalker now 20 HP (-7)"])
+        struct.pack_into("<h", m, stalker, 25)
+        self.assertEqual(log.hp_changes(31.0), ["  Mountain Stalker now 25 HP (+5)"])
+
+    def test_a_hit_during_a_spell_is_not_the_spells(self):
+        log = make_game()
+        m = log.guest.mem
+        stalker = CREATURES + STALKER * game.CREATURE_SIZE
+        struct.pack_into("<h", m, stalker, 30)
+        log.hp_changes(0.5)
+        log._spell_cast(FIREBALL, 1.0)
+        log._hits[STALKER] = 12  # a weapon hit logged just before
+        struct.pack_into("<h", m, stalker, 12)
+        self.assertEqual(log.hp_changes(1.5), ["  Mountain Stalker takes 6 from Fireball and 12 from the hit, now 12 HP"])
+        log._hits[STALKER] = 5
+        struct.pack_into("<h", m, stalker, 7)
+        self.assertEqual(log.hp_changes(2.0), ["  Mountain Stalker now 7 HP (-5)"])
 
     def test_doubled_roll(self):
         log = make_game()
         log.describe(self.save_roll(log, 7, spell=FIREBALL))
         self.assertEqual(log.describe(self.probe(14, needed=15, spell=FIREBALL)),
-                         ["Mountain Stalker saves vs Fireball from Dag (spell): d20 = 7, doubled for this spell "
-                          "= 14, needs 15 -> failed"])
+                         ["Mountain Stalker saves vs Fireball from Dag (spell): d20 = 7, doubled against fire "
+                          "= 14, needs 15 (65% to save) -> failed"])
 
     def test_modifiers_name_the_effects_that_count(self):
         log = make_game()
         set_effects(log, [(0x29, 0, 7), (0x29, 0, 58)])  # Blessed (saves), Displacement (AC only)
         log.describe(self.save_roll(log, 7))
         self.assertTrue(log.describe(self.probe(9))[0].endswith(
-            "d20 = 7 +2 modifiers (incl. Blessed) = 9, needs 14 -> failed"))
+            "d20 = 7 +2 modifiers (incl. Blessed) = 9, needs 14 (45% to save) -> failed"))
 
     def test_natural_20_needs_no_probe(self):
         log = make_game()
@@ -342,10 +516,24 @@ class OtherTests(unittest.TestCase):
         e = entry(raw_for(14, 20), dicelog.CHECK_SITE, words(0, 0, 1, 3, 1))
         self.assertEqual(log.describe(e), ["Daaki DEX check: d20 = 14, needs 14 or less (DEX 16 -2) -> success"])
 
-    def test_percentile_check(self):
+    def test_thief_skill(self):
+        """Dag as a 4th level half-giant thief with DEX 16 opening a lock with a -10 for this lock:
+        the game's chance was 24, so 5 went on armour."""
         log = make_game()
-        self.assertEqual(log.describe(entry(1234, dicelog.PERCENT_SITE, locals_=locals_at(0x10, m2=35))),
-                         ["Percentile check: d100 = 35, needs 35 or less -> success"])
+        m = log.guest.mem
+        table = (LOAD_SEG + game.THIEF_TABLE_SEG) * 16
+        m[table + game.THIEF_BASE + 1] = 18
+        m[table + game.THIEF_DEX_LOW + 1], m[table + game.THIEF_DEX_HIGH + 1], m[table + game.THIEF_DEX_TOP + 1] = 11, 15, 20
+        sheet = SHEETS
+        m[sheet + game.SHEET_CLASSES + 1], m[sheet + game.SHEET_LEVELS + 1] = game.THIEF, 4
+        m[CREATURES + game.CREATURE_ABILITIES + 1] = 16
+        e = entry(1223, dicelog.PERCENT_SITE, words(0, 0, 0, 1, 0, -10), locals_=locals_at(0x10, m2=24))
+        self.assertEqual(log.describe(e), ["Dag tries to open locks: d100 = 24, needs 24 or less -> success",
+                                           "    open locks 24 = 18 + 16 thief level 4 + 5 DEX 16 - 10 this attempt "
+                                           "- 5 armour"])
+        # an effect (Blind, Afraid...) takes 1000 off
+        e = entry(1223, dicelog.PERCENT_SITE, words(0, 0, 0, 1, 0, 0), locals_=locals_at(0x10, m2=-961))
+        self.assertEqual(log.describe(e), ["Dag tries to open locks: d100 = 24 -> failure (an effect stops it)"])
 
     def test_generic_shapes_when_showing_everything(self):
         log = make_game()
@@ -441,8 +629,43 @@ class NewLinesTests(unittest.TestCase):
         messages = [line for line in log.lines(now=100.0) if line.startswith("Message:")]
         self.assertEqual(messages, ["Message: Long Sword is broken !"])  # an empty box is left out
         (said,) = log.take_dialogue()
-        self.assertEqual((log.speaker(said.portrait), said.text), ("Portrait 119", "Watch and enjoy!"))
+        self.assertEqual((log.speaker(said.portrait), said.text), ("The Announcer", "Watch and enjoy!"))
         self.assertEqual(log.speaker(0), "Narration")
+        self.assertEqual(log.speaker(57), "Portrait 57")
+        log.speaker_names = {57: "Tithian", 119: "Herald"}  # names the player gave
+        self.assertEqual((log.speaker(57), log.speaker(119)), ("Tithian", "Herald"))
+
+    def test_the_reply_chosen(self):
+        log = make_game()
+        m = log.guest.mem
+        for n, text in enumerate((b"Yes", b"No", b"Maybe")):
+            at = DS * 16 + game.REPLY_TEXTS + n * game.REPLY_SIZE
+            m[at:at + len(text) + 1] = text + b"\0"
+        m[DS * 16 + game.REPLY_CHOSEN] = 0xFF
+        log.lines(now=1.0)
+        self.assertEqual(log.take_dialogue(), [])
+        m[DS * 16 + game.REPLY_CHOSEN] = 0  # the second row clicked, the list scrolled down one
+        m[DS * 16 + game.REPLY_SCROLL] = 1
+        log.lines(now=1.1)
+        self.assertEqual([d.chosen for d in log.take_dialogue()], ["No"])
+        log.lines(now=1.2)  # still flashing: not again
+        self.assertEqual(log.take_dialogue(), [])
+        m[DS * 16 + game.REPLY_CHOSEN] = 0xFF
+        log.lines(now=1.3)
+        self.assertEqual(log.take_dialogue(), [])
+
+    def test_no_hp_or_psp_news_while_a_game_loads(self):
+        log = make_game()
+        m = log.guest.mem
+        log.lines(now=10.0)
+        m[CREATURES + game.CREATURE_NAME:CREATURES + game.CREATURE_NAME + 4] = b"Tavi"  # another game
+        struct.pack_into("<h", m, CREATURES + game.CREATURE_PSP, 40)
+        struct.pack_into("<h", m, CREATURES, 25)
+        self.assertEqual([l for l in log.lines(now=10.5) if "HP" in l or "PSP" in l], [])
+        struct.pack_into("<h", m, CREATURES + game.CREATURE_PSP, -4096)  # half-loaded, after the pause
+        log.lines(now=20.0)
+        struct.pack_into("<h", m, CREATURES + game.CREATURE_PSP, 418)
+        self.assertEqual([l for l in log.lines(now=21.0) if "PSP" in l], [])
 
 
 class InitiativeTests(unittest.TestCase):
@@ -468,7 +691,7 @@ class InitiativeTests(unittest.TestCase):
         self.assertEqual(self.roll(STALKER, 9, 10, 30), [])
         self.assertEqual(self.log.lines(now=1.1), [])  # waits for the rest of the round's rolls
         self.assertEqual(self.log.lines(now=2.0), [
-            "Initiative, highest acts first:",
+            "Initiative: Mountain Stalker 30, Daaki 27, Dag 27",
             "    Mountain Stalker 30 = 20 + 9 (0-9 roll) +1 DEX",
             "    Daaki 27 = 20 + 7 (0-9 roll), tie broken by 120 (0-199 roll)",
             "    Dag 27 = 20 + 3 (0-9 roll) +2 DEX +2 Hasted, tie broken by 50 (0-199 roll)"])
@@ -477,8 +700,66 @@ class InitiativeTests(unittest.TestCase):
         self.roll(0, 3, 50, -1)  # already acted: its score is gone, but the tie-break roll stays
         out = self.log.describe(entry(raw_for(14, 20), dicelog.ATTACK_SITE,
                                       words(0, 0, 0, 0, 0x29, 0, 0, 0, 0, 0, 0)), now=1.1)
-        self.assertEqual(out[:2], ["Initiative, highest acts first:",
+        self.assertEqual(out[:2], ["Initiative: Dag 27",
                                    "    Dag 27 = 20 + 3 (0-9 roll) +2 DEX +2 Hasted"])
+
+
+CLOCK = 0x6F000  # where the fake game keeps its clock
+
+
+def set_clock(log, seconds):
+    m = log.guest.mem
+    m[DS * 16 + game.GAME_TIME_PTR:DS * 16 + game.GAME_TIME_PTR + 4] = far(CLOCK)
+    m[DS * 16 + game.GAME_TIME_SCALE] = 1
+    struct.pack_into("<i", m, CLOCK, seconds)
+
+
+class RoundAndTurnTests(unittest.TestCase):
+    def setUp(self):
+        self.log = make_game()
+        self.table = (LOAD_SEG + game.INITIATIVE_SEG) * 16 + game.INITIATIVE_OFF
+
+    def round(self, seconds):
+        set_clock(self.log, seconds)
+        struct.pack_into("<hh", self.log.guest.mem, self.table, 25, 50)
+        self.log.describe(entry(raw_for(6, 10), dicelog.INITIATIVE_ROLL), now=1.0)
+        self.log.describe(entry(raw_for(51, 200), dicelog.INITIATIVE_TIE), now=1.0)
+        return self.log.initiative_lines()[0]
+
+    def test_rounds_count_up_and_restart_after_a_gap(self):
+        self.assertEqual(self.round(600), "Round 1: Dag 25")
+        self.assertEqual(self.round(660), "Round 2: Dag 25")
+        self.assertEqual(self.round(5000), "Round 1: Dag 25")  # a new fight
+
+    def test_whose_turn(self):
+        m = self.log.guest.mem
+        struct.pack_into("<h", m, DS * 16 + game.WHOSE_TURN, 0x29)
+        set_clock(self.log, 600)
+        self.assertEqual(self.log.turn_lines(), [])  # no fight yet
+        self.round(600)
+        struct.pack_into("<h", m, DS * 16 + game.WHOSE_TURN, 1)
+        self.assertEqual(self.log.turn_lines(), ["Daaki's turn"])
+        self.assertEqual(self.log.turn_lines(), [])  # still Daaki's
+        struct.pack_into("<h", m, DS * 16 + game.WHOSE_TURN, 0x29)
+        self.assertEqual(self.log.turn_lines(), ["Mountain Stalker's turn"])
+
+    def test_the_rounds_order_comes_before_its_first_turn(self):
+        m = self.log.guest.mem
+        self.round(600)
+        set_clock(self.log, 660)  # the next round's rolls are in, but its order isn't shown yet
+        self.log.describe(entry(raw_for(6, 10), dicelog.INITIATIVE_ROLL), now=5.0)
+        self.log.describe(entry(raw_for(51, 200), dicelog.INITIATIVE_TIE), now=5.0)
+        struct.pack_into("<h", m, DS * 16 + game.WHOSE_TURN, 1)
+        self.assertEqual(self.log.turn_lines(), [])
+        self.assertEqual(self.log.initiative_lines()[0], "Round 2: Dag 25")
+        self.assertEqual(self.log.turn_lines(), ["Daaki's turn"])
+
+
+class HitChanceTests(unittest.TestCase):
+    def test_hit_chance(self):
+        self.assertEqual(dicelog.hit_chance(4), 85)
+        self.assertEqual(dicelog.hit_chance(1), 95)  # a 1 always misses
+        self.assertEqual(dicelog.hit_chance(25), 5)  # a 20 always hits
 
 
 CREATION = 0x6C000  # the character being made

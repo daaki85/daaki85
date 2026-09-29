@@ -14,7 +14,7 @@ from tkinter import font as tkfont
 from tkinter import ttk
 from typing import Tuple
 
-from .palette import (AMBER, BUTTON, BUTTON_LIT, DARK, DEEP, EDGE_LIT, FOCUS, LOG_COLOURS, NAME, PALE,  # noqa: F401
+from .palette import (AMBER, BUTTON, BUTTON_LIT, DARK, DEEP, EDGE_LIT, FOCUS, GREEN, LOG_COLOURS, NAME, PALE,  # noqa: F401
                       PANEL, PSI_BLUE, ROCK, SAND, SHADOW, STONE, SUBTITLE, YELLOW)
 
 # Named fonts, so Ctrl + / Ctrl - can enlarge all text at once
@@ -107,6 +107,14 @@ def apply(root: tk.Tk) -> None:
     style.map("TNotebook.Tab", background=[("selected", DEEP), ("active", STONE)],
               foreground=[("selected", AMBER), ("active", YELLOW)],
               lightcolor=[("selected", EDGE_LIT)])
+    # the character cards: the character screen's dark stats panel
+    style.configure("Card.TFrame", background=DEEP, relief="groove", borderwidth=2)
+    style.configure("CardBody.TFrame", background=DEEP)
+    style.configure("Card.TLabel", background=DEEP, foreground=PALE)
+    style.configure("CardName.TLabel", background=DEEP, foreground=YELLOW, font=heading)
+    style.configure("CardStat.TLabel", background=DEEP, foreground=YELLOW)
+    style.configure("CardPsp.TLabel", background=DEEP, foreground=PSI_BLUE)  # PSP in blue, as in the game
+    style.configure("CardStatus.TLabel", background=DEEP, foreground=AMBER)
     style.configure("TPanedwindow", background=SHADOW)
     style.configure("Sash", sashthickness=6, background=DARK, lightcolor=EDGE_LIT, bordercolor=SHADOW)
     style.configure("TScrollbar", background=BUTTON, troughcolor=SHADOW, lightcolor=EDGE_LIT,
@@ -128,6 +136,10 @@ def style_text(widget: tk.Text) -> None:
                      highlightbackground=SHADOW, highlightcolor=FOCUS)
     if isinstance(widget, tk.Text):  # a list has no insertion cursor or padding
         widget.configure(insertbackground=PALE, padx=8, pady=6)
+
+
+def _rgb(colour: str) -> Tuple[int, int, int]:
+    return int(colour[1:3], 16), int(colour[3:5], 16), int(colour[5:7], 16)
 
 
 def _rock(width: int, height: int, seed: int = 7) -> tk.PhotoImage:
@@ -163,7 +175,14 @@ class Banner(tk.Canvas):
         self.tile = _rock(96, self.HEIGHT)
         title, _, _ = fonts()
         self.title_font = title
+        self.game_font = None  # the game's own font (art.Font), when the game is installed
+        self._title_image = None
         self.bind("<Configure>", lambda _e: self.redraw())
+
+    def use_game_font(self, font) -> None:
+        """Draw the title in the game's font (whole-pixel zoom keeps it sharp)."""
+        self.game_font = font
+        self.redraw()
 
     def redraw(self) -> None:
         """Draw at the current text size (the strip grows with the title)."""
@@ -177,8 +196,17 @@ class Banner(tk.Canvas):
                 self.create_image(x, y, image=self.tile, anchor="nw")
         self.create_line(0, height - 2, width, height - 2, fill=SHADOW, width=3)
         middle = height // 2
-        for dx, dy, colour in ((2, 2, SHADOW), (0, 0, AMBER)):
-            self.create_text(14 + dx, middle + dy, text=NAME.upper(), anchor="w", fill=colour, font=self.title_font)
-        right = 14 + tkfont.nametofont(self.title_font).measure(NAME.upper()) + 14
+        if self.game_font is not None:
+            from . import art
+            zoom = max(2, round(3 * _scale))
+            pixels = self.game_font.render(NAME.upper(), _rgb(AMBER), _rgb(SHADOW))
+            self._title_image = art.photo(self, pixels, zoom)
+            self.create_image(14, middle, image=self._title_image, anchor="w")
+            right = 14 + self._title_image.width() + 14
+        else:
+            for dx, dy, colour in ((2, 2, SHADOW), (0, 0, AMBER)):
+                self.create_text(14 + dx, middle + dy, text=NAME.upper(), anchor="w", fill=colour,
+                                 font=self.title_font)
+            right = 14 + tkfont.nametofont(self.title_font).measure(NAME.upper()) + 14
         self.create_text(right, middle + round(4 * _scale), text=SUBTITLE, anchor="w", fill=SAND,
                          font="LedgerSmall")

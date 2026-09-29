@@ -13,7 +13,7 @@ import json
 import os
 import string
 import subprocess
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from . import gamepatch
 
@@ -68,6 +68,23 @@ def load_settings() -> dict:
 def save_settings(settings: dict) -> None:
     with open(SETTINGS, "w", encoding="utf-8") as f:
         json.dump(settings, f, indent=2)
+
+
+def speaker_names() -> Dict[int, str]:
+    """The names the player has given dialogue portraits: {portrait: name}."""
+    names = load_settings().get("speakers", {})
+    return {int(k): v for k, v in names.items() if str(k).isdigit() and isinstance(v, str) and v}
+
+
+def set_speaker_name(portrait: int, name: str) -> None:
+    """Remember a name for a portrait (an empty name forgets it)."""
+    settings = load_settings()
+    names = settings.setdefault("speakers", {})
+    if name:
+        names[str(portrait)] = name
+    else:
+        names.pop(str(portrait), None)
+    save_settings(settings)
 
 
 def find_game_dir(given: Optional[str] = None) -> Optional[str]:
