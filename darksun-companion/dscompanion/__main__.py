@@ -132,6 +132,7 @@ def cmd_dicelog(args) -> None:
             time.sleep(2)
     log = DiceLog(guest, record_everything=args.raw)
     log.popups = args.popups
+    log.popup_detail = not args.short_popups
     log.speaker_names = speaker_names()
 
     def attach() -> None:
@@ -223,6 +224,8 @@ def main(argv=None) -> int:
     s.add_argument("--raw", action="store_true", help="record every rand() call, not just rolls (noisy)")
     s.add_argument("--popups", action="store_true",
                    help="in a fight, have the game show each turn's attacks when the turn ends")
+    s.add_argument("--short-popups", action="store_true",
+                   help="with --popups: one line per target instead of the log's detail")
     s.set_defaults(func=cmd_dicelog)
 
     s = sub.add_parser("save", help="show the party stored in a save file (SAVEnn.SAV)")

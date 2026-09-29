@@ -487,13 +487,20 @@ in the game changes.
 
 ### In the game: spell slots on the USE screen
 
-The game's USE (cast spells) screen shows, in the empty panel under the spells,
-how many spells of each level the selected character can still cast, and the
-most they get after resting: `WIZ` for preservers' wizard spells, `PRI` for
-clerics', druids' and rangers' priest spells, one `left/most` per spell level
-from the 1st (five to a line):
+The game's USE (cast spells) screen shows, at the top of the panel under the
+spells, how many spells of each level the selected character can still cast,
+and the most they get after resting: `WIZ` for preservers' wizard spells, `PRI`
+for clerics', druids' and rangers' priest spells, one `left/most` per spell
+level from the 1st (six to a line):
 
-![The USE screen with Cilla's spell slots](docs/use-slots.png)
+![The USE screen with Daaki's spell slots above a Guava's icon](docs/use-slots.png)
+
+The numbers go down as spells are cast (the screen shows the new count when it
+is next drawn) and back up after resting. That panel is where the game puts
+the icons of the character's usable magic items (fruit, wands and the like),
+along its bottom from the left, so the slots take only the three lines above
+them: a character with both wizard and priest spells gets the two lines without
+the `SPELLS LEFT BY LEVEL` heading.
 
 The numbers are the same as on the Characters tab (see Spell slots): the
 Ledger works them out, including the WIS bonus, and keeps a copy in the
@@ -506,15 +513,24 @@ show while Templar's Ledger (or its command-line dice log) is running.
 With **Show each turn's attacks in the game** ticked on the Dice log tab (or
 `python -m dscompanion dicelog --popups`), the game stops at the end of every
 turn in a fight in which someone attacked, and shows that turn's rolls in its
-own dialogue window, with **Continue** to go on:
+own dialogue window, with **Continue** to go on. They are the dice log's own
+lines: each attack's d20, the roll it needed and the chance of it, the AC it
+would hit; how the THAC0 was worked out; and for a hit, the damage dice and
+bonuses. The window shows five lines at a time; its **MORE** arrow shows the
+next ones:
+
+![The game's window at the end of a turn, in detail](docs/turn-detail.png)
+
+Untick **... in detail** (or add `--short-popups`) for one line per target
+instead:
 
 ![The game's window at the end of a Mountain Stalker's turn](docs/turn-summary.png)
 
 `12 vs 8+ HIT, 9 damage` is the d20, the roll it needed (THAC0 − the target's
 AC; a natural 20 always hits, a 1 always misses), and the damage the hit did.
-The turn's own attacker comes first, then anyone else who attacked during it:
-a character on Guard striking an enemy that comes close, for instance. The
-full breakdown is in the Ledger's dice log as usual.
+Either way, the turn's own attacker comes first, then anyone else who attacked
+during it: a character on Guard striking an enemy that comes close, for
+instance.
 
 How: the patched game calls the helper (`INT F1h`) in its combat loop, right
 after the call that may pass the turn on. When whose turn it is has changed,

@@ -845,6 +845,7 @@ USE_TEXT_SEG equ 0x2B7A - 0x4356 ; the text routine's segment (DSUN.EXE: 2B7Ah) 
 USE_TEXT_OFF equ 0x16D
 USE_WHO_SEG  equ 0x3931 - 0x4356 ; the selected character's number is at this segment:25Bh
 SLOTS_SIZE   equ 96
+MSG_SIZE     equ 900         ; the turn summary: the dialogue window keeps up to 1024 bytes
 probe_use:
         push bp                 ; the replaced "add sp,0Ch": move the interrupt frame (and BP)
         mov bp, sp              ; up over the 12 bytes
@@ -903,7 +904,7 @@ probe_use:
         call c_draw_line
         pop dx
         pop si
-        add dx, 8
+        add dx, USE_STEP
         cmp byte [cs:si], '|'
         jne .done
         inc si
@@ -913,12 +914,13 @@ probe_use:
         pop es
         popad
         iret
-USE_X      equ 0x96             ; the panel under the spells (window coordinates)
-USE_FIRST_Y equ 0x76
-USE_LAST_Y equ 0x9E
+USE_X      equ 0x96             ; the panel under the spells (window coordinates): its top,
+USE_FIRST_Y equ 0x6C            ; three lines above where the icons of usable items (fruit,
+USE_STEP   equ 7                ; wands...) go, along the panel's bottom from 0x81
+USE_LAST_Y equ 0x7A
 u_line  times SLOTS_SIZE db 0
 slots_text times 4 * SLOTS_SIZE db 0
-msg_buf times 256 db 0
+msg_buf times MSG_SIZE db 0
 
 tput:                           ; AL -> text buffer at position BX
         push bx

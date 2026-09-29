@@ -33,9 +33,10 @@ from .tracker import PartyTracker
 HDR_SIG = b"DSCLOGv7"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
-MSG_SIZE = 256
+MSG_SIZE = 900
 # ... and the party's spell slots, for the game's USE screen (PROBE_USE)
 TSR_SLOTS_OFF, SLOTS_SIZE = 148, 96
+SLOTS_LINES = 3  # lines of spell slots the USE screen has room for
 SLOT_KINDS = {"Wizard": "WIZ", "Priest": "PRI"}
 RAND_PATCHED = b"\xcd\x60"  # INT 60h at the start of rand() in DSUNLOG.EXE
 RAND_IP = 0x822  # rand()'s offset in the game's first code segment
@@ -282,6 +283,7 @@ class DiceLog:
         self._reply: Optional[Tuple[int, str]] = None  # the reply being flashed when last looked at
         self.speaker_names: Dict[int, str] = {}  # portrait -> the name the player gave it
         self.popups = False  # in-game turn summaries (set_popups)
+        self.popup_detail = True  # ... with the dice log's lines, or in short
         self._turn_seq = 0
         self._turn_attacks: Dict[int, List[dict]] = {}  # creature -> this turn's attacks
         self._slots_written = b""
@@ -356,39 +358,48 @@ class DiceLog:
         if self.tsr_hdr is not None:
             self.guest.write(self.tsr_hdr + TSR_POPUPS, struct.pack("<H", int(on)))
 
-    def turn_summary(self, combatant: int) -> str:
+    def turn_summary(self, combatant: int, detail: bool = True) -> str:
         """The attacks made during that combatant's turn (theirs first, then anyone else's, such as
-        a guarding character striking back), for the game's window:
-        "Daaki attacks Guard: 18 vs 8+ HIT, 13 damage; 5 vs 8+ miss"."""
+        a guarding character striking back), for the game's window. In detail, each attack's
+        lines from the dice log (the roll, the THAC0 worked out, the damage dice), a line
+        each; otherwise in short: "Daaki attacks Guard: 18 vs 8+ HIT, 13 damage; 5 vs 8+ miss"."""
         own = self.game.combatant_creature(combatant)
         order = sorted(self._turn_attacks, key=lambda c: c != own)  # stable: the rest in order of attacking
-        parts = []
-        for creature in order:
-            target = None
-            for a in self._turn_attacks[creature]:
-                roll = f"{a['d20']} vs {min(max(a['need'], 2), 20)}+"
-                roll += (f" HIT, {a['damage']} damage" if a["damage"] is not None else " HIT") if a["hit"] else " miss"
-                if a["target"] != target:
-                    target = a["target"]
-                    parts.append(f"{self.game.creature_name(creature)} attacks {target}: {roll}")
-                else:
-                    parts[-1] += f"; {roll}"
-        text = ". ".join(parts)
-        if len(text) > MSG_SIZE - 1:  # the window holds about five lines
+        if detail:
+            text = "\n".join(line for creature in order for a in self._turn_attacks[creature]
+                             for line in a.get("lines", []))
+        else:
+            parts = []
+            for creature in order:
+                target = None
+                for a in self._turn_attacks[creature]:
+                    roll = f"{a['d20']} vs {min(max(a['need'], 2), 20)}+"
+                    roll += (f" HIT, {a['damage']} damage" if a["damage"] is not None else " HIT") if a["hit"] else " miss"
+                    if a["target"] != target:
+                        target = a["target"]
+                        parts.append(f"{self.game.creature_name(creature)} attacks {target}: {roll}")
+                    else:
+                        parts[-1] += f"; {roll}"
+            text = ". ".join(parts)
+        if len(text) > MSG_SIZE - 1:  # what the game's window can take
             text = text[:MSG_SIZE - 4].rsplit(" ", 1)[0] + "..."
         return text
 
     def slots_lines(self, member: int) -> str:
         """A party member's spell slots for the game's USE screen, "|" between lines:
-        "SPELLS LEFT BY LEVEL|WIZ 2/2 1/1|PRI 5/5 3/3 2/2 1/1" (five levels a line)."""
+        "SPELLS LEFT BY LEVEL|WIZ 2/2 1/1|PRI 5/5 3/3 2/2 1/1" (six levels a line). The
+        screen has room for SLOTS_LINES lines above the icons of any usable items, so the
+        heading goes when the slots need them all, and anything past them is cut."""
         lines = []
         for kind, levels in self.game.spell_slots(member):
             top = max(level for level, _, _ in levels)
             by_level = {level: (left, most) for level, left, most in levels}
             cells = [f"{by_level.get(n, (0, 0))[0]}/{by_level.get(n, (0, 0))[1]}" for n in range(1, top + 1)]
-            for i in range(0, len(cells), 5):
-                lines.append(("    " if i else f"{SLOT_KINDS.get(kind, kind[:3].upper())} ") + " ".join(cells[i:i + 5]))
-        return "|".join(["SPELLS LEFT BY LEVEL"] + lines) if lines else ""
+            for i in range(0, len(cells), 6):
+                lines.append(("    " if i else f"{SLOT_KINDS.get(kind, kind[:3].upper())} ") + " ".join(cells[i:i + 6]))
+        if lines and len(lines) < SLOTS_LINES:
+            lines.insert(0, "SPELLS LEFT BY LEVEL")
+        return "|".join(lines[:SLOTS_LINES])
 
     def _write_slots(self) -> None:
         """Keep DSCLOG's copy of the party's spell slots current."""
@@ -412,8 +423,10 @@ class DiceLog:
         "Continue")."""
         out = []
         for entry in entries:
-            if entry.text in self._own_text:
-                self._own_text.discard(entry.text)
+            said = " ".join(entry.text.split())  # DSCLOG keeps the first 400 characters of a text
+            own = next((t for t in self._own_text if said and " ".join(t.split()).startswith(said)), None)
+            if own is not None:
+                self._own_text.discard(own)
                 self._skip_choice = True
             elif entry.chosen and self._skip_choice:
                 self._skip_choice = False
@@ -430,7 +443,10 @@ class DiceLog:
             return
         self._turn_seq = seq
         ended = struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_ENDED, 2))[0]
-        summary = self.turn_summary(ended) if self.popups else ""
+        summary = self.turn_summary(ended, self.popup_detail) if self.popups else ""
+        summary = summary.replace("%", " pct")  # the game's window shows no "%", even as "%%"
+        if len(summary) > MSG_SIZE - 1:
+            summary = summary[:MSG_SIZE - 4].rsplit(" ", 1)[0] + "..."
         if summary:
             self._own_text.add(summary)  # to leave out of the Dialogue tab
         text = summary.encode("cp437", "replace")[:MSG_SIZE - 1]
@@ -823,10 +839,11 @@ class DiceLog:
         needs = ("hits on anything but a 1" if need <= 2 else "only a 20 hits" if need > 20 else f"needs {need}+")
         head = (f"{g.creature_name(attacker)} attacks {target}{how}{with_what}: d20 = {d20}{note}, "
                 f"{needs} ({chance}%), hits AC {thac0 - d20}, target AC {ac} -> {'HIT' if hit else 'miss'}")
+        breakdown = self._thac0_breakdown(e, thac0, attacker, attacker_combatant, target_combatant, weapon, mode)
         self._turn_attacks.setdefault(attacker, []).append(
-            {"target": target, "d20": d20, "need": need, "hit": hit, "damage": None})
-        return [head, "    " + self._thac0_breakdown(e, thac0, attacker, attacker_combatant,
-                                                     target_combatant, weapon, mode)]
+            {"target": target, "d20": d20, "need": need, "hit": hit, "damage": None,
+             "lines": [head, breakdown]})
+        return [head, "    " + breakdown]
 
     def _thac0_breakdown(self, e: Entry, thac0: int, attacker: int, attacker_combatant: int,
                          target_combatant: int, weapon, mode: int) -> str:
@@ -1004,9 +1021,11 @@ class DiceLog:
             self._hits[target] = self._hits.get(target, 0) + total
         last = next((a for a in reversed(self._turn_attacks.get(attacker, [])) if a["hit"] and a["damage"] is None),
                     None)
+        line = f"{g.creature_name(attacker)} hits {g.combatant_name(e.glob[0])} for {total}: {steps}"
         if last is not None:  # for the turn's summary in the game
             last["damage"] = total
-        return [f"  {g.creature_name(attacker)} hits {g.combatant_name(e.glob[0])} for {total}: {steps}"]
+            last.setdefault("lines", []).append(line)
+        return ["  " + line]
 
     def _overlay_duration(self, e: Entry, count: int, sides: int) -> bool:
         """The duration routine's roll when the overlay manager has swapped its return address

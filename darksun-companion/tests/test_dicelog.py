@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dscompanion import dicelog, game
 from dscompanion.dicelog import AcDetail, DiceLog, Entry, KIND_AC, KIND_ROLL, KIND_SAVE
-from dscompanion.textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, TextBuffer
+from dscompanion.textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, DialogueEntry, TextBuffer
 from dscompanion.tracker import PartyTracker
 
 LOAD_SEG = 0x1A2
@@ -214,9 +214,18 @@ class AttackTests(unittest.TestCase):
             log.describe(entry(raw_for(face, 8), dicelog.DICE_SITE, words(0, 0, 2, 8, 1), parent, (0x29, 0, 0, 0),
                                parent_code=dicelog.WEAPON_DAMAGE_RETURN))
         log.describe(self.attack(3, 8, 4, 5, 9, after_f1=9, hit_bonus=1))  # and misses
-        self.assertEqual(log.turn_summary(0), "Dag attacks Mountain Stalker: 18 vs 4+ HIT, 20 damage; 3 vs 4+ miss")
+        short = "Dag attacks Mountain Stalker: 18 vs 4+ HIT, 20 damage; 3 vs 4+ miss"
+        self.assertEqual(log.turn_summary(0, detail=False), short)
         # anyone's attacks during a turn go in its summary (a guarding character striking back...)
-        self.assertEqual(log.turn_summary(1), "Dag attacks Mountain Stalker: 18 vs 4+ HIT, 20 damage; 3 vs 4+ miss")
+        self.assertEqual(log.turn_summary(1, detail=False), short)
+        # in detail: the dice log's lines, the damage under the hit it belongs to
+        lines = log.turn_summary(0).split("\n")
+        self.assertEqual(len(lines), 5)
+        self.assertTrue(lines[0].startswith("Dag attacks Mountain Stalker") and lines[0].endswith("-> HIT"))
+        self.assertTrue(lines[1].startswith("THAC0"))
+        self.assertEqual(lines[2], "Dag hits Mountain Stalker for 20: 2d8 = [2 + 5] +1 weapon +12 STR 24")
+        self.assertTrue(lines[3].endswith("-> miss"))
+        log.popup_detail = False
         # DSCLOG's side: it counts the turn's end (Dag's, combatant 0) and waits for the text
         m = log.guest.mem
         struct.pack_into("<H", m, HDR + dicelog.TSR_HDR_OFF, 0)
@@ -231,14 +240,33 @@ class AttackTests(unittest.TestCase):
                          b"Dag attacks Mountain Stalker: 18 vs 4+ HIT, 20 damage; 3 vs 4+ miss")
         self.assertEqual(log.turn_summary(0), "")  # a new turn starts afresh
 
+    def test_detailed_summary_in_the_game(self):
+        log = make_game()
+        log.describe(self.attack(18, 8, 4, 5, 9, after_f1=9, hit_bonus=1))
+        m = log.guest.mem
+        struct.pack_into("<H", m, HDR + dicelog.TSR_HDR_OFF, 0)
+        struct.pack_into("<H", m, HDR + dicelog.TSR_MSG_OFF, 0x400)
+        log.set_popups(True)
+        struct.pack_into("<H", m, HDR + dicelog.TSR_TURN_SEQ, 1)
+        log._answer_turn()
+        shown = bytes(m[HDR + 0x400:HDR + 0x400 + dicelog.MSG_SIZE]).split(b"\0")[0].decode()
+        self.assertIn(" pct)", shown)  # the game's window shows no "%"
+        self.assertNotIn("%", shown)
+        # the game's window shows it, and DSCLOG passes back its first 400 characters: not dialogue
+        said = DialogueEntry(None, shown[:40])
+        self.assertEqual(log._not_ours([said, DialogueEntry(None, chosen="Continue")]), [])
+
 
 class SlotsForTheGameTests(unittest.TestCase):
     def test_slot_lines(self):
         log = make_game()
         log.game.spell_slots = lambda member: {
             0: [("Wizard", [(1, 2, 2), (2, 1, 1)]), ("Priest", [(n, 1, 2) for n in range(1, 8)])]}.get(member, [])
-        self.assertEqual(log.slots_lines(0), "SPELLS LEFT BY LEVEL|WIZ 2/2 1/1|PRI 1/2 1/2 1/2 1/2 1/2|    1/2 1/2")
+        # three lines fit above the usable items' icons: no room left for the heading
+        self.assertEqual(log.slots_lines(0), "WIZ 2/2 1/1|PRI 1/2 1/2 1/2 1/2 1/2 1/2|    1/2")
         self.assertEqual(log.slots_lines(1), "")
+        log.game.spell_slots = lambda member: [("Priest", [(1, 5, 5), (2, 3, 3)])]
+        self.assertEqual(log.slots_lines(0), "SPELLS LEFT BY LEVEL|PRI 5/5 3/3")
 
 
 class BackstabTests(unittest.TestCase):
