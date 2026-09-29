@@ -124,8 +124,8 @@ EFFECT_RULES = {
     45: "-1 on saves", 46: "AC 4 except from behind", 47: "-4 to hit, AC 4 worse", 49: "+1 to hit",
     52: "AC -7 against evil", 55: "attackers -2 to hit", 56: "armour AC at most 4, +3 on saves",
     57: "AC at most 6 - level/4, +1 on saves", 58: "AC -2", 59: "AC at most 10 - level",
-    60: "AC 5, 1 better per 3 caster levels above 5", 63: "higher STR", 64: "higher STR", 67: "higher STR",
-    68: "lower STR",
+    60: "AC 5, 1 better per 3 caster levels above 5", 63: "higher STR", 64: "STR + the amount borrowed, at most 24",
+    67: "STR + 1d6, at most 24", 68: "STR - the amount, at least 3",
     73: "+1 to hit and saves for the caster's side, -1 for the other",
     # what the game's turn, movement, casting and damage code does with the rest
     1: "2d4 acid damage each round",

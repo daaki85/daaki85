@@ -104,7 +104,8 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 | `    Slig takes 15 from Shocking Grasp (HP 250 -> 235)` | What the spell really did to each creature, after its save, resistances and protections (or the healing it gave). A creature that is Out Cold gets no save and takes the most the dice can do (the game's damage code does that), marked `(Out Cold: the most the dice can do)`. |
 | `    Blur lasts 23 rounds (caster level 20: 1 for each caster level = 20 + 3 from the dice; dice 3d1)` | How long a spell's effect lasts, and how the game worked it out. A round is 60 game seconds. The game often "rolls" dice with one side, which are fixed numbers. |
 | `    Stoneskin has 23 charges (caster level 20: 1 for each caster level = 20 + 3 from the dice; dice 1d4 = [3])` | Effects that last a number of uses rather than a time (Stoneskin's blows, Mirror Image's images, Invisibility's one attack, Poison's rounds): the game stores them as charges, worked out like a duration. |
-| `    Acid on Slig: 2d4 = [3 + 1] = 4 acid damage` | Acid Arrow's damage each round while the acid lasts. |
+| `    Acid on Slig: 2d4 = [3 + 1] = 4 acid damage` / `    Ironskin on Cilla: one charge used` | Acid Arrow's damage each round while the acid lasts; and an effect with charges using one up (Stoneskin or Ironskin stopping a blow, Mirror Image losing an image...). |
+| `Strength: 1d6 = 5 -> Cilla's STR +5 while it lasts (at most 24)` | The amount Strength (or Adrenalin Control) adds. |
 | `Y magic resistance 30% vs Fireball: d100 = 71 -> not resisted` | The magic resistance roll (only shown for targets that have some). |
 | `Y saves vs Fireball from X (petrification/polymorph): d20 = 6, doubled for this spell = 12 +1 modifiers (incl. Blessed) = 13, needs 11 -> saved` | A saving throw: which of the target's five saves it uses, the d20, the game's modifiers, and the number it had to reach. The game doubles the d20 for some spells (Burning Hands, Fireball, Cone of Cold, Flame Strike, Wall of Fire...). A natural 1 always fails and a natural 20 always saves. For a damaging spell the result says what the save did: `saved: half damage`, or `saved: no damage` for spells such as Chill Touch. A failed save also lets the spell's effect take hold. Spells left on the ground (Grease, clouds) make creatures save again as they stay in them; those lines have no "from". |
 | `X gives Blessed to Y, Z: +1 to hit, +1 on saves` / `Blessed ends on Y` | A spell or psionic effect starting or ending, with what it does in the game's code where that is known: to-hit, AC and saving throws, movement and attacks, whether the creature can attack or cast, who controls it (see Spells and effects below). `Stuck on Y` (no "gives") is an effect a creature has from a spell on the ground or cast on itself. |
@@ -222,6 +223,19 @@ Charm, Feeblemind, Web and a few others last until removed.
 | Acid (Acid Arrow) | 2d4 acid damage each round |
 | Poisoned | Fatal (1000 damage) if time passes out of combat, for instance resting, before it wears off or is cured |
 | Cloak of Fear | Whoever hits the wearer has Cause Fear cast on them, once |
+
+Other things the game does its own way:
+- Cause Serious Wounds rolls 2d9, and Cause Critical Wounds 3d9 (AD&D: 2d8+1
+  and 3d8+3). The Cure spells are 1d8, 2d8+1 and 3d8+3 as in AD&D.
+- Strength adds 1d6 to STR while it lasts, up to 24. The same goes for
+  the psionic Adrenalin Control, and Weakened or lending strength takes it away
+  (never below 3).
+- Shillelagh, Flame Blade and Spiritual Hammer need an empty hand: with a
+  weapon ready the game says "Failed, weapon in hand" and nothing happens.
+- Death spells (Slay Living, Dismissal) do the target's HP + 10 on a failed save.
+- In the arena, summonings fail ("Your summoning goes unanswered").
+- A caster's level for a spell comes from the class that has it. In testing,
+  a character given spells of a class she didn't have cast them at level 0.
 
 The spell's area catches its caster too. Cilla's Scare made her Afraid, and her
 Fireball, cast at a Slig next to her, killed her.

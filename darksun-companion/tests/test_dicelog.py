@@ -325,9 +325,19 @@ class SaveTests(unittest.TestCase):
     def test_acid_each_round(self):
         log = make_game()
         e = [entry(raw_for(f, 4), dicelog.DICE_SITE, words(0, 0, 2, 4), words(0, 0, 0x29, 1),
-                   parent_code=dicelog.ACID_TICK_RETURN) for f in (3, 1)]
+                   parent_code=dicelog.CHARGE_USED_RETURN) for f in (3, 1)]
         self.assertEqual(log.describe(e[0]) + log.describe(e[1]),
                          ["    Acid on Mountain Stalker: 2d4 = [3 + 1] = 4 acid damage"])
+        # the same routine for any other effect using a charge (Ironskin stopping a blow)
+        e = [entry(raw_for(f, 4), dicelog.DICE_SITE, words(0, 0, 2, 4), words(0, 0, 0x29, 53),
+                   parent_code=dicelog.CHARGE_USED_RETURN) for f in (3, 1)]
+        self.assertEqual(log.describe(e[0]) + log.describe(e[1]), ["    Ironskin on Mountain Stalker: one charge used"])
+
+    def test_strength_roll(self):
+        log = make_game()
+        e = entry(raw_for(6, 6), dicelog.DICE_SITE, words(0, 0, 1, 6), words(0, 0, 1, 0, 0, 0, HOLD_PERSON),
+                  parent_code=dicelog.STRENGTH_ROLL_RETURN)
+        self.assertEqual(log.describe(e), ["Hold Person: 1d6 = 6 -> Daaki's STR +6 while it lasts (at most 24)"])
 
     def test_spell_handler_dice(self):
         log = make_game()

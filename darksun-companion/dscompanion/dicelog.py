@@ -58,8 +58,10 @@ SPELL_DAMAGE_RETURN = bytes.fromhex("83c4045a03d0")
 # ... and in the routine that works out a spell's duration (its arguments: spell, caster level);
 # the dice are often NdS with S = 1, a fixed number
 SPELL_DURATION_RETURN = bytes.fromhex("83c406660fbfc0665a66")
-# The acid effect's damage each round (Acid Arrow): the routine's arguments are (creature, effect)
-ACID_TICK_RETURN = bytes.fromhex("83c4048946fe8b4608")
+# The routine run whenever an effect uses up a charge (arguments: creature, effect): it rolls
+# 2d4 first, and deals it as acid damage only for the acid effect (Acid Arrow, each round)
+CHARGE_USED_RETURN = bytes.fromhex("83c4048946fe8b4608")
+ACID = 1
 # A confused creature's turn (its routine's first argument is the creature): d10, 1 it runs
 # off, 2-6 it does nothing, 7-9 it fights for a side picked with a d2 (as a berserk creature
 # always does), 10 it acts normally
@@ -67,6 +69,10 @@ CONFUSION_ROLL_RETURN = bytes.fromhex("83c4048ad080fa0174da")
 RANDOM_SIDE_RETURN = bytes.fromhex("83c4048bde6bdb03ba")
 CONFUSION_RESULTS = ((1, "runs off"), (6, "does nothing"), (9, "fights for a side picked at random"),
                      (10, "acts normally"))
+# Strength (and the psionic Adrenalin Control): the special handler rolls 1d6 and stores it in
+# the effect; while it lasts the game adds it to STR, keeping STR between 3 and 24
+STRENGTH_ROLL_RETURN = bytes.fromhex("83c40450660fbf4618")
+STR_MOST = 24
 # What a return address shows when the overlay manager has redirected it (INT 3Fh)
 OVERLAY_TRAP = b"\xcd\x3f"
 # DSCLOG only records calls whose calling code starts like one of these, so
@@ -710,10 +716,20 @@ class DiceLog:
             if count == 1 and sides == 2 and e.parent_code.startswith(RANDOM_SIDE_RETURN):
                 side = "the party's" if faces[0] == 1 else "the monsters'"
                 return [f"    {self._name(e.parent_arg(6))} fights on {side} side this turn (d2 = {faces[0]})"]
-            if e.parent_code.startswith(ACID_TICK_RETURN):
+            if count == 1 and e.parent_code.startswith(STRENGTH_ROLL_RETURN) and e.parent_arg(0x0E) is not None:
+                spell, target = e.parent_arg(0x0E), e.parent_arg(6)
+                self._spell_cast(spell, now)
                 return self.flush(now, force=True) + [
-                    f"    {EFFECT_NAMES[1]} on {self._name(e.parent_arg(6))}: {count}d{sides} = {faces_text} = "
-                    f"{sum(faces)} acid damage"]
+                    f"{self.game.spell_name(spell)}: 1d{sides} = {faces[0]} -> {self._name(target)}'s STR "
+                    f"+{faces[0]} while it lasts (at most {STR_MOST})"]
+            if e.parent_code.startswith(CHARGE_USED_RETURN):
+                who, eid = self._name(e.parent_arg(6)), e.parent_arg(8)
+                if eid == ACID:
+                    return self.flush(now, force=True) + [
+                        f"    {EFFECT_NAMES[ACID]} on {who}: {count}d{sides} = {faces_text} = {sum(faces)} acid damage"]
+                # the 2d4 means nothing here: a Stoneskin, Ironskin, Mirror Image... used a charge
+                name = EFFECT_NAMES.get(eid, f"effect {eid}")
+                return [f"    {name} on {who}: one charge used"]
             handler = next((bonus for code, bonus in SPELL_HANDLER_RETURNS if e.parent_code.startswith(code)), None)
             if handler is not None and e.parent_arg(0x0E) is not None:
                 spell = e.parent_arg(0x0E)
