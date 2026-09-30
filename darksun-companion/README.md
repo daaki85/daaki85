@@ -89,6 +89,23 @@ the **Dice log** tab as they happen.
 If you start the game the normal way instead, **`Start Templar's Ledger.bat`** still
 shows the party, but the dice log will say the game was started without it.
 
+**Just the game, with the in-game additions.** Double-click **`Play Dark Sun
+(in-game rolls).bat`**. It starts Shattered Lands the same way, with each
+turn's attacks shown in the game (in detail, unless you unticked that in the
+Ledger), THAC0, saves and thief skills on the inventory and View Character
+screens, and spell slots on the USE screen, but opens no Ledger window: the
+dice log runs unseen and stops when you close DOSBox. If anything goes wrong it
+says so in a message box and writes the details to `play.log`.
+
+The same as a single Windows program that doesn't need Python: **`Dark Sun
+In-Game Rolls.exe`**. GitHub builds it each time this branch changes: on the
+repository's **Actions** tab, open the latest **Build Dark Sun In-Game Rolls**
+run and download the file under **Artifacts** (you need to be signed in to
+GitHub). Put it in a folder of its own and double-click it: it keeps its
+settings, `play.log` and a `dos` folder (the helper and the patched copy of the
+game) next to itself, and asks where the game is the first time if it can't
+find it.
+
 **Checking a save file (no game needed):** drag a `SAVEnn.SAV` file from the
 game folder onto **`Show Save.bat`**.
 
@@ -98,6 +115,7 @@ internal name):
 ```
 python -m dscompanion launch                        # start the game with the dice log, and the viewer
 python -m dscompanion view                          # the viewer only
+python -m dscompanion play                          # the game with the in-game additions, no viewer
 python -m dscompanion dicelog                       # the dice log in the command prompt
 python -m dscompanion save C:\path\to\SAVE01.SAV   # the party stored in a save
 python -m dscompanion processes                     # is DOSBox found?

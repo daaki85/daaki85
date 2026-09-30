@@ -192,7 +192,8 @@ def cmd_dicelog(args) -> None:
         log.detach()
 
 
-def cmd_launch(args) -> None:
+def _game_dir(args) -> str:
+    """The game folder: remembered, found, or asked for (and then remembered)."""
     from . import launch
     game_dir = launch.find_game_dir(args.game_dir)
     if game_dir is None:
@@ -210,11 +211,92 @@ def cmd_launch(args) -> None:
     if settings.get("game_dir") != game_dir:
         settings["game_dir"] = game_dir
         launch.save_settings(settings)
+    return game_dir
+
+
+def cmd_launch(args) -> None:
+    from . import launch
+    game_dir = _game_dir(args)
     print(f"Starting Shattered Lands from {game_dir}")
     _, problem = launch.launch(game_dir)
     if problem:
         print(f"The dice log can't run with this copy of the game ({problem}); starting the game without it.")
     cmd_view(args)
+
+
+def cmd_play(args) -> None:
+    """Start the game with the helper and the in-game additions, with no window of our own:
+    the dice log runs in the background (for each turn's attacks and the spell slots) until
+    DOSBox closes. Problems are shown in a message box and written to play.log."""
+    import time
+    import traceback
+    from . import launch
+    from .dicelog import DiceLog, DiceLogError
+    from .guestmem import GuestMemoryError
+    log_path = os.path.join(launch.HERE, "play.log")
+
+    def note(text: str) -> None:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + text + "\n")
+
+    def tell(text: str) -> None:
+        note(text)
+        try:
+            import tkinter
+            from tkinter import messagebox
+            root = tkinter.Tk()
+            root.withdraw()
+            messagebox.showwarning("Dark Sun (in-game rolls)", text)
+            root.destroy()
+        except Exception:
+            print(text)
+
+    try:
+        game_dir = _game_dir(args)
+        dosbox, problem = launch.launch(game_dir)
+        if problem:
+            tell(f"The in-game additions can't run with this copy of the game ({problem}). "
+                 "The game starts without them.")
+            return
+        note(f"Started Shattered Lands from {game_dir}")
+        settings = launch.load_settings()
+        guest = None
+        while guest is None and dosbox.poll() is None:  # DOSBox takes a moment to start
+            try:
+                guest = connect(argparse.Namespace(pid=dosbox.pid, host_base=None))
+            except (CliError, GuestMemoryError, OSError):
+                time.sleep(1)
+        if guest is None:
+            return
+        log = DiceLog(guest)
+        log.popups = not args.no_popups
+        log.popup_detail = settings.get("turn_popups_detail", True)
+        log.speaker_names = launch.speaker_names()
+        log.learned_speakers = launch.learned_speakers()
+        attached = False
+        while dosbox.poll() is None:
+            if not attached:
+                try:
+                    log.attach()
+                    attached = True
+                except (DiceLogError, GuestMemoryError, OSError):
+                    time.sleep(1)
+                    continue
+            elif not log.still_patched():
+                log.detach()
+                attached = False
+                continue
+            log.lines()
+            log.take_dialogue()
+            learned = log.take_speakers()
+            if learned:
+                launch.add_learned_speakers(learned)
+            time.sleep(0.02)
+    except (CliError, launch.LaunchError) as e:
+        tell(str(e))
+    except Exception:
+        tell("Something went wrong; the details are in " + log_path)
+        note(traceback.format_exc())
 
 
 def cmd_view(args) -> None:
@@ -238,6 +320,11 @@ def main(argv=None) -> int:
     s.add_argument("--game-dir", help="the game's install folder (remembered after the first time)")
     s.add_argument("--layout", default=DEFAULT_LAYOUT, help="layout JSON file")
     s.set_defaults(func=cmd_launch)
+
+    s = sub.add_parser("play", help="start the game with the in-game rolls and stats, no window of our own")
+    s.add_argument("--game-dir", help="the game's install folder (remembered after the first time)")
+    s.add_argument("--no-popups", action="store_true", help="without each turn's attacks in the game")
+    s.set_defaults(func=cmd_play)
 
     s = sub.add_parser("dicelog", parents=[common], help="print the game's dice rolls as they happen")
     s.add_argument("--all", action="store_true", help="also show rolls the log can't label")

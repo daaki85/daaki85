@@ -11,14 +11,21 @@ the game folder is changed.
 
 import json
 import os
+import shutil
 import string
 import subprocess
+import sys
 from typing import Dict, List, Optional, Tuple
 
 from . import gamepatch
 
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Packaged as one program (PyInstaller), the files that come with it are unpacked to a
+# temporary folder; what the launcher writes (settings, the patched game) goes next to it.
+FROZEN = getattr(sys, "frozen", False)
+HERE = os.path.dirname(sys.executable) if FROZEN else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BUNDLED = getattr(sys, "_MEIPASS", HERE)
 DOS_DIR = os.path.join(HERE, "dos")
+HELPER = "DSCLOG.EXE"
 SETTINGS = os.path.join(HERE, "settings.json")
 CONF = os.path.join(HERE, "dosbox_dicelog.conf")
 PATCHED_EXE = "DSUNLOG.EXE"
@@ -124,6 +131,11 @@ def write_conf(game_dir: str, path: str = CONF, dice_log: bool = True) -> str:
 def prepare_patched_game(game_dir: str) -> Optional[str]:
     """Write DSUNLOG.EXE next to DSCLOG.EXE. Returns why it couldn't, or None."""
     try:
+        if FROZEN:  # the helper comes inside the program: put it where DOSBox can see it
+            os.makedirs(DOS_DIR, exist_ok=True)
+            source, dest = os.path.join(BUNDLED, "dos", HELPER), os.path.join(DOS_DIR, HELPER)
+            if not os.path.exists(dest) or open(source, "rb").read() != open(dest, "rb").read():
+                shutil.copyfile(source, dest)
         gamepatch.write_patched(_find_file(game_dir, "DSUN.EXE"), os.path.join(DOS_DIR, PATCHED_EXE))
     except (gamepatch.PatchError, OSError) as e:
         return str(e)

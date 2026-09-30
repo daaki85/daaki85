@@ -1,0 +1,32 @@
+# Builds "Dark Sun In-Game Rolls.exe": the game with the in-game rolls, THAC0, saves, thief
+# skills and spell slots, as one Windows program that needs no Python.
+name: Build Dark Sun In-Game Rolls
+
+on:
+  push:
+    branches: [templars-ledger]
+    paths: ["darksun-companion/**", ".github/workflows/dark-sun-play.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: darksun-companion
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: x64
+      - name: Tests
+        run: python -m unittest discover -s tests
+      - name: Build
+        run: |
+          python -m pip install pyinstaller
+          python -m PyInstaller --onefile --noconsole --name "Dark Sun In-Game Rolls" --add-data "dos/DSCLOG.EXE;dos" --collect-submodules dscompanion play.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dark Sun In-Game Rolls
+          path: darksun-companion/dist/Dark Sun In-Game Rolls.exe
