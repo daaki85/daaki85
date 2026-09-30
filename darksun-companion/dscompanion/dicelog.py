@@ -788,8 +788,8 @@ class DiceLog:
             return "(no portrait)"
         if portrait == 0:
             return "Narration"  # the window shows an emblem, not a face
-        return (self.speaker_names.get(portrait) or self.learned_speakers.get(portrait)
-                or game.SPEAKERS.get(portrait) or f"Portrait {portrait}")
+        return (self.speaker_names.get(portrait) or game.SPEAKERS.get(portrait)
+                or self.learned_speakers.get(portrait) or f"Portrait {portrait}")
 
     def _follow_talk(self, rec) -> None:
         """Learn portraits' names: a conversation (the window opening to CLOSE) that shows a single
@@ -808,7 +808,9 @@ class DiceLog:
             talk, self._talk = self._talk, None
             if len(talk["portraits"]) == 1 and talk["with"]:
                 portrait = next(iter(talk["portraits"]))
-                if self.learned_speakers.get(portrait) != talk["with"]:
+                if portrait in game.SPEAKERS:
+                    pass  # known already (the Announcer calls out mid-fight, "started on" a fighter)
+                elif self.learned_speakers.get(portrait) != talk["with"]:
                     self.learned_speakers[portrait] = talk["with"]
                     self._new_speakers[portrait] = talk["with"]
 

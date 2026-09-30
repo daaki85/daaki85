@@ -923,7 +923,9 @@ When several faces take turns in one conversation, nothing is learned from it,
 as it can't be told who is who. Names learned are shown on the lines already
 there too, and kept in `settings.json` (`speakers_learned`). A speaker not
 named yet shows as `Portrait 57`. Portrait 119 is named `The Announcer`, as the
-game itself calls him ("Yell something back at the Announcer?"). To name a
+game itself calls him ("Yell something back at the Announcer?"). That name isn't
+replaced by one learned (he calls out in the middle of fights, when the
+game's last script ran on a fighter). To name a
 speaker yourself (your name wins over a learned one), right-click the name
 line in the Dialogue tab, or press **Name speaker...** (it names the latest
 speaker). The name replaces the number on every line from that portrait,

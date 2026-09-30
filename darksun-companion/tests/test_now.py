@@ -130,6 +130,14 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual((log.rules, log.arena_ring, log.monster_info), (dicelog.RULE_BOOTS, False, True))
 
 
+class SpeakerTests(unittest.TestCase):
+    def test_announcer_not_relearned(self):
+        """A name learned for the Announcer mid-fight (from a Slig) doesn't stick."""
+        log = dag()
+        log.learned_speakers = {119: "Slig"}
+        self.assertEqual(log.speaker(119), "The Announcer")
+
+
 class StatsTests(unittest.TestCase):
     def test_entry_for_dsclog(self):
         log = dag()
