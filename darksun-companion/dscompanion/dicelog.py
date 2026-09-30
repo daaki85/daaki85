@@ -34,6 +34,9 @@ HDR_SIG = b"DSCLOGv7"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
 MSG_SIZE = 900
+# the roll an attack needs and the chance of it, in the log's attack line (left out in the game)
+TO_HIT_CHANCE = re.compile(r", (?:needs \d+\+|hits on anything but a 1|only a 20 hits) \(\d+%\)"
+                           r"| \(\d+% to save\)")  # ... and a save's chance (its "needs 12" stays)
 # ... and the party's spell slots, for the game's USE screen (PROBE_USE)
 TSR_SLOTS_OFF, SLOTS_SIZE = 148, 96
 SLOTS_LINES = 3  # lines of spell slots the USE screen has room for
@@ -292,6 +295,7 @@ class DiceLog:
         self.popup_detail = True  # ... with the dice log's lines, or in short
         self._turn_seq = 0
         self._turn_attacks: Dict[int, List[dict]] = {}  # creature -> this turn's attacks
+        self._turn_log: List[str] = []  # this turn's rolls as the log has them (attacks, spells, saves)
         self._slots_written = b""
         self._own_text: set = set()  # summaries shown in the game's window, not to log as dialogue
         self._skip_choice = False
@@ -364,16 +368,31 @@ class DiceLog:
         if self.tsr_hdr is not None:
             self.guest.write(self.tsr_hdr + TSR_POPUPS, struct.pack("<H", int(on)))
 
+    def _note_turn(self, lines: List[str]) -> None:
+        """Keep the turn's rolls for the game's summary: everything the log says about them
+        (attacks, damage, spells, saving throws), not the round's order or unlabelled dice."""
+        skip = False
+        for line in lines:
+            if not line.startswith(" "):
+                skip = line.startswith(("Round ", "Initiative", "Dice:", "Message:"))
+            if not skip:
+                self._turn_log.append(line)
+
+    @staticmethod
+    def _for_game(line: str) -> str:
+        """A log line as the game's window shows it: without an attack's roll needed and chance
+        ("needs 8+ (65%)", as the AC the roll hits and the target's AC say it) or a save's chance."""
+        return TO_HIT_CHANCE.sub("", line.strip())
+
     def turn_summary(self, combatant: int, detail: bool = True) -> str:
-        """The attacks made during that combatant's turn (theirs first, then anyone else's, such as
-        a guarding character striking back), for the game's window. In detail, each attack's
-        lines from the dice log (the roll, the THAC0 worked out, the damage dice), a line
-        each; otherwise in short: "Daaki attacks Guard: 18 vs 8+ HIT, 13 damage; 5 vs 8+ miss"."""
+        """What happened during that combatant's turn, for the game's window. In detail, the dice
+        log's lines for it, a line each: attacks (the roll, the THAC0 worked out, the damage
+        dice), spells' damage and saving throws; otherwise in short, the attacks as
+        "Daaki attacks Guard: 18 vs 8+ HIT, 13 damage; 5 vs 8+ miss" and the spells' first lines."""
         own = self.game.combatant_creature(combatant)
         order = sorted(self._turn_attacks, key=lambda c: c != own)  # stable: the rest in order of attacking
         if detail:
-            text = "\n".join(line for creature in order for a in self._turn_attacks[creature]
-                             for line in a.get("lines", []))
+            text = "\n".join(self._for_game(line) for line in self._turn_log)
         else:
             parts = []
             for creature in order:
@@ -386,6 +405,8 @@ class DiceLog:
                         parts.append(f"{self.game.creature_name(creature)} attacks {target}: {roll}")
                     else:
                         parts[-1] += f"; {roll}"
+            parts += [self._for_game(line) for line in self._turn_log
+                      if not line.startswith(" ") and " attacks " not in line]  # spells, saves
             text = ". ".join(parts)
         if len(text) > MSG_SIZE - 1:  # what the game's window can take
             text = text[:MSG_SIZE - 4].rsplit(" ", 1)[0] + "..."
@@ -468,6 +489,7 @@ class DiceLog:
         self.guest.write(msg, text + b"\0")
         self.guest.write(self.tsr_hdr + TSR_REPLY_SEQ, struct.pack("<H", seq))
         self._turn_attacks.clear()
+        self._turn_log.clear()
 
     @property
     def attached(self) -> bool:
@@ -708,7 +730,9 @@ class DiceLog:
     def describe(self, e: Entry, show_all: bool = False, now: float = 0.0) -> List[str]:
         """Log lines for `e` (none if it isn't worth showing, or completes later)."""
         try:
-            return self._describe(e, show_all, now)
+            said = self._describe(e, show_all, now)
+            self._note_turn(said)  # (only what's labelled: show_all adds rand() lines, not for the game)
+            return said
         except Exception as err:  # an unexpected entry must never stop the log
             if show_all:
                 return [f"rand() = {e.raw}  (at {e.cs:04x}:{e.ip:04x}; could not decode: {err})"]
@@ -919,8 +943,7 @@ class DiceLog:
                 f"{needs} ({chance}%), hits AC {thac0 - d20}, target AC {ac} -> {'HIT' if hit else 'miss'}")
         breakdown = self._thac0_breakdown(e, thac0, attacker, attacker_combatant, target_combatant, weapon, mode)
         self._turn_attacks.setdefault(attacker, []).append(
-            {"target": target, "d20": d20, "need": need, "hit": hit, "damage": None,
-             "lines": [head, breakdown]})
+            {"target": target, "d20": d20, "need": need, "hit": hit, "damage": None})
         return [head, "    " + breakdown]
 
     def _thac0_breakdown(self, e: Entry, thac0: int, attacker: int, attacker_combatant: int,
@@ -1102,7 +1125,6 @@ class DiceLog:
         line = f"{g.creature_name(attacker)} hits {g.combatant_name(e.glob[0])} for {total}: {steps}"
         if last is not None:  # for the turn's summary in the game
             last["damage"] = total
-            last.setdefault("lines", []).append(line)
         return ["  " + line]
 
     def _overlay_duration(self, e: Entry, count: int, sides: int) -> bool:

@@ -240,6 +240,20 @@ class AttackTests(unittest.TestCase):
                          b"Dag attacks Mountain Stalker: 18 vs 4+ HIT, 20 damage; 3 vs 4+ miss")
         self.assertEqual(log.turn_summary(0), "")  # a new turn starts afresh
 
+    def test_spells_and_saves_in_the_game_summary(self):
+        log = make_game()
+        log._note_turn(["Round 2: Dag 25, Mountain Stalker 18", "    Dag 25 = 20 + 5 (0-9 roll)",
+                        "Fireball damage: 5d6 = [2 + 5 + 3 + 6 + 1] = 17",
+                        "Dag saves vs Fireball from Defiler (petrification/polymorph): d20 = 7, doubled against fire = 14, needs 12 (60% to save) -> saved: half damage, 8",
+                        "  Dag takes 8 from Fireball, now 16/24 HP", "Dice: 1d6 = [4] = 4"])
+        text = log.turn_summary(0).split("\n")
+        self.assertEqual(text[0], "Fireball damage: 5d6 = [2 + 5 + 3 + 6 + 1] = 17")  # not the round's order
+        self.assertTrue(text[1].startswith("Dag saves vs Fireball"))
+        self.assertIn("needs 12 -> saved", text[1])  # the chance to save left out too
+        self.assertEqual(text[2], "Dag takes 8 from Fireball, now 16/24 HP")
+        self.assertEqual(len(text), 3)  # nor unlabelled dice
+        self.assertEqual(log.turn_summary(0, detail=False).split(". ")[0], "Fireball damage: 5d6 = [2 + 5 + 3 + 6 + 1] = 17")
+
     def test_detailed_summary_in_the_game(self):
         log = make_game()
         log.describe(self.attack(18, 8, 4, 5, 9, after_f1=9, hit_bonus=1))
@@ -250,8 +264,9 @@ class AttackTests(unittest.TestCase):
         struct.pack_into("<H", m, HDR + dicelog.TSR_TURN_SEQ, 1)
         log._answer_turn()
         shown = bytes(m[HDR + 0x400:HDR + 0x400 + dicelog.MSG_SIZE]).split(b"\0")[0].decode()
-        self.assertIn(" pct)", shown)  # the game's window shows no "%"
-        self.assertNotIn("%", shown)
+        self.assertNotIn("%", shown)  # the game's window shows no "%"
+        self.assertNotIn("needs", shown)  # nor the chance to hit: the AC hit and the target's AC say it
+        self.assertIn("hits AC -10, target AC 4 -> HIT", shown)
         # the game's window shows it, and DSCLOG passes back its first 400 characters: not dialogue
         said = DialogueEntry(None, shown[:40])
         self.assertEqual(log._not_ours([said, DialogueEntry(None, chosen="Continue")]), [])

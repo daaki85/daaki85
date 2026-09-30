@@ -587,27 +587,28 @@ and stay, while Templar's Ledger (or its command-line dice log) is running.
 
 ### In the game: each turn's attacks
 
-With **Show each turn's attacks in the game** ticked on the Dice log tab (or
-`python -m dscompanion dicelog --popups`), the game stops at the end of every
-turn in a fight in which someone attacked, and shows that turn's rolls in its
-own dialogue window, with **Continue** to go on. They are the dice log's own
-lines: each attack's d20, the roll it needed and the chance of it, the AC it
-would hit; how the THAC0 was worked out; and for a hit, the damage dice and
-bonuses. The window shows five lines at a time; its **MORE** arrow shows the
-next ones:
+With **Show each turn's attacks in the game** ticked on the Dice log tab (the
+default; or `python -m dscompanion dicelog --popups`), the game stops at the end
+of every turn in a fight in which someone attacked or cast a spell, and shows
+that turn's rolls in its own dialogue window, with **Continue** to go on. They
+are the dice log's own lines: each attack's d20, the AC it would hit and the
+target's AC, how the THAC0 was worked out, and for a hit the damage dice and
+bonuses; a spell's damage dice, and each saving throw against it. (The roll
+needed and the chance, to hit or to save, are left out: the log has them.) The
+last line says who is still to act this round. The window shows five lines at
+a time; its **MORE** arrow shows the next ones:
 
 ![The game's window at the end of a turn, in detail](docs/turn-detail.png)
 
+![The game's window after a Defiler's Cone of Cold](docs/turn-spell.png)
+
 Untick **... in detail** (or add `--short-popups`) for one line per target
-instead:
+instead (and each spell's first line):
 
 ![The game's window at the end of a Mountain Stalker's turn](docs/turn-summary.png)
 
 `12 vs 8+ HIT, 9 damage` is the d20, the roll it needed (THAC0 − the target's
 AC; a natural 20 always hits, a 1 always misses), and the damage the hit did.
-Either way, the turn's own attacker comes first, then anyone else who attacked
-during it: a character on Guard striking an enemy that comes close, for
-instance.
 
 How: the patched game calls the helper (`INT F1h`) in its combat loop, right
 after the call that may pass the turn on. When whose turn it is has changed,
