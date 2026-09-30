@@ -55,15 +55,20 @@ PARTY_SIZE = 4  # the party are the first creatures in the table
 # Segments relative to the load segment
 COMBATANTS_SEG, COMBATANTS_OFF = 0x3972, 0xC36  # 3 bytes per combatant: kind (2 = creature), creature index
 # The same table holds every object the game tracks ("things": kind 1 an item, 2 a creature).
-# A creature's items: two lists, each starting at an object number in the creature's record;
+# A creature's items: three lists, each starting at an object number in the creature's record;
 # each item names the next by item number (9999 ends the list). An item's slot is where it is
 # worn (the game's own slot names, in this order), 255 if only carried.
 THING_ITEM = 1
-CREATURE_ITEM_LISTS = (0x08, 0x0A)
+CREATURE_ITEM_LISTS = (0x08, 0x0A, 0x0C)  # (+0Ch: where the game puts items handed to a character)
 ITEM_NEXT, ITEM_SLOT, ITEM_TYPE, ITEM_NAME, ITEM_PLUS = 0x04, 0x11, 0x0A, 0x12, 0x14
 NO_ITEM = 9999
 EQUIP_SLOTS = ("arm", "ammo", "missile", "right hand", "finger", "waist", "legs", "head", "neck", "chest",
                "left hand", "cloak", "foot")
+FINGER = EQUIP_SLOTS.index("finger")
+# The plain "Ring" item type. With the dice log's patched game, a worn one's plus betters AC
+# and saving throws (DSCLOG's PROBE_RING_AC and PROBE_RING_SAVE); the game has no such ring of
+# its own, and the companion can put a Ring +1 in the arena (ring.py).
+RING_TYPE = 102
 EFFECTS_SEG, EFFECTS_OFF = 0x3BF6, 0x106  # 10 bytes per active effect
 # The game's clock and event queue: a far pointer to the time (a dword, divided by the byte at
 # GAME_TIME_SCALE); the first queue's entries (17 bytes: due time, kind, then the event's data),
@@ -118,6 +123,7 @@ ITEM_NAME_SIZE = 25
 BROKEN_ITEM_TYPE = 0x6B  # what a broken weapon becomes
 
 MATERIALS = ("Wooden", "Bone", "Stone", "Obsidian", "Metal", "Leather")
+NO_MATERIAL = 0x40  # in the type's material byte, with material 0: things with none (rings, bodies)
 # Dark Sun's to-hit penalty for non-magical weapons of weaker materials (from the game's code)
 MATERIAL_TO_HIT = {0: -3, 1: -1, 2: -2, 3: -2}
 # The character sheet's saving throws, in order (the game's own grouping: Fireball, for
@@ -621,8 +627,8 @@ class GameData:
 
     def save_modifiers(self, target: int, caster: int, spell: int, save: int) -> List[Tuple[int, str]]:
         """What the game adds to a saving throw's d20 (besides the spell's own modifier), as
-        [(amount, why), ...]: the target's effects, class, race and WIS or CON, and whether
-        the caster is evil or can see the target."""
+        [(amount, why), ...]: the target's rings (with the patched game), effects, class, race
+        and WIS or CON, and whether the caster is evil or can see the target."""
         ti, ci = self.combatant_creature(target), self.combatant_creature(caster)
         if ti is None:
             return []
@@ -637,6 +643,9 @@ class GameData:
         theirs = {x.id for x in effects if x.owner == caster} if caster != target else set()
         caster_sheet = self.sheet(ci) if ci is not None else b""
         out: List[Tuple[int, str]] = []
+        ring = self.ring_plus(ti)
+        if ring:
+            out.append((ring, f"Ring +{ring}"))
         if EFFECT_SAVE_PENALTY in mine:
             out.append((-1, EFFECT_NAMES[EFFECT_SAVE_PENALTY]))
         if EFFECT_SPIRIT_ARMOR in mine and save != PPD_SAVE:
@@ -832,9 +841,13 @@ class GameData:
                 typ = self.guest.read(types + struct.unpack_from("<H", item, ITEM_TYPE)[0] * ITEM_TYPE_SIZE,
                                       ITEM_TYPE_SIZE)
                 material = typ[0x08] & 0x0F if len(typ) == ITEM_TYPE_SIZE else len(MATERIALS)
+                if len(typ) == ITEM_TYPE_SIZE and typ[0x08] & NO_MATERIAL and not material:
+                    material = len(MATERIALS)  # a ring, a body...: no material to name
                 plus = struct.unpack("b", item[ITEM_PLUS:ITEM_PLUS + 1])[0]
-                name = (f"{MATERIALS[material]} " if material < len(MATERIALS) else "") + \
-                    self.item_name(item[ITEM_NAME]) + (f" {plus:+d}" if plus else "")
+                name = self.item_name(item[ITEM_NAME])
+                if plus and not name.endswith(f"{plus:+d}"):  # (the Ring +1's name has it)
+                    name += f" {plus:+d}"
+                name = (f"{MATERIALS[material]} " if material < len(MATERIALS) else "") + name
                 slot = item[ITEM_SLOT]
                 out.append((EQUIP_SLOTS[slot] if slot < len(EQUIP_SLOTS) else None, name, slot))
                 index, = struct.unpack_from("<h", item, ITEM_NEXT)
@@ -842,6 +855,32 @@ class GameData:
                     break
         out.sort(key=lambda x: x[2])
         return [(slot, name) for slot, name, _ in out]
+
+    def ring_plus(self, creature: int) -> int:
+        """The pluses of the rings a creature wears (see RING_TYPE)."""
+        rec = self.creature(creature)
+        if len(rec) < CREATURE_SIZE:
+            return 0
+        things = (self.load_seg + COMBATANTS_SEG) * 16 + COMBATANTS_OFF
+        items = far_pointer(self.guest, self.ds, ITEMS_PTR)
+        total = 0
+        for field in CREATURE_ITEM_LISTS:
+            thing, = struct.unpack_from("<H", rec, field)
+            if thing >= NO_ITEM:
+                continue
+            kind, index = struct.unpack("<Bh", self.guest.read(things + thing * 3, 3))
+            if kind != THING_ITEM:
+                continue
+            for _ in range(100):
+                if not 0 <= index < NO_ITEM:
+                    break
+                item = self.guest.read(items + index * ITEM_SIZE, ITEM_SIZE)
+                plus = struct.unpack("b", item[ITEM_PLUS:ITEM_PLUS + 1])[0]
+                if struct.unpack_from("<H", item, ITEM_TYPE)[0] == RING_TYPE and item[ITEM_SLOT] == FINGER \
+                        and plus > 0:
+                    total += plus
+                index, = struct.unpack_from("<h", item, ITEM_NEXT)
+        return total
 
     def dex_ac(self, dex: int) -> int:
         """The game's AC adjustment for a DEX score."""

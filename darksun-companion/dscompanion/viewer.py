@@ -153,6 +153,10 @@ class Viewer:
         self.monster_info = tk.BooleanVar(value=bool(settings.get("monster_info", True)))
         ttk.Checkbutton(dice, text="Describe monsters when you Look at them in a fight (defences, then a window)",
                         variable=self.monster_info, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        # the companion's own item: a Ring +1 on the dead prisoner in the arena (ring.py)
+        self.arena_ring = tk.BooleanVar(value=bool(settings.get("arena_ring", True)))
+        ttk.Checkbutton(dice, text="Put a Ring +1 (+1 AC, +1 on saves) on the dead prisoner in the arena",
+                        variable=self.arena_ring, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
         self.dice_status = tk.StringVar(value="Waiting for the game...")
         ttk.Label(dice, textvariable=self.dice_status).pack(fill="x", pady=(4, 0))
         # the round's order stays here while the log scrolls on: who acts now, who is still to come
@@ -511,6 +515,7 @@ class Viewer:
                 self.dice.popups = self.popups.get()
                 self.dice.popup_detail = self.popup_detail.get()
                 self.dice.monster_info = self.monster_info.get()
+                self.dice.arena_ring = self.arena_ring.get()
             try:
                 self.dice_status.set(self.dice.attach())
             except DiceLogError as e:
@@ -581,11 +586,13 @@ class Viewer:
         settings["turn_popups"] = on
         settings["turn_popups_detail"] = self.popup_detail.get()
         settings["monster_info"] = self.monster_info.get()
+        settings["arena_ring"] = self.arena_ring.get()
         launch.save_settings(settings)
         if self.dice is not None:
             self.dice.set_popups(on)
             self.dice.popup_detail = self.popup_detail.get()
             self.dice.set_monster_info(self.monster_info.get())
+            self.dice.arena_ring = self.arena_ring.get()
 
     def show_spells(self) -> None:
         """Fill the Spells tab from the running game's records."""
@@ -695,7 +702,7 @@ class Viewer:
     def _ac_rows(self, slots) -> List[Tuple[str, List[str]]]:
         """The AC the game last worked out for each character in a fight, and what it was made
         of, as the dice log sees them; "-" until then."""
-        labels = ("Current AC", "  AC: armour, shield", "  AC: DEX", "  AC: spells, other")
+        labels = ("Current AC", "  AC: armour, shield", "  AC: DEX", "  AC: spells, rings, other")
         if not (self.dice and self.dice.attached and self.ds is not None and "creature" in self.layout.records):
             return [(label, ["-"] * len(slots)) for label in labels]
         table = game.far_pointer(self.guest, self.ds, game.CREATURES_PTR)

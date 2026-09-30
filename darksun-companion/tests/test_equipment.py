@@ -31,7 +31,7 @@ class EquipmentTests(unittest.TestCase):
 
     def test_nothing(self):
         log = make_game()
-        struct.pack_into("<hh", log.guest.mem, CREATURES + 8, 9999, 9999)
+        struct.pack_into("<hhh", log.guest.mem, CREATURES + 8, 9999, 9999, 9999)
         self.assertEqual(game.GameData(log.guest, DS).equipment(0), [])
 
 

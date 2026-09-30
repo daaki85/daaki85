@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dscompanion.dicelog import FILTERS, HDR_SIG, Entry
 from dscompanion.textlog import TextBuffer
-from dscompanion.gamepatch import VEC_AC, VEC_MSG, VEC_RAND, VEC_SAVE, VEC_TEXT
+from dscompanion.gamepatch import VEC_AC, VEC_MSG, VEC_RAND, VEC_RING_AC, VEC_RING_SAVE, VEC_SAVE, VEC_TEXT
 
 try:
     from unicorn import Uc, UC_ARCH_X86, UC_HOOK_INTR, UC_MODE_16
@@ -245,6 +245,75 @@ class StubTests(unittest.TestCase):
         # "show the replies" passes no pointer: whatever lies above its arguments is not text
         recs = call(VEC_TEXT, struct.pack("<HHHH", 3, 0x100, GAME_DS, 0), 0x130)
         self.assertEqual([(x.kind, x.text) for x in recs], [(3, "")])
+
+
+@unittest.skipIf(Uc is None, "unicorn is not installed")
+class RingTests(unittest.TestCase):
+    """The ring probes: a worn ring's plus counts for AC and (all worn rings) on saves."""
+    THINGS_SEG, CREATURES, ITEMS, TYPES = 0x8000, 0x9000, 0xA000, 0xB000
+
+    def setUp(self):
+        image = load_image()
+        self.mu = mu = Uc(UC_ARCH_X86, UC_MODE_16)
+        mu.mem_map(0, 0x100000)
+        mu.mem_write(TSR * 16, image)
+        # the handlers aren't in the header: find them by their first instructions
+        ac = image.find(bytes.fromhex("268a470f98" "83f966"))
+        save = image.find(bytes.fromhex("5589e5505351520631f6c45e02"))
+        self.assertGreater(min(ac, save), 0)
+        mu.mem_write(VEC_RING_AC * 4, struct.pack("<HH", ac, TSR))
+        mu.mem_write(VEC_RING_SAVE * 4, struct.pack("<HH", save, TSR))
+        mu.hook_add(UC_HOOK_INTR, real_mode_interrupt)
+        mu.mem_write(GAME_DS * 16 + 0x1665, struct.pack("<HH", 0, self.CREATURES))
+        mu.mem_write(GAME_DS * 16 + 0x165D, struct.pack("<HH", 0, self.ITEMS))
+        things = self.THINGS_SEG * 16 + 0xC36
+        # object 3: creature 1, whose lists start at objects 10 (item 4, then 5) and 11 (item 7)
+        for thing, kind, index in ((3, 2, 1), (10, 1, 4), (11, 1, 7), (12, 1, 5)):
+            mu.mem_write(things + thing * 3, struct.pack("<BH", kind, index))
+        mu.mem_write(self.CREATURES * 16 + 0x3A + 8, struct.pack("<HHH", 10, 9999, 11))
+        # items: type, slot, plus, next
+        for item, typ, slot, plus, nxt in ((4, 102, 4, 1, 5), (5, 102, 0xFF, 2, 9999), (7, 102, 4, 2, 9999)):
+            rec = bytearray(21)
+            struct.pack_into("<H", rec, 4, nxt)
+            struct.pack_into("<H", rec, 0x0A, typ)
+            rec[0x11], rec[0x14] = slot, plus
+            mu.mem_write(self.ITEMS * 16 + item * 21, bytes(rec))
+        self.at = 0x600
+
+    def run_at(self, code, **regs):
+        mu = self.mu
+        self.at += 0x20
+        mu.mem_write(CALLER * 16 + self.at, code)
+        for name, value in dict(cs=CALLER, ds=GAME_DS, ss=SS, esp=0x800, ebp=BP, eflags=IF | 2, **regs).items():
+            mu.reg_write(getattr(r, "UC_X86_REG_" + name.upper()), value)
+        mu.emu_start(CALLER * 16 + self.at, CALLER * 16 + self.at + 2)
+        self.assertEqual(mu.reg_read(r.UC_X86_REG_SP), 0x800)
+
+    def save(self, thing):
+        """INT VEC_RING_SAVE where "xor si,si" was, then the code after it in the game."""
+        code = bytes((0xCD, VEC_RING_SAVE)) + bytes.fromhex("8bdf6bdb03b8") + struct.pack("<H", self.THINGS_SEG)
+        self.run_at(code, edi=thing, esi=0x5555, eax=0x1111, ebx=0x2222, ecx=0x3333, edx=0x4444, es=0x6666)
+        mu = self.mu
+        self.assertEqual([mu.reg_read(x) for x in (r.UC_X86_REG_AX, r.UC_X86_REG_BX, r.UC_X86_REG_CX,
+                                                   r.UC_X86_REG_DX, r.UC_X86_REG_ES, r.UC_X86_REG_DI,
+                                                   r.UC_X86_REG_BP, r.UC_X86_REG_DS)],
+                         [0x1111, 0x2222, 0x3333, 0x4444, 0x6666, thing, BP, GAME_DS])
+        return mu.reg_read(r.UC_X86_REG_SI)
+
+    def test_saves_count_worn_rings(self):
+        self.assertEqual(self.save(3), 3)  # items 4 and 7 (+1, +2); item 5 is only carried
+
+    def test_saves_not_a_creature(self):
+        self.assertEqual(self.save(10), 0)
+
+    def test_ac_counts_rings(self):
+        """AX gets the type's flags (sign-extended); bit 80h is set for the ring type."""
+        mu = self.mu
+        for typ, flags, want in ((102, 0x00, 0x0080), (6, 0x80, 0xFF80), (6, 0x00, 0), (102, 0x02, 0x0082)):
+            mu.mem_write(self.TYPES * 16 + 0x0F, bytes([flags]))
+            self.run_at(bytes((0xCD, VEC_RING_AC)), es=self.TYPES, ebx=0, ecx=typ, eax=0x1234)
+            self.assertEqual(mu.reg_read(r.UC_X86_REG_AX), want)
+            self.assertEqual((mu.reg_read(r.UC_X86_REG_CX), mu.reg_read(r.UC_X86_REG_BX)), (typ, 0))
 
 
 if __name__ == "__main__":

@@ -42,9 +42,12 @@ parts:
   these additions and the Ledger's window start together.
 - **Spells:** a tab listing what every spell and psionic power really does,
   from the game's own records (see [the Spells tab](#the-spells-tab)).
+- **A Ring +1** (+1 AC, +1 on saving throws) to loot from the dead prisoner in
+  the arena, an item of the Ledger's own (see [The Ring +1](#the-ring-1)).
 
-Nothing in the game folder or your save files is changed. The viewer only reads
-memory. For the dice log, the launcher runs a patched copy of the game that it
+Nothing in the game folder or your save files is changed, except that a game
+you save after the Ledger has put the Ring +1 in the arena keeps the ring (untick
+its box to go without). The viewer otherwise only reads memory. For the dice log, the launcher runs a patched copy of the game that it
 keeps in its own folder (see
 [How the dice log works](#how-the-dice-log-works)).
 
@@ -201,8 +204,8 @@ The viewer's **Current AC** row is the AC the game last used for each
 character in a fight (armour, DEX and spells included), and the rows under it
 say what it was made of: armour and shield (and spells that take their place,
 such as Spirit Armor and Magical Vestments), DEX (the game's table: −1 at 15
-down to −6 at 24; not counted when attacked from behind), and spells and
-anything else. They show "-" until the game has worked out that character's AC
+down to −6 at 24; not counted when attacked from behind), and spells, rings
+(see [The Ring +1](#the-ring-1)) and anything else. They show "-" until the game has worked out that character's AC
 in a fight.
 
 Ability scores such as `STR 24 (20 without spells)` show the score now and, in
@@ -601,7 +604,44 @@ creature that is both an elf and a half-elf, so no one qualifies.
 Rules in the code that never come into play: a DEX adjustment and Cloak of
 Bravery's +4 against fear both apply only to a kind of spell that no spell in
 the game is marked as. And nothing in the game gives saves from items: there
-are no rings or cloaks of protection.
+are no rings or cloaks of protection, which is why the Ledger adds
+[one](#the-ring-1). Its +1 is in the log's saving throws as `+1 Ring +1`.
+
+### The Ring +1
+
+A ring of protection the game never had: **+1 AC and +1 on every saving
+throw** for whoever wears it. With **Put a Ring +1 (+1 AC, +1 on saves) on the
+dead prisoner in the arena** ticked on the Dice log tab (it is by default),
+the Ledger puts one in the body lying just below the Tied-up Prisoner in the
+arena, the first time the party is there with the Ledger running:
+
+```
+A Ring +1 (+1 AC, +1 on saves) is on the dead prisoner in the arena, below the Tied-up Prisoner.
+```
+
+Look at the body (right-click until the cursor is the eye, then click it) to
+open it, click the ring, then click a character to put it in their backpack;
+wear it on a finger from the inventory screen. The game calls it **RING +1**.
+The Ledger puts one there only while there is no Ring +1 in the arena or with
+the party, so taking it doesn't make another appear.
+
+How it works: the game has a plain "Ring" item that nothing in it has a plus
+on, and no item that betters saving throws. The Ledger adds a Ring with a plus
+of 1 the way the game fills a container (an item record from its free list,
+and the ring's name in an unused entry of the game's name table). The dice
+log's patched game does the rest (see
+[How the dice log works](#how-the-dice-log-works)): where it adds up AC, a
+ring counts like armour does (its plus, on top of AC 0), and where it adds up
+a saving throw's modifiers, it starts from the pluses of the rings worn. So:
+
+- The ring works in games started with the dice log. In the original game
+  it is a plain ring, and without the Ledger running its name is blank (the
+  game reads the name table afresh each time it starts, and the Ledger writes
+  the name back within a few seconds).
+- The AC it gives shows on the View Character and inventory screens and in the
+  Ledger's **AC: spells, rings, other** row; the saves in the log.
+- A ring the original game has (the plain Ring and the Serpent Ring are the
+  only kind the patch looks at) has no plus, so it plays as before.
 
 ### No critical hits
 
@@ -825,8 +865,9 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    `INT 60h` to `64h`, the inventory screen's panel calls `INT 65h`, the
    combat loop `INT F1h`, the USE screen `INT F2h`, the View Character screen
    `INT F3h`, the end of the window redraw `INT F4h`, the Look box `INT F5h`
-   and `INT F6h`, and the start of a monster's turn `INT F7h` (see In the
-   game), and
+   and `INT F6h`, the start of a monster's turn `INT F7h` (see In the
+   game), and the places where AC and a saving throw's modifiers are added up
+   `INT F8h` and `INT F9h` (for [the Ring +1](#the-ring-1)), and
    the copy looks for its data files in the current
    folder rather than next to itself. DOSBox runs it from the game folder, so
    it uses your saves as usual.

@@ -6,7 +6,8 @@
 ; start with INT instructions; this TSR answers those interrupts
 ; (VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG) and the companion reads the ring buffer
 ; from DOSBox's memory. VEC_CHAR adds THAC0, the saving throws and thief skills to the
-; game's inventory screen.
+; game's inventory screen. VEC_RING_AC and VEC_RING_SAVE make a ring with a plus (the
+; companion's Ring +1) better the AC and saving throws of whoever wears it.
 ;
 ; STUB produces exactly the numbers the original rand() would
 ; (seed = seed * 0x015A4E35 + 1, result = (seed >> 16) & 0x7FFF), so the game
@@ -34,6 +35,8 @@ VEC_WIN  equ 0xF4     ; PROBE_WIN
 VEC_LOOK equ 0xF5     ; PROBE_LOOK
 VEC_UNLOOK equ 0xF6   ; PROBE_UNLOOK
 VEC_NEXT equ 0xF7     ; PROBE_NEXT
+VEC_RING_AC equ 0xF8  ; PROBE_RING_AC
+VEC_RING_SAVE equ 0xF9  ; PROBE_RING_SAVE
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -62,7 +65,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGv8'          ; +0
+sig      db 'DSCLOGv9'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -1211,6 +1214,101 @@ probe_unlook:
         popad
         iret
 
+; RINGS: the game has rings (item type RING_TYPE, a plain "Ring") but nothing that makes
+; one better AC or saves. The companion can put a Ring +1 in the arena; these two make its
+; plus count, as a ring of protection's would.
+RING_TYPE  equ 102
+FINGER     equ 4                ; the item's slot byte while worn on a finger
+THINGS     equ 0xC36            ; the things table (3 bytes each: kind, index) in its segment
+NO_THING   equ 0x270F
+CREATURES  equ 0x1665           ; DS: far pointer to the creature records (3Ah bytes each)
+ITEMS      equ 0x165D           ; DS: far pointer to the item records (15h bytes each)
+
+; PROBE_RING_AC: INT VEC_RING_AC replaces "mov al,es:[bx+0Fh] / cbw" (5 bytes: INT + 3 NOPs)
+; in the AC function, where ES:BX is a worn item's type and CX its number; bit 80h of AX
+; says the type counts for AC (the plus less the type's AC). Does that, counting rings too.
+probe_ring_ac:
+        mov al, [es:bx+0x0F]
+        cbw
+        cmp cx, RING_TYPE
+        jne .out
+        or al, 0x80
+.out:   iret
+
+; PROBE_RING_SAVE: INT VEC_RING_SAVE replaces "xor si,si" (2 bytes) at the start of the
+; function that adds up a saving throw's modifiers into SI, DI being the one saving. Starts
+; SI at the plus of the rings they wear instead of 0.
+probe_ring_save:
+        push bp
+        mov bp, sp              ; SS:BP+2 = our return address
+        push ax
+        push bx
+        push cx
+        push dx
+        push es
+        xor si, si
+        les bx, [bp+2]
+        mov ax, [es:bx+6]       ; the things table's segment: the code after the patch is
+        call ring_plus          ; "mov bx,di / imul bx,bx,3 / mov ax,<segment>"
+        pop es
+        pop dx
+        pop cx
+        pop bx
+        pop ax
+        pop bp
+        iret
+
+ring_plus:                      ; DS = the game's, AX = the things table's segment, DI = a
+        mov [cs:r_things], ax   ; creature's thing: SI += the pluses of the rings it wears
+        mov es, ax
+        mov bx, di
+        imul bx, bx, 3
+        cmp byte [es:bx+THINGS], 2
+        jne .done               ; not a creature
+        mov ax, [es:bx+THINGS+1]
+        imul ax, ax, 0x3A
+        mov [cs:r_creature], ax
+        mov cx, 8               ; its item lists, each a thing: +8, +0Ah, +0Ch
+.list:  les bx, [CREATURES]
+        add bx, [cs:r_creature]
+        add bx, cx
+        mov dx, [es:bx]
+        cmp dx, NO_THING
+        jae .next
+        mov es, [cs:r_things]
+        mov bx, dx
+        imul bx, bx, 3
+        cmp byte [es:bx+THINGS], 1
+        jne .next               ; not an item
+        mov dx, [es:bx+THINGS+1]
+        mov byte [cs:r_left], 100
+.item:  cmp dx, NO_THING
+        jae .next
+        les bx, [ITEMS]
+        mov ax, dx
+        imul ax, ax, 0x15
+        add bx, ax
+        cmp word [es:bx+0x0A], RING_TYPE
+        jne .on
+        cmp byte [es:bx+0x11], FINGER
+        jne .on
+        mov al, [es:bx+0x14]    ; the plus
+        cbw
+        or ax, ax
+        jle .on
+        add si, ax
+.on:    mov dx, [es:bx+4]       ; the next item in the list
+        dec byte [cs:r_left]
+        jnz .item
+.next:  add cx, 2
+        cmp cx, 0x0E
+        jb .list
+.done:  ret
+
+r_things   dw 0
+r_creature dw 0
+r_left     db 0
+
 L_LINE_SIZE equ 24
 LOOK_SIZE   equ 80
 LOOK_FULL_SIZE equ 700
@@ -1261,7 +1359,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 13
+        mov cx, 15
 .check:
         lodsb
         mov ah, 35h
@@ -1316,6 +1414,12 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_NEXT
         mov dx, probe_next
         int 21h
+        mov ax, 2500h + VEC_RING_AC
+        mov dx, probe_ring_ac
+        int 21h
+        mov ax, 2500h + VEC_RING_SAVE
+        mov dx, probe_ring_save
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -1331,8 +1435,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or F1h-F7h are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT
+busy    db 'DSCLOG: interrupts 60h-65h or F1h-F9h are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE
 
         align 16, db 0
 image_len equ $ - $$

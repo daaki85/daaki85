@@ -23,14 +23,14 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
-from . import game, monsters
+from . import game, monsters, ring
 from .game import (CONVENTIONAL_AND_UPPER, CREATURE_ABILITIES, CREATURE_SIDE, CREATURE_THAC0, EFFECT_NAMES,
                    EFFECT_RULES, MATERIAL_TO_HIT, MATERIALS, SAVE_NAMES, STR_DAMAGE, GameData)
 from .guestmem import GuestMemory
 from .textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGv8"
+HDR_SIG = b"DSCLOGv9"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
 MSG_SIZE = 900
@@ -142,6 +142,7 @@ KIND_ROLL, KIND_SAVE, KIND_AC = 0, 1, 2
 THIEF = 17  # class number
 
 EFFECT_INTERVAL = 0.25  # seconds between looks at the active effects
+RING_INTERVAL = 3.0  # seconds between looks for the arena's Ring +1
 LOAD_SETTLE = 3.0  # seconds after the party changes (a game was loaded) when effects are not news
 PENDING_SECONDS = 1.0  # how long dice wait to learn which spell they belong to
 SPELL_WINDOW = 15.0  # seconds after a spell's roll in which HP changes are put down to the spell
@@ -265,7 +266,7 @@ class AcDetail(NamedTuple):
     base: int  # from the character sheet
     armour: int  # armour and shields (and spells that stand in for armour)
     dex: int
-    other: int  # spells and the rest
+    other: int  # spells, rings and the rest
     total: int
 
 
@@ -297,6 +298,8 @@ class DiceLog:
         self.popups = False  # in-game turn summaries (set_popups)
         self.popup_detail = True  # ... with the dice log's lines, or in short
         self.monster_info = True  # monsters' defences in the game's Look box (set_monster_info)
+        self.arena_ring = True  # put the Ring +1 on the dead prisoner in the arena (ring.py)
+        self._ring_check = 0.0
         self._look_seq = 0
         self._turn_seq = 0
         self._turn_attacks: Dict[int, List[dict]] = {}  # creature -> this turn's attacks
@@ -608,6 +611,7 @@ class DiceLog:
             self._write_slots()
             if not self._party_check(now):
                 out += self.tracker.check(now)
+                out += self._arena_ring(now)
         if self._initiative and now - self._initiative_at >= INITIATIVE_WAIT:
             out += self.initiative_lines()
         out += self.turn_lines()  # after the round's order and the last turn's XP
@@ -618,6 +622,18 @@ class DiceLog:
             out.append(f"({self.missed} rolls came too fast to record)")
             self.missed = 0
         return out
+
+    def _arena_ring(self, now: float) -> List[str]:
+        """The Ring +1: its name (wherever it is by now), and in the arena, the ring itself."""
+        if now < self._ring_check:
+            return []
+        self._ring_check = now + RING_INTERVAL
+        try:
+            ring.name_ring(self.game)
+            placed = ring.place_ring(self.game) if self.arena_ring else None
+        except (struct.error, IndexError, ValueError):
+            return []
+        return [placed] if placed else []
 
     def psp_changes(self) -> List[str]:
         """The party's PSP going down (a psionic power used, or kept up another round: the game

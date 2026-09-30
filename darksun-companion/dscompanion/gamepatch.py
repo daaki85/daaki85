@@ -10,7 +10,9 @@ instruction that DSCLOG.EXE answers (see dos/dsclog.asm):
   * the end of the AC calculation, where DSCLOG records the AC the game uses;
   * the start of the routine that feeds the dialogue window, where DSCLOG
     copies the text, the replies to choose from and the portrait shown;
-  * the start of the message box routine ("... is broken !", level ups).
+  * the start of the message box routine ("... is broken !", level ups);
+  * two places where the game adds up AC and saving throw modifiers, so that a worn
+    ring with a plus (the Ring +1 the companion can put in the arena) counts.
 
 A last change lets the copy live outside the game folder: the game looks for
 its data files in the folder its EXE is in, and the copy looks in the current
@@ -28,6 +30,7 @@ GOG_SIZE = 611408  # DSUN.EXE of the GOG release (1.1)
 
 VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR = range(0x60, 0x66)  # as in dsclog.asm
 VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT = 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7  # not 66h-6Fh: the game calls those itself, looking for drivers
+VEC_RING_AC, VEC_RING_SAVE = 0xF8, 0xF9
 
 
 class Patch(NamedTuple):
@@ -77,6 +80,12 @@ PATCHES = (
     # the end of the routine that closes the Look box: mov word [0844h],270Fh (DSCLOG does it,
     # then shows the monster's whole description in the dialogue window)
     Patch("unlook", 0x5F2AA, bytes.fromhex("c70644080f27"), _interrupt(VEC_UNLOOK, 6)),
+    # the AC function, as it reads a worn item's type flags: mov al,es:[bx+0Fh] / cbw (DSCLOG
+    # does it, marking rings as counting for AC, so a ring's plus betters AC)
+    Patch("ring_ac", 0x58EBD, bytes.fromhex("268a470f98"), _interrupt(VEC_RING_AC, 5)),
+    # the start of the saving throw's modifiers: xor si,si (DSCLOG starts SI, their sum, at
+    # the plus of the rings the one saving wears)
+    Patch("ring_save", 0x79D47, bytes.fromhex("33f6"), _interrupt(VEC_RING_SAVE, 2)),
     # The data path is argv[0] cut after its last \ or :, kept at DS:4B81h. The
     # code that finds the cut becomes: path = ".\", then on to "mov byte [si],0"
     # which ends it. (Not an empty path: the save list needs a \ in it.)
