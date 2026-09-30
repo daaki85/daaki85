@@ -108,19 +108,19 @@ class ThiefTests(unittest.TestCase):
         return [n for _, n in self.log.game.thief_skills_now(0)]
 
     def test_equipment(self):
-        self.assertEqual(self.now(), [11, 39, 16, 16, 6])
+        self.assertEqual(self.now(), [11, 39, 16, 16, 16, 6])  # move silently 4th
         self.log.guest.mem[ITEMS + 5 * game.ITEM_SIZE + game.ITEM_SLOT] = 0xFF  # put away
         self.log.guest.mem[ITEMS + 6 * game.ITEM_SIZE + game.ITEM_SLOT] = 0xFF
-        self.assertEqual(self.now(), [16, 39, 16, 16, 16])
+        self.assertEqual(self.now(), [16, 39, 16, 16, 16, 16])
 
     def test_effects(self):
         set_effects(self.log, [(0, 0, 47)])  # Slowed: all but picking pockets
-        self.assertEqual(self.now(), [11, 0, 0, 0, 0])
+        self.assertEqual(self.now(), [11, 0, 0, 0, 0, 0])
         set_effects(self.log, [(0, 0, 14)])  # Detect Traps
         self.assertEqual(self.now()[2], 100)
 
     def test_in_stats(self):
-        self.assertEqual(struct.unpack_from("<B5B", self.log.stats_entry(0), 17), (1, 11, 39, 16, 16, 6))
+        self.assertEqual(struct.unpack_from("<B6B", self.log.stats_entry(0), 17), (1, 11, 39, 16, 16, 16, 6))
 
 
 class SettingsTests(unittest.TestCase):

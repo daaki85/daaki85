@@ -437,7 +437,9 @@ each (spoilers).
 The **Characters** tab shows each thief's chances as they stand, with the
 equipment penalty and effects (but not the situation's bonus or penalty), for
 the five skills the game rolls (pick pockets, open locks, find/remove traps,
-hear noise, climb walls), as the game's inventory screen does. **All fields**
+hear noise, climb walls) and move silently (which the Ledger rolls when a
+pocket isn't picked, see [Picking pockets](#picking-pockets)), as the game's
+inventory screen does. **All fields**
 has them in a row in that order.
 
 ### Psionics
@@ -671,6 +673,39 @@ a saving throw's modifiers, it starts from the pluses of the rings worn. So:
 - A ring the original game has (the plain Ring and the Serpent Ring are the
   only kind the patch looks at) has no plus, so it plays as before.
 
+### Picking pockets
+
+The game has one pocket to pick, in the Trustee's conversation (his key). With
+**P in a conversation** ticked on the Options tab (it is by default), a thief
+can try anyone's: in a conversation, with the thief as the party's leader
+(keys 1-4), press **P**. The Ledger rolls the leader's pick pockets chance as
+it stands now (armour and effects counted, as in the thief rows):
+
+- **Success:** one thing from the other's pockets goes into the thief's
+  backpack (its first free cell). People outside the party keep all they own
+  in their pack, so pockets are the things that can't be worn: nothing
+  wielded or worn (weapons, armour, rings...), and no keys, which scripts may
+  look for. With nothing like that on them, the thief finds nothing worth
+  taking.
+- **Failure:** a move silently roll. Made, the thief slips away unnoticed;
+  missed, they're caught. No fight follows, but either way that person keeps
+  their hand on their pockets from then on.
+
+Each person gets **one try**, whatever comes of it (the Ledger remembers whose
+pockets were tried in `settings.json`, for this party). The Trustee is left to
+his own conversation. What happens is added to the conversation's text (use
+its arrow to scroll down to it if the text is long) and to the dice log:
+
+```
+Daaki picks Kurzak's pocket: d100 = 71, needs 63 or less -> failed
+  Daaki moves silently to get away: d100 = 12, needs 55 or less -> success
+  Daaki fumbles Kurzak's pockets, but slips away unnoticed.
+```
+
+How: the patched game's conversation window sends a key it doesn't know to
+the helper (`INT FCh`), which has the Ledger roll and move the item, then adds
+the result to the window's text.
+
 ### Rule changes: helms and boots
 
 Two small changes to the game's rules, both on the Options tab (on by default;
@@ -721,11 +756,11 @@ right-hand panel, drawn by the game's text routine so they look like the rest:
   petrification/polymorph, `BW` breath weapon, `SP` spell;
 - at the right of each weapon's damage line, the THAC0 with that weapon
   (`T14`);
-- right of the abilities, level with STR to WIS, for a character with thief
-  levels, the five **thief skills** the game ever rolls: `PICK` pockets, open `LOCK`s,
-  find/remove `TRAP`s, `HEAR` noise, `CLMB` walls (move silently, hide in
-  shadows and read languages are never checked; see Where the game rolls
-  them). Not below the weapons: three weapons fill the panel down to its
+- right of the abilities, level with STR to CHA, for a character with thief
+  levels, the five **thief skills** the game ever rolls and move silently:
+  `PICK` pockets, open `LOCK`s, find/remove `TRAP`s, `MOVE` silently, `HEAR`
+  noise, `CLMB` walls (hide in shadows and read languages are never checked;
+  see Where the game rolls them). Not below the weapons: three weapons fill the panel down to its
   buttons.
 
 The **View Character** screen gets THAC0 and the saves too, under the item
@@ -968,7 +1003,8 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    that used to restart a fight, or stop the game with "Stack overflow!"), and the places where AC and a saving throw's modifiers are added up
    `INT F8h` and `INT F9h` (for [the Ring +1](#the-ring-1) and helms), each
    weapon's line on the inventory screen `INT FAh`, and the start of a round's
-   movement `INT FBh` (for boots), and
+   movement `INT FBh` (for boots), a key the conversation window doesn't know
+   `INT FCh` (for [picking pockets](#picking-pockets)), and
    the copy looks for its data files in the current
    folder rather than next to itself. DOSBox runs it from the game folder, so
    it uses your saves as usual.

@@ -136,7 +136,7 @@ def cmd_dicelog(args) -> None:
     from .dicelog import DiceLog
     from .dicelog import DiceLogError
     from .guestmem import GuestMemoryError
-    from .launch import add_learned_speakers, learned_speakers, load_settings, speaker_names
+    from .launch import add_learned_speakers, add_pickpocketed, learned_speakers, load_settings, speaker_names
     while True:  # DOSBox may still be starting
         try:
             guest = connect(args)
@@ -175,6 +175,9 @@ def cmd_dicelog(args) -> None:
             learned = log.take_speakers()
             if learned:
                 add_learned_speakers(learned)
+            picked = log.take_picked()
+            if picked:
+                add_pickpocketed(picked)
                 for portrait, name in learned.items():
                     print(f"(Portrait {portrait} is {name})", flush=True)
             for entry in log.take_dialogue():
@@ -296,6 +299,9 @@ def cmd_play(args) -> None:
             learned = log.take_speakers()
             if learned:
                 launch.add_learned_speakers(learned)
+            picked = log.take_picked()
+            if picked:
+                launch.add_pickpocketed(picked)
             time.sleep(0.02)
     except (CliError, launch.LaunchError) as e:
         tell(str(e))

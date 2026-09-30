@@ -23,14 +23,14 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
-from . import game, monsters, ring
+from . import game, monsters, pickpocket, ring
 from .game import (CONVENTIONAL_AND_UPPER, CREATURE_ABILITIES, CREATURE_SIDE, CREATURE_THAC0, EFFECT_NAMES,
                    EFFECT_RULES, MATERIAL_TO_HIT, MATERIALS, SAVE_NAMES, STR_DAMAGE, GameData)
 from .guestmem import GuestMemory
 from .textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGvE"
+HDR_SIG = b"DSCLOGvF"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
 MSG_SIZE = 900
@@ -48,6 +48,7 @@ TSR_STATS_OFF, TSR_STATS_STAMP, TSR_STATS_REQ, TSR_STATS_REPLY, STATS_SIZE = 162
 BIOS_TIMER = 0x46C
 # ... and the rule changes it makes to the game (the Options tab)
 TSR_RULES = 170
+TSR_PICK_SEQ, TSR_PICK_REPLY, TSR_PICK_OFF, TSR_PICK_ON, PICK_SIZE = 172, 174, 176, 178, 240
 RULE_HELMS, RULE_BOOTS = game.RULE_HELMS, game.RULE_BOOTS
 SLOT_KINDS = {"Wizard": "WIZ", "Priest": "PRI"}
 RAND_PATCHED = b"\xcd\x60"  # INT 60h at the start of rand() in DSUNLOG.EXE
@@ -305,6 +306,9 @@ class DiceLog:
         self.popup_detail = True  # ... with the dice log's lines, or in short
         self.monster_info = True  # monsters' defences in the game's Look box (set_monster_info)
         self.arena_ring = True  # put the Ring +1 on the Tied-up Prisoner's body in the arena (ring.py)
+        self.pickpockets = True  # P in a conversation picks a pocket (pickpocket.py)
+        self.picked: set = set()  # the pockets tried already (each person gets one try)
+        self._picked_new: List[str] = []
         self.rules = 0  # RULE_HELMS | RULE_BOOTS: rule changes DSCLOG makes (set_rules)
         self._ring_check = 0.0
         self._look_seq = 0
@@ -367,6 +371,7 @@ class DiceLog:
         self.set_popups(self.popups)
         self.set_monster_info(self.monster_info)
         self.set_rules(self.rules)
+        self.set_pickpockets(self.pickpockets)
         self._turn_seq = struct.unpack("<H", self.guest.read(hdr + TSR_TURN_SEQ, 2))[0]
         self._look_seq = struct.unpack("<H", self.guest.read(hdr + TSR_LOOK_SEQ, 2))[0]
         self.last_seq = struct.unpack("<H", self.guest.read(hdr + 8, 2))[0]
@@ -387,6 +392,41 @@ class DiceLog:
         if self.tsr_hdr is not None:
             self.guest.write(self.tsr_hdr + TSR_POPUPS, struct.pack("<H", int(on)))
 
+    def set_pickpockets(self, on: bool) -> None:
+        """Take P in a conversation as the leader trying the pocket of the person talked to."""
+        self.pickpockets = on
+        if self.tsr_hdr is not None:
+            self.guest.write(self.tsr_hdr + TSR_PICK_ON, struct.pack("<H", int(on)))
+
+    def take_picked(self) -> List[str]:
+        """The pockets tried since the last call, for the caller to remember (settings.json):
+        each person gets one try."""
+        new, self._picked_new = self._picked_new, []
+        return new
+
+    def _answer_pick(self) -> List[str]:
+        """P was pressed in a conversation: try the pocket, and hand DSCLOG what came of it."""
+        if self.tsr_hdr is None:
+            return []
+        seq = self.guest.read(self.tsr_hdr + TSR_PICK_SEQ, 2)
+        if seq == self.guest.read(self.tsr_hdr + TSR_PICK_REPLY, 2):
+            return []
+        try:
+            result = pickpocket.attempt(self.game, self.picked)
+        except (struct.error, IndexError, ValueError):
+            result = None
+        text = result.text if result else ""
+        offset = struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_PICK_OFF, 2))[0]
+        base = self.tsr_hdr - struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_HDR_OFF, 2))[0]
+        self.guest.write(base + offset, text.encode("cp437", "replace")[:PICK_SIZE - 1] + b"\0")
+        self.guest.write(self.tsr_hdr + TSR_PICK_REPLY, seq)
+        if not result:
+            return []
+        if result.key:
+            self.picked.add(result.key)
+            self._picked_new.append(result.key)
+        return result.log or [result.text]
+
     def set_monster_info(self, on: bool) -> None:
         """Have the game's Look box (in a fight) say what hurts a monster, and then show all of it."""
         self.monster_info = on
@@ -399,6 +439,8 @@ class DiceLog:
         self.popup_detail = bool(settings.get("turn_popups_detail", True))
         self.monster_info = bool(settings.get("monster_info", True))
         self.arena_ring = bool(settings.get("arena_ring", True))
+        self.pickpockets = bool(settings.get("pickpockets", True))
+        self.picked = set(settings.get("pickpocketed", []))
         self.rules = (RULE_HELMS if settings.get("helm_ac", True) else 0) | \
             (RULE_BOOTS if settings.get("boots_move", True) else 0)
 
@@ -533,7 +575,7 @@ class DiceLog:
         out += struct.pack("<3H", *([h.item for h in weapons] + [game.NO_ITEM] * (3 - len(weapons))))
         out += struct.pack("<3b", *([clamp(h.thac0) for h in weapons] + [0] * (3 - len(weapons))))
         thief = g.thief_skills_now(member)
-        out += struct.pack("<B5B", 1, *(n for _, n in thief)) if len(thief) == 5 else bytes(6)
+        out += struct.pack("<B6B", 1, *(n for _, n in thief)) if len(thief) == 6 else bytes(7)
         return out.ljust(STATS_SIZE, b"\0")
 
     def _answer_stats(self) -> None:
@@ -675,6 +717,7 @@ class DiceLog:
             out += self.initiative_lines()
         self._answer_turn()  # after the entries: they hold the turn's last attack
         self._answer_stats()
+        out += self._answer_pick()
         out += self._answer_look()
         changes = self.hp_changes(now) + self.psp_changes()
         if not self._party_check(now):  # not while a game is loading: its records are half-filled

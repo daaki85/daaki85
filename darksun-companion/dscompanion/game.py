@@ -77,7 +77,8 @@ EFFECTS_SEG, EFFECTS_OFF = 0x3BF6, 0x106  # 10 bytes per active effect
 # GAME_TIME_SCALE); the first queue's entries (17 bytes: due time, kind, then the event's data),
 # sorted by time, with their count. An effect ending is kind 7, its data the owner and handle.
 GAME_TIME_PTR, GAME_TIME_SCALE = 0x9B72, 0x9B70
-WHOSE_TURN = 0x4979  # DS word: the combatant whose turn it is
+WHOSE_TURN = 0x4979  # DS word: the combatant whose turn it is (outside a fight: the leader)
+REGION = 0x117C  # DS word: the region the party is in
 # Speakers the game names in its own text (the dialogue window shows only a portrait):
 # 119 is asked about as "Yell something back at the Announcer?"
 SPEAKERS = {119: "The Announcer"}
@@ -388,7 +389,9 @@ HUMAN = 1
 # climbing, Detect Traps lets anyone find traps, Feeblemind stops reading languages.
 THIEF_SKILLS = ("pick pockets", "open locks", "find/remove traps", "move silently", "hide in shadows",
                 "hear noise", "climb walls", "read languages")
-ROLLED_SKILLS = (0, 1, 2, 5, 6)  # the ones the game ever rolls (no script asks for the other three)
+# the ones shown: those the game ever rolls (no script asks for the other three), and move
+# silently, which the Templar's Ledger rolls when a pocket isn't picked (pickpocket.py)
+ROLLED_SKILLS = (0, 1, 2, 3, 5, 6)
 THIEF = 17  # class number
 # Tables (a byte per skill): base; then 8 per race (race 1 first); DEX below which each point
 # costs 5, above which each gives 5, above which each costs 3 again; the armour penalty
@@ -490,6 +493,27 @@ class GameData:
         if not name or struct.unpack_from("<h", rec, 0)[0] <= 0:
             return None
         return name
+
+    def talk_target_creature(self) -> Optional[int]:
+        """The creature index of the person being talked to (see talk_target), or None."""
+        combatant, = struct.unpack("<h", self.guest.read((self.load_seg + TALK_SEG) * 16 + TALK_TARGET, 2))
+        if combatant < PARTY_SIZE:
+            return None
+        index = self.combatant_creature(combatant)
+        if index is None or index < PARTY_SIZE:
+            return None
+        rec = self.creature(index)
+        if not rec[CREATURE_NAME] or struct.unpack_from("<h", rec, 0)[0] <= 0:
+            return None
+        return index
+
+    def region(self) -> int:
+        """The region the party is in (its RGNxx.GFF)."""
+        return self._word(REGION)
+
+    def item_type_record(self, item: bytes) -> bytes:
+        types = far_pointer(self.guest, self.ds, ITEM_TYPES_PTR)
+        return self.guest.read(types + struct.unpack_from("<H", item, ITEM_TYPE)[0] * ITEM_TYPE_SIZE, ITEM_TYPE_SIZE)
 
     def combatant_name(self, combatant: int) -> str:
         index = self.combatant_creature(combatant)
@@ -841,7 +865,7 @@ class GameData:
 
     def thief_skills(self, creature: int) -> List[Tuple[str, int]]:
         """[(skill, chance before armour and the situation), ...] for a thief, else []: the skills
-        the game ever rolls (move silently, hide in shadows and read languages never are)."""
+        the game ever rolls, and move silently (hide in shadows and read languages never are)."""
         out = []
         for skill in ROLLED_SKILLS:
             name = THIEF_SKILLS[skill]

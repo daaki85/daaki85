@@ -39,6 +39,7 @@ VEC_RING_AC equ 0xF8  ; PROBE_RING_AC
 VEC_RING_SAVE equ 0xF9  ; PROBE_RING_SAVE
 VEC_WEAPON equ 0xFA   ; PROBE_WEAPON
 VEC_MOVE   equ 0xFB   ; PROBE_MOVE
+VEC_PICK   equ 0xFC   ; PROBE_PICK
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -67,7 +68,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvE'          ; +0
+sig      db 'DSCLOGvF'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -127,6 +128,11 @@ stats_stamp dw 0                ; +164 the BIOS timer when the companion last wr
 stats_req  dw 0                 ; +166 counted up when a screen is about to show STATS ...
 stats_reply dw 0                ; +168 ... and set to it by the companion once STATS are up to date
 rules      dw 0                 ; +170 rule changes the companion turns on (RULE_HELMS, RULE_BOOTS)
+pick_seq   dw 0                 ; +172 P pressed in a conversation (PROBE_PICK counts them) ...
+pick_reply dw 0                 ; +174 ... and set to it by the companion once PICK_TEXT is ready
+pick_off   dw pick_text         ; +176 offset of PICK_TEXT: what came of it, NUL-terminated (empty:
+                                ;      nothing to show)
+pick_on    dw 0                 ; +178 the companion sets 1 to take P as picking a pocket
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -721,10 +727,10 @@ c_thief:
         cmp bx, 8
         jb .skill
         pop si
-        mov al, [cs:c_vals + 5] ; only the five the game ever rolls: move silently, hide in
-        mov [cs:c_vals + 3], al ; shadows and read languages are never checked (the Templar's
-        mov al, [cs:c_vals + 6] ; Ledger's script decoder found no script asking for them)
-        mov [cs:c_vals + 4], al
+        mov al, [cs:c_vals + 5] ; the five the game ever rolls and move silently (the Templar's
+        mov [cs:c_vals + 4], al ; Ledger rolls it when a pocket isn't picked): hide in shadows
+        mov al, [cs:c_vals + 6] ; and read languages are never checked (its script decoder found
+        mov [cs:c_vals + 5], al ; no script asking for them)
         mov bx, [cs:c_who]      ; the companion's, with equipment and effects, if it keeps them
         call stats_for
         jc .ours
@@ -732,10 +738,10 @@ c_thief:
         je .ours
         mov eax, [cs:bx + 18]
         mov [cs:c_vals], eax
-        mov al, [cs:bx + 22]
-        mov [cs:c_vals + 4], al
+        mov ax, [cs:bx + 22]
+        mov [cs:c_vals + 4], ax
 .ours:  mov bx, c_cells_thief
-        mov cx, 5
+        mov cx, 6
         mov byte [cs:c_signed], 0
         ; fall through
 
@@ -829,11 +835,12 @@ c_cells_top:
         dw 0xEC, 0x1E, l_pp, 0x103,   0x113, 0x1E, l_bw, 0x12A
         dw 0xEC, 0x25, l_sp, 0x103
 c_cells_thief:                  ; right of the abilities (whose values end by 10Eh), in the
-        dw 0x113, 0x35, l_pick, 0x12D  ; saves' second column, level with STR..WIS
+        dw 0x113, 0x35, l_pick, 0x12D  ; saves' second column, level with STR..CHA
         dw 0x113, 0x3C, l_lock, 0x12D
         dw 0x113, 0x43, l_trap, 0x12D
-        dw 0x113, 0x4A, l_hear, 0x12D
-        dw 0x113, 0x51, l_clmb, 0x12D
+        dw 0x113, 0x4A, l_move, 0x12D  ; (move silently)
+        dw 0x113, 0x51, l_hear, 0x12D
+        dw 0x113, 0x58, l_clmb, 0x12D
 l_thac0 db 'THAC0:', 0
 l_ppd   db 'PPD', 0
 l_rsw   db 'RSW', 0
@@ -843,6 +850,7 @@ l_sp    db 'SP', 0
 l_pick  db 'PICK', 0
 l_lock  db 'LOCK', 0
 l_trap  db 'TRAP', 0
+l_move  db 'MOVE', 0
 l_hear  db 'HEAR', 0
 l_clmb  db 'CLMB', 0
 c_vals  times 8 db 0
@@ -928,6 +936,80 @@ probe_next:
         pop es
         popad
         iret
+
+; PROBE_PICK: INT VEC_PICK replaces "jmp <ignore the key>" (3 bytes: INT + NOP) in the
+; dialogue window's key handling, where a key that isn't one of the window's own (1-5, Y, N,
+; the arrows...) goes, while the window waits for a reply. For P, when the companion wants it:
+; count it, wait a moment for the companion to try the leader's hand at the pocket of the
+; person talked to (PICK_TEXT, what came of it), and show that in the window, which goes on
+; waiting for a reply as before. The window's code is overlay code: the way back is put in a
+; frame the overlay manager can fix up, as for PROBE_NEXT.
+PICK_JUMP equ 0x7DD70 - 0x7D9FF ; (DSUN.EXE) the JMP's target less the address after the INT
+PICK_KEY  equ -0x0C             ; the key, at the key handler's BP-0Ch: scan code, character
+PICK_WAIT equ 9                 ; timer ticks
+probe_pick:
+        sti
+        pushad
+        push es
+        mov bx, sp              ; the interrupt frame at BX+34: IP, CS, flags
+        add word [ss:bx + 34], PICK_JUMP  ; go on where the JMP went
+        cmp word [cs:pick_on], 0
+        je .out
+        mov ax, [bp + PICK_KEY]
+        and al, 0xDF            ; p or P
+        cmp ax, 0x1950
+        jne .out
+        inc word [cs:pick_seq]
+        xor ax, ax
+        mov es, ax
+        mov dx, [es:0x46C]      ; the BIOS timer
+.wait:  mov ax, [cs:pick_reply]
+        cmp ax, [cs:pick_seq]
+        je .ready
+        mov ax, [es:0x46C]
+        sub ax, dx
+        cmp ax, PICK_WAIT
+        jb .wait
+        jmp .out                ; no answer: the companion isn't reading
+.ready: cmp byte [cs:pick_text], 0
+        je .out
+        push word [ss:bx + 36]
+        push word [ss:bx + 34]
+        push bp
+        mov bp, sp
+        call pick_show
+        pop bp
+        pop ax
+        pop dx
+        mov bx, sp
+        mov [ss:bx + 34], ax
+        mov [ss:bx + 36], dx
+.out:   pop es
+        popad
+        iret
+
+; PICK_TEXT in the dialogue window, which is up and waiting for a reply: the text, then the
+; replies shown again; DS = the game's
+pick_show:
+        mov ax, ds
+        add ax, DLG_STUB
+        mov [cs:dlg + 2], ax
+        mov word [cs:dlg], DLG_FEED
+        push word 0
+        push cs
+        push word pick_text
+        push word 2
+        call far [cs:dlg]
+        add sp, 8
+        push word 0
+        push dword 0
+        push word 3
+        call far [cs:dlg]
+        add sp, 8
+        ret
+
+PICK_SIZE equ 240
+pick_text times PICK_SIZE db 0
 
 ; whose turn it is (DS:4979h) has changed since last seen: count it, wait a moment for the
 ; companion's summary of the turn that ended (MSG_BUF) and show it; DS = the game's
@@ -1649,7 +1731,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 17
+        mov cx, 18
 .check:
         lodsb
         mov ah, 35h
@@ -1716,6 +1798,9 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_MOVE
         mov dx, probe_move
         int 21h
+        mov ax, 2500h + VEC_PICK
+        mov dx, probe_pick
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -1731,8 +1816,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or F1h-FBh are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE
+busy    db 'DSCLOG: interrupts 60h-65h or F1h-FCh are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK
 
         align 16, db 0
 image_len equ $ - $$

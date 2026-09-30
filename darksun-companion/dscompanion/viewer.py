@@ -305,6 +305,10 @@ class Viewer:
         ttk.Checkbutton(in_game, text="Put a Ring of Protection +1 (+1 AC, +1 on saves) on the arena's Tied-up Prisoner, "
                         "found on his body once he's dead",
                         variable=self.arena_ring, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        self.pickpockets = tk.BooleanVar(value=bool(settings.get("pickpockets", True)))
+        ttk.Checkbutton(in_game, text="P in a conversation: the leader, a thief, tries the other's pockets "
+                        "(one try each)", variable=self.pickpockets,
+                        command=self._popups_changed).pack(anchor="w", pady=(4, 0))
 
     def _slot_box(self, parent) -> ttk.Combobox:
         box = ttk.Combobox(parent, width=3, state="readonly")
@@ -575,6 +579,8 @@ class Viewer:
                 self.dice.popup_detail = self.popup_detail.get()
                 self.dice.monster_info = self.monster_info.get()
                 self.dice.arena_ring = self.arena_ring.get()
+                self.dice.pickpockets = self.pickpockets.get()
+                self.dice.picked = launch.pickpocketed()
                 self.dice.rules = self._rules()
             try:
                 self.dice_status.set(self.dice.attach())
@@ -591,6 +597,9 @@ class Viewer:
         if lines:
             self._append_dice(lines)
         self.round_line.set(self._round_text())
+        picked = self.dice.take_picked()
+        if picked:
+            launch.add_pickpocketed(picked)
         learned = self.dice.take_speakers()
         if learned:  # names worked out from conversations: keep them, and show them on earlier lines
             launch.add_learned_speakers(learned)
@@ -647,6 +656,7 @@ class Viewer:
         settings["turn_popups_detail"] = self.popup_detail.get()
         settings["monster_info"] = self.monster_info.get()
         settings["arena_ring"] = self.arena_ring.get()
+        settings["pickpockets"] = self.pickpockets.get()
         settings["helm_ac"] = self.helm_ac.get()
         settings["boots_move"] = self.boots_move.get()
         launch.save_settings(settings)
@@ -655,6 +665,7 @@ class Viewer:
             self.dice.popup_detail = self.popup_detail.get()
             self.dice.set_monster_info(self.monster_info.get())
             self.dice.arena_ring = self.arena_ring.get()
+            self.dice.set_pickpockets(self.pickpockets.get())
             self.dice.set_rules(self._rules())
 
     def _rules(self) -> int:
