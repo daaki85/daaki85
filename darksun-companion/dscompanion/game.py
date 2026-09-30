@@ -55,15 +55,21 @@ PARTY_SIZE = 4  # the party are the first creatures in the table
 # Segments relative to the load segment
 COMBATANTS_SEG, COMBATANTS_OFF = 0x3972, 0xC36  # 3 bytes per combatant: kind (2 = creature), creature index
 # The same table holds every object the game tracks ("things": kind 1 an item, 2 a creature).
-# A creature's items: two lists, each starting at an object number in the creature's record;
+# A creature's items: three lists, each starting at an object number in the creature's record;
 # each item names the next by item number (9999 ends the list). An item's slot is where it is
 # worn (the game's own slot names, in this order), 255 if only carried.
 THING_ITEM = 1
-CREATURE_ITEM_LISTS = (0x08, 0x0A)
+CREATURE_ITEM_LISTS = (0x08, 0x0A, 0x0C)  # (+0Ch: where the game puts items handed to a character)
 ITEM_NEXT, ITEM_SLOT, ITEM_TYPE, ITEM_NAME, ITEM_PLUS = 0x04, 0x11, 0x0A, 0x12, 0x14
 NO_ITEM = 9999
 EQUIP_SLOTS = ("arm", "ammo", "missile", "right hand", "finger", "waist", "legs", "head", "neck", "chest",
                "left hand", "cloak", "foot")
+FINGER = EQUIP_SLOTS.index("finger")
+FOOT = EQUIP_SLOTS.index("foot")
+# The plain "Ring" item type. With the dice log's patched game, a worn one's plus betters AC
+# and saving throws (DSCLOG's PROBE_RING_AC and PROBE_RING_SAVE); the game has no such ring of
+# its own, and the companion can put a Ring +1 in the arena (ring.py).
+RING_TYPE = 102
 EFFECTS_SEG, EFFECTS_OFF = 0x3BF6, 0x106  # 10 bytes per active effect
 # The game's clock and event queue: a far pointer to the time (a dword, divided by the byte at
 # GAME_TIME_SCALE); the first queue's entries (17 bytes: due time, kind, then the event's data),
@@ -73,6 +79,9 @@ WHOSE_TURN = 0x4979  # DS word: the combatant whose turn it is
 # Speakers the game names in its own text (the dialogue window shows only a portrait):
 # 119 is asked about as "Yell something back at the Announcer?"
 SPEAKERS = {119: "The Announcer"}
+# The object a script was started on, e.g. the person clicked to talk to (a combatant number):
+# the game's script trigger (DSUN.EXE 9520h) puts it here before running the script.
+TALK_SEG, TALK_TARGET = 0x3781, 0x365
 # The dialogue window's replies: the game copies each into DS:5537 + n * 33h; the row the
 # player clicks goes in DS:1F0A (FFh until then), plus the list's scroll position at DS:5502
 REPLY_CHOSEN, REPLY_SCROLL, REPLY_TEXTS, REPLY_SIZE = 0x1F0A, 0x5502, 0x5537, 0x33
@@ -115,6 +124,7 @@ ITEM_NAME_SIZE = 25
 BROKEN_ITEM_TYPE = 0x6B  # what a broken weapon becomes
 
 MATERIALS = ("Wooden", "Bone", "Stone", "Obsidian", "Metal", "Leather")
+NO_MATERIAL = 0x40  # in the type's material byte, with material 0: things with none (rings, bodies)
 # Dark Sun's to-hit penalty for non-magical weapons of weaker materials (from the game's code)
 MATERIAL_TO_HIT = {0: -3, 1: -1, 2: -2, 3: -2}
 # The character sheet's saving throws, in order (the game's own grouping: Fireball, for
@@ -275,6 +285,42 @@ def party_records(guest: GuestMemory, ds: int) -> List[Tuple[Optional[int], Opti
 INITIATIVE_EFFECTS = {8: -2, 22: 2, 47: -2}  # Blind, Hasted, Slowed
 
 
+# A saving throw's modifiers, as the game's routine (79D3Ch in DSUN.EXE) adds them to the d20:
+# effects on the target, its class, race and WIS or CON, and who cast the spell
+SAVE_CON, SAVE_WIS = 0x810, 0x82A  # DS: a byte per ability score (CON for paralysis/poison/death saves)
+PPD_SAVE = 1  # the sheet's paralysis/poison/death save
+EVIL_ALIGNMENTS = (3, 6, 9)  # lawful, neutral and chaotic evil
+SAVE_WIS_CATEGORY = 0x1E  # spells WIS counts against: mind-affecting, charms and holds, fear, illusions
+SAVE_PSIONICIST_CATEGORY = 0x06  # ... and psionicists' +2: mind-affecting, charms and holds
+DRUID_CLASSES, PSIONICIST = range(5, 9), 12
+DWARF, HALFLING, UNDEAD = 2, 6, 9
+EFFECT_BLESSED, EFFECT_BLIND, EFFECT_DETECT_INVIS, EFFECT_INVISIBLE, EFFECT_INVIS_UNDEAD = 7, 8, 15, 23, 24
+EFFECT_PROT_EVIL, EFFECT_PROT_COLD, EFFECT_PROT_FIRE, EFFECT_PROT_LIGHTNING = 38, 36, 40, 41
+EFFECT_SAVE_PENALTY, EFFECT_SPIRIT_ARMOR, EFFECT_BARKSKIN, EFFECT_PRAYER = 45, 56, 57, 73
+SHEET_SAVES = 0x37  # the five saves, in SAVE_NAMES order
+SAVE_SHORT = ("PPD", "RSW", "PP", "BW", "SP")  # as the game's inventory screen labels them
+# To hit, as the game's attack setup adds it: STR (melee) or DEX (missiles) from these tables,
+# the attacker's effects, the weapon's plus or its material's penalty
+STR_TO_HIT, DEX_MISSILE = 0x7C2, 0x7DC  # DS: a byte per ability score
+HIT_EFFECTS = ((7, 1), (12, -1), (47, -4), (49, 1))  # Blessed, Cursed, Slowed, Graft Weapon
+WEAPON_HANDS = (EQUIP_SLOTS.index("right hand"), EQUIP_SLOTS.index("left hand"))
+MISSILE_SLOT = EQUIP_SLOTS.index("missile")
+
+
+class WeaponHit(NamedTuple):
+    item: int  # its item number
+    slot: int
+    name: str
+    thac0: int  # with this weapon, now
+    parts: List[Tuple[str, int]]  # what is taken off the base THAC0 for it
+
+
+class SaveNow(NamedTuple):
+    base: int  # the character sheet's
+    needs: int  # the d20 needed now (2-20: a 1 always fails, a 20 always saves)
+    parts: List[Tuple[int, str]]  # the modifiers that always count (not the situational ones)
+
+
 class Effect(NamedTuple):
     owner: int  # combatant id
     caster: int  # combatant id
@@ -340,6 +386,7 @@ HUMAN = 1
 # climbing, Detect Traps lets anyone find traps, Feeblemind stops reading languages.
 THIEF_SKILLS = ("pick pockets", "open locks", "find/remove traps", "move silently", "hide in shadows",
                 "hear noise", "climb walls", "read languages")
+ROLLED_SKILLS = (0, 1, 2, 5, 6)  # the ones the game ever rolls (no script asks for the other three)
 THIEF = 17  # class number
 # Tables (a byte per skill): base; then 8 per race (race 1 first); DEX below which each point
 # costs 5, above which each gives 5, above which each costs 3 again; the armour penalty
@@ -419,6 +466,21 @@ class GameData:
     def creatures(self, count: int) -> bytes:
         """The first `count` creature records, in one read."""
         return self.guest.read(far_pointer(self.guest, self.ds, CREATURES_PTR), count * CREATURE_SIZE)
+
+    def talk_target(self) -> Optional[str]:
+        """The name of the creature the current script was started on (the person being talked to),
+        when it is a living, named creature outside the party."""
+        combatant, = struct.unpack("<h", self.guest.read((self.load_seg + TALK_SEG) * 16 + TALK_TARGET, 2))
+        if combatant < PARTY_SIZE:
+            return None
+        index = self.combatant_creature(combatant)
+        if index is None:
+            return None
+        rec = self.creature(index)
+        name = rec[CREATURE_NAME:CREATURE_NAME + 16].split(b"\0", 1)[0].decode("cp437", "replace").strip()
+        if not name or struct.unpack_from("<h", rec, 0)[0] <= 0:
+            return None
+        return name
 
     def combatant_name(self, combatant: int) -> str:
         index = self.combatant_creature(combatant)
@@ -586,6 +648,72 @@ class GameData:
         rec = self.spell_record(spell)
         return len(rec) >= SPELL_SIZE and bool(struct.unpack_from("<H", rec, 0x11)[0] & MIND_AFFECTING)
 
+    def save_modifiers(self, target: int, caster: int, spell: int, save: int) -> List[Tuple[int, str]]:
+        """What the game adds to a saving throw's d20 (besides the spell's own modifier), as
+        [(amount, why), ...]: the target's rings (with the patched game), effects, class, race
+        and WIS or CON, and whether the caster is evil or can see the target."""
+        ti, ci = self.combatant_creature(target), self.combatant_creature(caster)
+        if ti is None:
+            return []
+        rec, sheet, creature = self.spell_record(spell), self.sheet(ti), self.creature(ti)
+        if len(rec) < SPELL_SIZE or len(sheet) < SHEET_SIZE or len(creature) < CREATURE_SIZE:
+            return []
+        category, = struct.unpack_from("<H", rec, 0x11)
+        kinds, = struct.unpack_from("<H", rec, 0x1A)
+        area = rec[0x17] != 0xFF  # a spell with an area (a table entry for it)
+        effects = self.effects()
+        mine = {x.id for x in effects if x.owner == target}
+        theirs = {x.id for x in effects if x.owner == caster} if caster != target else set()
+        caster_sheet = self.sheet(ci) if ci is not None else b""
+        out: List[Tuple[int, str]] = []
+        ring = self.ring_plus(ti)
+        if ring:
+            out.append((ring, f"Ring +{ring}"))
+        if EFFECT_SAVE_PENALTY in mine:
+            out.append((-1, EFFECT_NAMES[EFFECT_SAVE_PENALTY]))
+        if EFFECT_SPIRIT_ARMOR in mine and save != PPD_SAVE:
+            out.append((3, EFFECT_NAMES[EFFECT_SPIRIT_ARMOR]))
+        if EFFECT_BARKSKIN in mine:
+            out.append((1, EFFECT_NAMES[EFFECT_BARKSKIN]))
+        if EFFECT_BLESSED in mine:
+            out.append((1, EFFECT_NAMES[EFFECT_BLESSED]))
+        if EFFECT_PROT_EVIL in mine and len(caster_sheet) >= SHEET_SIZE and caster_sheet[0x1A] in EVIL_ALIGNMENTS:
+            out.append((2, "Prot Evil against an evil caster"))
+        for bit, eff, amount in ((0x80, EFFECT_PROT_LIGHTNING, 4), (0x04, EFFECT_PROT_COLD, 3),
+                                 (0x02, EFFECT_PROT_FIRE, 3)):
+            if kinds & bit and eff in mine:
+                out.append((amount, EFFECT_NAMES[eff]))
+        prayer = next((x for x in effects if x.id == EFFECT_PRAYER and x.owner == target), None)
+        if prayer is not None:
+            source = self.combatant_creature(prayer.caster)
+            same = source is not None and self.creature(source)[CREATURE_SIDE] == creature[CREATURE_SIDE]
+            out.append((1 if same else -1, "Prayer, " + ("its caster's side" if same else "the other side's")))
+        if not area and caster != target:
+            undead_caster = len(caster_sheet) >= SHEET_SIZE and caster_sheet[SHEET_RACE] == UNDEAD
+            if EFFECT_BLIND in theirs:
+                out.append((4, "the caster is Blind"))
+            elif EFFECT_DETECT_INVIS not in theirs and (EFFECT_INVISIBLE in mine
+                                                         or (EFFECT_INVIS_UNDEAD in mine and undead_caster)):
+                out.append((4, "Invisible to the caster"))
+        if kinds & 0x82 and any(self.class_level(ti, c) for c in DRUID_CLASSES):
+            out.append((2, "druid against fire and electricity"))
+        if self.class_level(ti, PSIONICIST) and category & SAVE_PSIONICIST_CATEGORY:
+            out.append((2, "psionicist against the mind"))
+        abilities = creature[CREATURE_ABILITIES:CREATURE_ABILITIES + 6]
+        if category & SAVE_WIS_CATEGORY:
+            wis = abilities[4]
+            adjust = struct.unpack("b", self.guest.read(self.ds * 16 + SAVE_WIS + wis, 1))[0]
+            if adjust:
+                out.append((adjust, f"WIS {wis}"))
+        if save == PPD_SAVE:
+            con = abilities[2]
+            if sheet[SHEET_RACE] in (DWARF, HALFLING):
+                out.append((con * 2 // 7, f"{'dwarf' if sheet[SHEET_RACE] == DWARF else 'halfling'} CON {con}"))
+            adjust = struct.unpack("b", self.guest.read(self.ds * 16 + SAVE_CON + con, 1))[0]
+            if adjust:
+                out.append((adjust, f"CON {con}"))
+        return [(amount, why) for amount, why in out if amount]
+
     def magic_resistance(self, combatant: int) -> Optional[int]:
         """The base magic resistance (percent) on a creature's character sheet."""
         index = self.combatant_creature(combatant)
@@ -702,48 +830,175 @@ class GameData:
         return [(what, n) for what, n in parts if n or what == "base"]
 
     def thief_skills(self, creature: int) -> List[Tuple[str, int]]:
-        """[(skill, chance before armour and the situation), ...] for a thief, else []."""
+        """[(skill, chance before armour and the situation), ...] for a thief, else []: the skills
+        the game ever rolls (move silently, hide in shadows and read languages never are)."""
         out = []
-        for skill, name in enumerate(THIEF_SKILLS):
+        for skill in ROLLED_SKILLS:
+            name = THIEF_SKILLS[skill]
             parts = self.thief_skill_parts(creature, skill)
             if parts is None:
                 return []
             out.append((name, sum(n for _, n in parts)))
         return out
 
+    def item_label(self, item: bytes, typ: bytes) -> str:
+        """"Metal Long Sword +1": an item's material (when it has one), name and plus."""
+        material = typ[0x08] & 0x0F if len(typ) == ITEM_TYPE_SIZE else len(MATERIALS)
+        if len(typ) == ITEM_TYPE_SIZE and typ[0x08] & NO_MATERIAL and not material:
+            material = len(MATERIALS)  # a ring, a body...: no material to name
+        plus = struct.unpack("b", item[ITEM_PLUS:ITEM_PLUS + 1])[0]
+        name = self.item_name(item[ITEM_NAME])
+        if plus and not name.endswith(f"{plus:+d}"):  # (the Ring +1's name has it)
+            name += f" {plus:+d}"
+        return (f"{MATERIALS[material]} " if material < len(MATERIALS) else "") + name
+
     def equipment(self, creature: int) -> List[Tuple[Optional[str], str]]:
         """A creature's items: [(slot it's worn in or None if only carried, "Leather Chest Armor"), ...],
         worn items first, in the game's slot order."""
+        out = [(item[ITEM_SLOT], self.item_label(item, typ)) for _, item, typ in self._worn(creature)]
+        out.sort(key=lambda x: x[0])
+        return [(EQUIP_SLOTS[slot] if slot < len(EQUIP_SLOTS) else None, name) for slot, name in out]
+
+    def _worn(self, creature: int):
+        """(item number, item record, type record) for each of a creature's items."""
         rec = self.creature(creature)
         if len(rec) < CREATURE_SIZE:
-            return []
+            return
         things = (self.load_seg + COMBATANTS_SEG) * 16 + COMBATANTS_OFF
         items = far_pointer(self.guest, self.ds, ITEMS_PTR)
         types = far_pointer(self.guest, self.ds, ITEM_TYPES_PTR)
-        out, seen = [], set()
+        seen = set()
         for field in CREATURE_ITEM_LISTS:
-            thing, = struct.unpack_from("<h", rec, field)
-            if not 0 <= thing < 0x1000:
+            thing, = struct.unpack_from("<H", rec, field)
+            if thing >= NO_ITEM:
                 continue
             kind, index = struct.unpack("<Bh", self.guest.read(things + thing * 3, 3))
             if kind != THING_ITEM:
                 continue
-            while 0 <= index < 0x1000 and index not in seen and len(seen) < 100:
+            while 0 <= index < NO_ITEM and index not in seen and len(seen) < 100:
                 seen.add(index)
                 item = self.guest.read(items + index * ITEM_SIZE, ITEM_SIZE)
                 typ = self.guest.read(types + struct.unpack_from("<H", item, ITEM_TYPE)[0] * ITEM_TYPE_SIZE,
                                       ITEM_TYPE_SIZE)
-                material = typ[0x08] & 0x0F if len(typ) == ITEM_TYPE_SIZE else len(MATERIALS)
-                plus = struct.unpack("b", item[ITEM_PLUS:ITEM_PLUS + 1])[0]
-                name = (f"{MATERIALS[material]} " if material < len(MATERIALS) else "") + \
-                    self.item_name(item[ITEM_NAME]) + (f" {plus:+d}" if plus else "")
-                slot = item[ITEM_SLOT]
-                out.append((EQUIP_SLOTS[slot] if slot < len(EQUIP_SLOTS) else None, name, slot))
+                yield index, item, typ
                 index, = struct.unpack_from("<h", item, ITEM_NEXT)
-                if index == NO_ITEM:
-                    break
-        out.sort(key=lambda x: x[2])
-        return [(slot, name) for slot, name, _ in out]
+
+    def _mine(self, creature: int, effects: List[Effect]) -> List[Effect]:
+        """The effects on a creature (effects name combatants)."""
+        combatants = {c for c, i in self.combatants().items() if i == creature}
+        if creature < PARTY_SIZE:
+            combatants.add(creature)  # the party's combatant numbers are theirs
+        return [e for e in effects if e.owner in combatants]
+
+    def _prayer(self, creature: int, mine: List[Effect]) -> Optional[int]:
+        """+1 under a Prayer from its own side, -1 from the other side's, None without."""
+        prayer = next((e for e in mine if e.id == EFFECT_PRAYER), None)
+        if prayer is None:
+            return None
+        source = self.combatant_creature(prayer.caster)
+        same = source is not None and self.creature(source)[CREATURE_SIDE] == self.creature(creature)[CREATURE_SIDE]
+        return 1 if same else -1
+
+    def saves_now(self, creature: int) -> List[SaveNow]:
+        """The five saves as the d20 roll needed now: the sheet's number less the modifiers the
+        game's saving throw adds whatever the spell (rings, Blessed, Prayer, Barkskin, Spirit
+        Armor, the save penalty, and CON on paralysis/poison/death saves). The rest depend on
+        the spell or the caster (WIS against the mind, Protection from Fire...): see save_modifiers."""
+        sheet, rec = self.sheet(creature), self.creature(creature)
+        if len(sheet) < SHEET_SIZE or len(rec) < CREATURE_SIZE:
+            return []
+        mine = self._mine(creature, self.effects())
+        ids = {e.id for e in mine}
+        prayer = self._prayer(creature, mine)
+        ring = self.ring_plus(creature)
+        con = rec[CREATURE_ABILITIES + 2]
+        out = []
+        for save in range(1, 6):
+            parts: List[Tuple[int, str]] = []
+            if ring:
+                parts.append((ring, f"Ring +{ring}"))
+            if EFFECT_SAVE_PENALTY in ids:
+                parts.append((-1, EFFECT_NAMES[EFFECT_SAVE_PENALTY]))
+            if EFFECT_SPIRIT_ARMOR in ids and save != PPD_SAVE:
+                parts.append((3, EFFECT_NAMES[EFFECT_SPIRIT_ARMOR]))
+            if EFFECT_BARKSKIN in ids:
+                parts.append((1, EFFECT_NAMES[EFFECT_BARKSKIN]))
+            if EFFECT_BLESSED in ids:
+                parts.append((1, EFFECT_NAMES[EFFECT_BLESSED]))
+            if prayer is not None:
+                parts.append((prayer, "Prayer"))
+            if save == PPD_SAVE:
+                if sheet[SHEET_RACE] in (DWARF, HALFLING):
+                    parts.append((con * 2 // 7, f"{'dwarf' if sheet[SHEET_RACE] == DWARF else 'halfling'} CON {con}"))
+                adjust = struct.unpack("b", self.guest.read(self.ds * 16 + SAVE_CON + con, 1))[0] if con < 26 else 0
+                if adjust:
+                    parts.append((adjust, f"CON {con}"))
+            parts = [(n, why) for n, why in parts if n]
+            base = sheet[SHEET_SAVES + save - 1]
+            out.append(SaveNow(base, min(20, max(2, base - sum(n for n, _ in parts))), parts))
+        return out
+
+    def weapon_hits(self, creature: int) -> List[WeaponHit]:
+        """THAC0 with each weapon the creature has ready (right hand, left hand, missile), as the
+        game's attack works it out before the target is known (not from behind or backstabbing,
+        nor the target's Blur); unarmed (item -1) when it has none."""
+        rec = self.creature(creature)
+        if len(rec) < CREATURE_SIZE:
+            return []
+        base = struct.unpack("b", rec[CREATURE_THAC0:CREATURE_THAC0 + 1])[0]
+        mine = self._mine(creature, self.effects())
+        ids = {e.id for e in mine}
+        common = [(EFFECT_NAMES[eid], n) for eid, n in HIT_EFFECTS if eid in ids]
+        prayer = self._prayer(creature, mine)
+        if prayer is not None:
+            common.append(("Prayer", prayer))
+        strength, dex = rec[CREATURE_ABILITIES], rec[CREATURE_ABILITIES + 1]
+        table = lambda off, score: struct.unpack("b", self.guest.read(self.ds * 16 + off + score, 1))[0] \
+            if score < 26 else 0
+        weapons = []
+        for index, item, typ in self._worn(creature):
+            slot = item[ITEM_SLOT]
+            if slot in WEAPON_HANDS + (MISSILE_SLOT,) and typ[0x0C] and typ[0x0D]:  # it has damage dice
+                weapons.append((index, item, typ, slot))
+        hands = [w for w in weapons if w[3] in WEAPON_HANDS]
+        two = 0
+        if len(hands) >= 2:  # two weapons ready: the DEX table the game also uses for initiative
+            sheet = self.sheet(creature)
+            ranger = len(sheet) >= SHEET_FLAGS + 2 and struct.unpack_from("<H", sheet, SHEET_FLAGS)[0] & SHEET_FLAG_RANGER
+            two = 0 if ranger else max(0, -self.dex_initiative(dex))
+        out = []
+        order = {WEAPON_HANDS[0]: 0, WEAPON_HANDS[1]: 1, MISSILE_SLOT: 2}
+        for index, item, typ, slot in sorted(weapons, key=lambda w: order[w[3]]):
+            missile = slot == MISSILE_SLOT
+            parts = [("DEX", table(DEX_MISSILE, dex))] if missile else [("STR", table(STR_TO_HIT, strength))]
+            parts += common
+            plus = struct.unpack("b", item[ITEM_PLUS:ITEM_PLUS + 1])[0]
+            material = typ[0x08] & 0x0F
+            if plus:
+                parts.append(("weapon", plus))
+            elif not typ[0x08] & 0x80 and material in MATERIAL_TO_HIT:
+                parts.append((MATERIALS[material].lower(), MATERIAL_TO_HIT[material]))
+            if two and not missile:
+                parts.append((f"two weapons at DEX {dex}", two))
+            parts = [(why, n) for why, n in parts if n]
+            out.append(WeaponHit(index, slot, self.item_label(item, typ), base - sum(n for _, n in parts), parts))
+        if not out:
+            parts = [(why, n) for why, n in [("STR", table(STR_TO_HIT, strength))] + common if n]
+            out.append(WeaponHit(-1, -1, "unarmed", base - sum(n for _, n in parts), parts))
+        return out
+
+    def wears_boots(self, creature: int) -> bool:
+        """Something worn on the feet (with the Options' rule, a move more in a fight)."""
+        return any(item[ITEM_SLOT] == FOOT for _, item, _ in self._worn(creature))
+
+    def ring_plus(self, creature: int) -> int:
+        """The pluses of the rings a creature wears (see RING_TYPE)."""
+        total = 0
+        for _, item, _ in self._worn(creature):
+            plus = struct.unpack("b", item[ITEM_PLUS:ITEM_PLUS + 1])[0]
+            if struct.unpack_from("<H", item, ITEM_TYPE)[0] == RING_TYPE and item[ITEM_SLOT] == FINGER and plus > 0:
+                total += plus
+        return total
 
     def dex_ac(self, dex: int) -> int:
         """The game's AC adjustment for a DEX score."""

@@ -117,12 +117,26 @@ def cmd_save(args) -> None:
         print(label.ljust(width) + "".join(cell.ljust(w) for cell, w in zip(cells, cols)))
 
 
+def cmd_checks(args) -> None:
+    from . import gpl, launch
+    game_dir = launch.find_game_dir(args.game_dir)
+    if game_dir is None:
+        raise CliError("Can't find the game folder; pass --game-dir.")
+    with open(os.path.join(game_dir, "GPLDATA.GFF"), "rb") as f:
+        scripts, field_types = gpl.load_scripts(f.read())
+    for c in gpl.checks(scripts, field_types):
+        bonus = "" if c.bonus is None else f", bonus {c.bonus:+d}"
+        print(f"{c.script} at {c.at:X}h: {c.what} ({c.kind} check), {c.who}{bonus}")
+        if c.text:
+            print("    " + " / ".join(t.strip() for t in c.text if t.strip())[:300])
+
+
 def cmd_dicelog(args) -> None:
     import time
     from .dicelog import DiceLog
     from .dicelog import DiceLogError
     from .guestmem import GuestMemoryError
-    from .launch import speaker_names
+    from .launch import add_learned_speakers, learned_speakers, load_settings, speaker_names
     while True:  # DOSBox may still be starting
         try:
             guest = connect(args)
@@ -131,7 +145,11 @@ def cmd_dicelog(args) -> None:
             print(f"{e} Waiting...", flush=True)
             time.sleep(2)
     log = DiceLog(guest, record_everything=args.raw)
+    log.use_settings(load_settings())  # the Ring +1, the rule changes, monster descriptions
+    log.popups = args.popups
+    log.popup_detail = not args.short_popups
     log.speaker_names = speaker_names()
+    log.learned_speakers = learned_speakers()
 
     def attach() -> None:
         waiting = False
@@ -154,6 +172,11 @@ def cmd_dicelog(args) -> None:
                 attach()
             for line in log.lines(show_all=args.all):
                 print(line, flush=True)
+            learned = log.take_speakers()
+            if learned:
+                add_learned_speakers(learned)
+                for portrait, name in learned.items():
+                    print(f"(Portrait {portrait} is {name})", flush=True)
             for entry in log.take_dialogue():
                 if entry.chosen:
                     print(f"    > {entry.chosen}", flush=True)
@@ -170,7 +193,8 @@ def cmd_dicelog(args) -> None:
         log.detach()
 
 
-def cmd_launch(args) -> None:
+def _game_dir(args) -> str:
+    """The game folder: remembered, found, or asked for (and then remembered)."""
     from . import launch
     game_dir = launch.find_game_dir(args.game_dir)
     if game_dir is None:
@@ -185,14 +209,99 @@ def cmd_launch(args) -> None:
         if not launch.is_game_dir(game_dir):
             raise CliError(f"{game_dir} has no DSUN.EXE and DOSBOX folder; pick the GOG install folder.")
     settings = launch.load_settings()
-    if settings.get("game_dir") != game_dir:
-        settings["game_dir"] = game_dir
-        launch.save_settings(settings)
+    changed = dict(settings, game_dir=game_dir)
+    if getattr(args, "window_scale", None):
+        changed["window_scale"] = args.window_scale
+    if getattr(args, "fullscreen", None) is not None:
+        changed["fullscreen"] = args.fullscreen
+    if changed != settings:
+        launch.save_settings(changed)
+    return game_dir
+
+
+def cmd_launch(args) -> None:
+    from . import launch
+    game_dir = _game_dir(args)
     print(f"Starting Shattered Lands from {game_dir}")
     _, problem = launch.launch(game_dir)
     if problem:
         print(f"The dice log can't run with this copy of the game ({problem}); starting the game without it.")
     cmd_view(args)
+
+
+def cmd_play(args) -> None:
+    """Start the game with the helper and the in-game additions, with no window of our own:
+    the dice log runs in the background (for each turn's rolls and the spell slots) until
+    DOSBox closes. Problems are shown in a message box and written to play.log."""
+    import time
+    import traceback
+    from . import launch
+    from .dicelog import DiceLog, DiceLogError
+    from .guestmem import GuestMemoryError
+    log_path = os.path.join(launch.HERE, "play.log")
+
+    def note(text: str) -> None:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + text + "\n")
+
+    def tell(text: str) -> None:
+        note(text)
+        try:
+            import tkinter
+            from tkinter import messagebox
+            root = tkinter.Tk()
+            root.withdraw()
+            messagebox.showwarning("Dark Sun (in-game rolls)", text)
+            root.destroy()
+        except Exception:
+            print(text)
+
+    try:
+        game_dir = _game_dir(args)
+        dosbox, problem = launch.launch(game_dir)
+        if problem:
+            tell(f"The in-game additions can't run with this copy of the game ({problem}). "
+                 "The game starts without them.")
+            return
+        note(f"Started Shattered Lands from {game_dir}")
+        settings = launch.load_settings()
+        guest = None
+        while guest is None and dosbox.poll() is None:  # DOSBox takes a moment to start
+            try:
+                guest = connect(argparse.Namespace(pid=dosbox.pid, host_base=None))
+            except (CliError, GuestMemoryError, OSError):
+                time.sleep(1)
+        if guest is None:
+            return
+        log = DiceLog(guest)
+        log.use_settings(settings)  # as last set on the Ledger's Options tab
+        log.popups = log.popups and not args.no_popups
+        log.speaker_names = launch.speaker_names()
+        log.learned_speakers = launch.learned_speakers()
+        attached = False
+        while dosbox.poll() is None:
+            if not attached:
+                try:
+                    log.attach()
+                    attached = True
+                except (DiceLogError, GuestMemoryError, OSError):
+                    time.sleep(1)
+                    continue
+            elif not log.still_patched():
+                log.detach()
+                attached = False
+                continue
+            log.lines()
+            log.take_dialogue()
+            learned = log.take_speakers()
+            if learned:
+                launch.add_learned_speakers(learned)
+            time.sleep(0.02)
+    except (CliError, launch.LaunchError) as e:
+        tell(str(e))
+    except Exception:
+        tell("Something went wrong; the details are in " + log_path)
+        note(traceback.format_exc())
 
 
 def cmd_view(args) -> None:
@@ -215,12 +324,35 @@ def main(argv=None) -> int:
     s = sub.add_parser("launch", parents=[common], help="start the game with the dice log helper, then the viewer")
     s.add_argument("--game-dir", help="the game's install folder (remembered after the first time)")
     s.add_argument("--layout", default=DEFAULT_LAYOUT, help="layout JSON file")
+    s.add_argument("--window-scale", type=int, choices=(1, 2, 3),
+                   help="DOSBox's window: 2 (the default) is twice the game's 320x200, 3 three times (remembered)")
+    s.add_argument("--fullscreen", dest="fullscreen", action="store_true", default=None,
+                   help="start DOSBox full screen, as GOG does (remembered; --windowed undoes it)")
+    s.add_argument("--windowed", dest="fullscreen", action="store_false")
     s.set_defaults(func=cmd_launch)
+
+    s = sub.add_parser("play", help="start the game with the in-game rolls and stats, no window of our own")
+    s.add_argument("--game-dir", help="the game's install folder (remembered after the first time)")
+    s.add_argument("--no-popups", action="store_true", help="without each turn's rolls in the game")
+    s.add_argument("--window-scale", type=int, choices=(1, 2, 3),
+                   help="DOSBox's window: 2 (the default) is twice the game's 320x200, 3 three times (remembered)")
+    s.add_argument("--fullscreen", dest="fullscreen", action="store_true", default=None,
+                   help="start DOSBox full screen, as GOG does (remembered; --windowed undoes it)")
+    s.add_argument("--windowed", dest="fullscreen", action="store_false")
+    s.set_defaults(func=cmd_play)
 
     s = sub.add_parser("dicelog", parents=[common], help="print the game's dice rolls as they happen")
     s.add_argument("--all", action="store_true", help="also show rolls the log can't label")
     s.add_argument("--raw", action="store_true", help="record every rand() call, not just rolls (noisy)")
+    s.add_argument("--popups", action="store_true",
+                   help="in a fight, have the game show each turn's rolls when the turn ends")
+    s.add_argument("--short-popups", action="store_true",
+                   help="with --popups: one line per target instead of the log's detail")
     s.set_defaults(func=cmd_dicelog)
+
+    s = sub.add_parser("checks", help="list the thief skill and ability checks in the game's scripts (spoilers)")
+    s.add_argument("--game-dir", help="the game's install folder")
+    s.set_defaults(func=cmd_checks)
 
     s = sub.add_parser("save", help="show the party stored in a save file (SAVEnn.SAV)")
     s.add_argument("file")

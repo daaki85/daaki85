@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dscompanion import dicelog, game
 from dscompanion.dicelog import AcDetail, DiceLog, Entry, KIND_AC, KIND_ROLL, KIND_SAVE
-from dscompanion.textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, TextBuffer
+from dscompanion.textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, DialogueEntry, TextBuffer
 from dscompanion.tracker import PartyTracker
 
 LOAD_SEG = 0x1A2
@@ -206,6 +206,128 @@ class AttackTests(unittest.TestCase):
         self.assertEqual(log.describe(dice[1]),
                          ["  Dag hits Mountain Stalker for 20: 2d8 = [2 + 5] +1 weapon +12 STR 24"])
 
+    def test_turn_summary_for_the_game(self):
+        log = make_game()
+        log.describe(self.attack(18, 8, 4, 5, 9, after_f1=9, hit_bonus=1))  # Dag hits (needs 4)
+        parent = words(0, 0, 0, 0, 10, 4, 0, 0, 0, 0, 1)
+        for face in (2, 5):
+            log.describe(entry(raw_for(face, 8), dicelog.DICE_SITE, words(0, 0, 2, 8, 1), parent, (0x29, 0, 0, 0),
+                               parent_code=dicelog.WEAPON_DAMAGE_RETURN))
+        log.describe(self.attack(3, 8, 4, 5, 9, after_f1=9, hit_bonus=1))  # and misses
+        short = "Dag attacks Mountain Stalker: 18 vs 4+ HIT, 20 damage; 3 vs 4+ miss"
+        self.assertEqual(log.turn_summary(0, detail=False), short)
+        # anyone's attacks during a turn go in its summary (a guarding character striking back...)
+        self.assertEqual(log.turn_summary(1, detail=False), short)
+        # in detail: the dice log's lines, the damage under the hit it belongs to
+        lines = log.turn_summary(0).split("\n")
+        self.assertEqual(len(lines), 5)
+        self.assertTrue(lines[0].startswith("Dag attacks Mountain Stalker") and lines[0].endswith("-> HIT"))
+        self.assertTrue(lines[1].startswith("THAC0"))
+        self.assertEqual(lines[2], "Dag hits Mountain Stalker for 20: 2d8 = [2 + 5] +1 weapon +12 STR 24")
+        self.assertTrue(lines[3].endswith("-> miss"))
+        log.popup_detail = False
+        # DSCLOG's side: it counts the turn's end (Dag's, combatant 0) and waits for the text
+        m = log.guest.mem
+        struct.pack_into("<H", m, HDR + dicelog.TSR_HDR_OFF, 0)
+        struct.pack_into("<H", m, HDR + dicelog.TSR_MSG_OFF, 0x400)
+        log.set_popups(True)
+        self.assertEqual(struct.unpack_from("<H", m, HDR + dicelog.TSR_POPUPS)[0], 1)
+        struct.pack_into("<H", m, HDR + dicelog.TSR_ENDED, 0)
+        struct.pack_into("<H", m, HDR + dicelog.TSR_TURN_SEQ, 1)
+        log._answer_turn()
+        self.assertEqual(struct.unpack_from("<H", m, HDR + dicelog.TSR_REPLY_SEQ)[0], 1)
+        self.assertEqual(bytes(m[HDR + 0x400:HDR + 0x400 + 68]).split(b"\0")[0],
+                         b"Dag attacks Mountain Stalker: 18 vs 4+ HIT, 20 damage; 3 vs 4+ miss")
+        self.assertEqual(log.turn_summary(0), "")  # a new turn starts afresh
+
+    def test_look_box_describes_the_monster(self):
+        log = make_game()
+        m = log.guest.mem
+        from dscompanion import monsters
+        stalker = CREATURES + STALKER * game.CREATURE_SIZE
+        struct.pack_into("<hH", m, stalker, 38, STALKER)  # 38 HP now
+        struct.pack_into("<H", m, stalker + monsters.CREATURE_KIND, 3)
+        sheet = SHEETS + STALKER * game.SHEET_SIZE
+        struct.pack_into("<h", m, sheet + game.SHEET_MAX_HP, 60)
+        m[sheet + game.SHEET_MAGIC_RESISTANCE] = 30
+        kinds = (LOAD_SEG + monsters.MONSTER_KINDS_SEG) * 16  # kind 3: resistance class 11
+        m[kinds + monsters.KIND_CLASS_OFF + 3] = 11
+        struct.pack_into("<2H", m, kinds + monsters.CLASS_MASKS_OFF + 11 * monsters.CLASS_SIZE, 0x38, 0xB200)
+        m[kinds + monsters.CLASS_PERCENTS_OFF + 11 * monsters.CLASS_SIZE + 1] = 100
+        log.last_ac[STALKER] = 4
+        struct.pack_into("<H", m, HDR + dicelog.TSR_HDR_OFF, 0)
+        struct.pack_into("<HH", m, HDR + dicelog.TSR_LOOK_OFF, 0x300, 0x500)
+        log.set_monster_info(True)
+        self.assertEqual(struct.unpack_from("<H", m, HDR + dicelog.TSR_LOOK_ON)[0], 1)
+        struct.pack_into("<HH", m, HDR + dicelog.TSR_LOOK_SEQ, 1, 0)
+        struct.pack_into("<H", m, HDR + dicelog.TSR_LOOK_WHO, 0x29)
+        lines = log._answer_look()
+        self.assertEqual(struct.unpack_from("<H", m, HDR + dicelog.TSR_LOOK_REPLY)[0], 1)
+        self.assertEqual(bytes(m[HDR + 0x300:HDR + 0x340]).split(b"\0")[0],
+                         b"HP 38/60 AC 4|THAC0 11 MR 30|NEEDS +1 WEAPON")
+        whole = bytes(m[HDR + 0x500:HDR + 0x600]).split(b"\0")[0].decode()
+        self.assertIn("magic resistance 30 pct", whole)
+        self.assertIn("Only +1 or better weapons hurt it.", whole)
+        self.assertEqual(lines[0], "Look: Mountain Stalker: HP 38/60, AC 4, THAC0 11, magic resistance 30%.")
+        self.assertEqual(log._answer_look(), [])  # asked once
+        # nothing special about it: the box's lines, but no window
+        m[kinds + monsters.KIND_CLASS_OFF + 3] = 0
+        struct.pack_into("<HH", m, HDR + dicelog.TSR_LOOK_SEQ, 5, 4)
+        struct.pack_into("<H", m, HDR + dicelog.TSR_LOOK_WHO, 0x29)
+        log._look_seq = 4
+        self.assertEqual(len(log._answer_look()), 1)
+        self.assertEqual(bytes(m[HDR + 0x300:HDR + 0x340]).split(b"\0")[0], b"HP 38/60 AC 4|THAC0 11 MR 30")
+        self.assertEqual(m[HDR + 0x500], 0)
+        # a party member: nothing to add (the game shows the View Character screen)
+        struct.pack_into("<HH", m, HDR + dicelog.TSR_LOOK_SEQ, 2, 1)
+        struct.pack_into("<H", m, HDR + dicelog.TSR_LOOK_WHO, 0)
+        self.assertEqual(log._answer_look(), [])
+        self.assertEqual(struct.unpack_from("<H", m, HDR + dicelog.TSR_LOOK_REPLY)[0], 2)
+        self.assertEqual(m[HDR + 0x300], 0)
+
+    def test_spells_and_saves_in_the_game_summary(self):
+        log = make_game()
+        log._note_turn(["Round 2: Dag 25, Mountain Stalker 18", "    Dag 25 = 20 + 5 (0-9 roll)",
+                        "Fireball damage: 5d6 = [2 + 5 + 3 + 6 + 1] = 17",
+                        "Dag saves vs Fireball from Defiler (petrification/polymorph): d20 = 7, doubled against fire = 14, needs 12 (60% to save) -> saved: half damage, 8",
+                        "  Dag takes 8 from Fireball, now 16/24 HP", "Dice: 1d6 = [4] = 4"])
+        text = log.turn_summary(0).split("\n")
+        self.assertEqual(text[0], "Fireball damage: 5d6 = [2 + 5 + 3 + 6 + 1] = 17")  # not the round's order
+        self.assertTrue(text[1].startswith("Dag saves vs Fireball"))
+        self.assertIn("needs 12 -> saved", text[1])  # the chance to save left out too
+        self.assertEqual(text[2], "Dag takes 8 from Fireball, now 16/24 HP")
+        self.assertEqual(len(text), 3)  # nor unlabelled dice
+        self.assertEqual(log.turn_summary(0, detail=False).split(". ")[0], "Fireball damage: 5d6 = [2 + 5 + 3 + 6 + 1] = 17")
+
+    def test_detailed_summary_in_the_game(self):
+        log = make_game()
+        log.describe(self.attack(18, 8, 4, 5, 9, after_f1=9, hit_bonus=1))
+        m = log.guest.mem
+        struct.pack_into("<H", m, HDR + dicelog.TSR_HDR_OFF, 0)
+        struct.pack_into("<H", m, HDR + dicelog.TSR_MSG_OFF, 0x400)
+        log.set_popups(True)
+        struct.pack_into("<H", m, HDR + dicelog.TSR_TURN_SEQ, 1)
+        log._answer_turn()
+        shown = bytes(m[HDR + 0x400:HDR + 0x400 + dicelog.MSG_SIZE]).split(b"\0")[0].decode()
+        self.assertNotIn("%", shown)  # the game's window shows no "%"
+        self.assertNotIn("needs", shown)  # nor the chance to hit: the AC hit and the target's AC say it
+        self.assertIn("hits AC -10, target AC 4 -> HIT", shown)
+        # the game's window shows it, and DSCLOG passes back its first 400 characters: not dialogue
+        said = DialogueEntry(None, shown[:40])
+        self.assertEqual(log._not_ours([said, DialogueEntry(None, chosen="Continue")]), [])
+
+
+class SlotsForTheGameTests(unittest.TestCase):
+    def test_slot_lines(self):
+        log = make_game()
+        log.game.spell_slots = lambda member: {
+            0: [("Wizard", [(1, 2, 2), (2, 1, 1)]), ("Priest", [(n, 1, 2) for n in range(1, 8)])]}.get(member, [])
+        # three lines fit above the usable items' icons: no room left for the heading
+        self.assertEqual(log.slots_lines(0), "WIZ 2/2 1/1|PRI 1/2 1/2 1/2 1/2 1/2 1/2|    1/2")
+        self.assertEqual(log.slots_lines(1), "")
+        log.game.spell_slots = lambda member: [("Priest", [(1, 5, 5), (2, 3, 3)])]
+        self.assertEqual(log.slots_lines(0), "SPELLS LEFT BY LEVEL|PRI 5/5 3/3")
+
 
 class BackstabTests(unittest.TestCase):
     def test_backstab_multiplies_the_damage(self):
@@ -248,7 +370,7 @@ class SaveTests(unittest.TestCase):
                          ["Hold Person damage: 2d6 = [6 + 4] = 10"])
         self.assertEqual(log.describe(self.save_roll(log, 13), now=1.1), [])
         self.assertEqual(log.describe(self.probe(15)),
-                         ["Mountain Stalker saves vs Hold Person from Dag (spell): d20 = 13 +2 modifiers = 15, "
+                         ["Mountain Stalker saves vs Hold Person from Dag (spell): d20 = 13 +2 other = 15, "
                           "needs 14 (45% to save) -> saved"])
 
     def test_save_shows_what_it_leaves(self):
@@ -434,8 +556,26 @@ class SaveTests(unittest.TestCase):
         log = make_game()
         set_effects(log, [(0x29, 0, 7), (0x29, 0, 58)])  # Blessed (saves), Displacement (AC only)
         log.describe(self.save_roll(log, 7))
-        self.assertTrue(log.describe(self.probe(9))[0].endswith(
-            "d20 = 7 +2 modifiers (incl. Blessed) = 9, needs 14 (45% to save) -> failed"))
+        self.assertTrue(log.describe(self.probe(8))[0].endswith(
+            "d20 = 7 +1 Blessed = 8, needs 14 (40% to save) -> failed"))
+        log.describe(self.save_roll(log, 7))  # something the log can't account for
+        self.assertTrue(log.describe(self.probe(10))[0].endswith(
+            "d20 = 7 +1 Blessed +2 other = 10, needs 14 (50% to save) -> failed"))
+
+    def test_modifiers_by_damage_kind_and_con(self):
+        log = make_game()
+        set_effects(log, [(0x29, 0, 40), (0x29, 0, 7)])  # Prot Fire, Blessed
+        log.describe(self.save_roll(log, 7, spell=FIREBALL))
+        self.assertEqual(log.describe(self.probe(18, needed=15, spell=FIREBALL)),
+                         ["Mountain Stalker saves vs Fireball from Dag (spell): d20 = 7, doubled against fire "
+                          "= 14 +1 Blessed +3 Prot Fire = 18, needs 15 (75% to save) -> saved"])
+        # paralysis/poison/death: a dwarf's CON counts twice over
+        m = log.guest.mem
+        m[SHEETS + STALKER * game.SHEET_SIZE + game.SHEET_RACE] = game.DWARF
+        m[CREATURES + STALKER * game.CREATURE_SIZE + game.CREATURE_ABILITIES + 2] = 19
+        m[DS * 16 + game.SAVE_CON + 19] = 1
+        self.assertEqual(log.game.save_modifiers(0x29, 0, HOLD_PERSON, game.PPD_SAVE),
+                         [(1, "Blessed"), (5, "dwarf CON 19"), (1, "CON 19")])
 
     def test_natural_20_needs_no_probe(self):
         log = make_game()
@@ -530,7 +670,7 @@ class OtherTests(unittest.TestCase):
         e = entry(1223, dicelog.PERCENT_SITE, words(0, 0, 0, 1, 0, -10), locals_=locals_at(0x10, m2=24))
         self.assertEqual(log.describe(e), ["Dag tries to open locks: d100 = 24, needs 24 or less -> success",
                                            "    open locks 24 = 18 + 16 thief level 4 + 5 DEX 16 - 10 this attempt "
-                                           "- 5 armour"])
+                                           "- 5 equipment"])
         # an effect (Blind, Afraid...) takes 1000 off
         e = entry(1223, dicelog.PERCENT_SITE, words(0, 0, 0, 1, 0, 0), locals_=locals_at(0x10, m2=-961))
         self.assertEqual(log.describe(e), ["Dag tries to open locks: d100 = 24 -> failure (an effect stops it)"])
@@ -634,6 +774,70 @@ class NewLinesTests(unittest.TestCase):
         self.assertEqual(log.speaker(57), "Portrait 57")
         log.speaker_names = {57: "Tithian", 119: "Herald"}  # names the player gave
         self.assertEqual((log.speaker(57), log.speaker(119)), ("Tithian", "Herald"))
+
+    def test_round_status_keeps_the_order_in_view(self):
+        log = make_game()
+        log.game.game_time = lambda: 600
+        log.game.whose_turn = lambda: 1
+        log._round_time, log.round_number = 600, 3
+        log.round_order = [(0, "Dag", 25), (1, "Daaki", 22), (2, "Jellybelly", 20), (0x29, "Mountain Stalker", 18)]
+        log._acted = {0}
+        struct.pack_into("<h", log.guest.mem, CREATURES + 2 * game.CREATURE_SIZE, 0)  # Jellybelly is down
+        struct.pack_into("<h", log.guest.mem, CREATURES + 0 * game.CREATURE_SIZE, 30)
+        struct.pack_into("<h", log.guest.mem, CREATURES + 1 * game.CREATURE_SIZE, 30)
+        struct.pack_into("<h", log.guest.mem, CREATURES + STALKER * game.CREATURE_SIZE, 30)
+        status = log.round_status()
+        self.assertEqual(status["round"], 3)
+        self.assertEqual(status["now"], ("Daaki", 22))
+        self.assertEqual(status["next"], [("Mountain Stalker", 18)])
+        self.assertEqual(status["done"], [("Dag", 25)])
+        self.assertEqual(status["down"], [("Jellybelly", 20)])
+        self.assertEqual(log.still_to_act(), "Still to act this round: Daaki, Mountain Stalker")
+        self.assertEqual(log.still_to_act(ended=0), "Still to act this round: Daaki, Mountain Stalker")
+        # the turn that ended was the last of round 2: round 3's order has been rolled since
+        self.assertEqual(log.still_to_act(ended=0x29), "Round 3: Daaki, Mountain Stalker")
+        # the game ran Daaki's turn before the helper could ask: the summary shows Daaki's attacks
+        daaki = frozenset({log.game.combatant_creature(1)})
+        self.assertEqual(log.still_to_act(ended=0, acted_creatures=daaki), "Still to act this round: Mountain Stalker")
+        both = daaki | {log.game.combatant_creature(0x29)}
+        self.assertEqual(log.still_to_act(ended=0, acted_creatures=both), "End of round 3.")
+        # a new round rolled since: the rolls shown were the old round's
+        self.assertEqual(log.still_to_act(ended=0x29, acted_creatures=both), "Round 3: Daaki, Mountain Stalker")
+        table = log.game.combatant_creature  # killed: the creature has left the fight's table
+        log.game.combatant_creature = lambda c: None if c == 0x29 else table(c)
+        self.assertEqual(log.round_status()["down"], [("Jellybelly", 20), ("Mountain Stalker", 18)])
+        self.assertEqual(log.still_to_act(), "Still to act this round: Daaki")
+        log.game.combatant_creature = table
+        log.game.game_time = lambda: 600 + dicelog.FIGHT_GAP + 1  # the fight is over
+        self.assertIsNone(log.round_status())
+
+    def test_speakers_learned_from_conversations(self):
+        log = make_game()
+        struct.pack_into("<H", log.guest.mem, HDR + dicelog.TSR_SLOTS_OFF, 0x1800)  # spell slots out of the way
+        talking_to = [None]
+        log.game.talk_target = lambda: talking_to[0]
+        def conversation(*portraits):
+            data = b""
+            for p in portraits:
+                for kind, value, text in ((KIND_PORTRAIT, p, b""), (KIND_TEXT, 0, b"Hello. "), (KIND_TEXT, 0, b"END")):
+                    data += bytes((0xFE, kind)) + struct.pack("<IHH", 0, value, len(text)) + text
+            data += bytes((0xFE, KIND_TEXT)) + struct.pack("<IHH", 0, 0, 5) + b"CLOSE"
+            start = struct.unpack_from("<H", log.guest.mem, HDR + 126)[0]
+            log.guest.mem[HDR + 0x800 + start:HDR + 0x800 + start + len(data)] = data
+            struct.pack_into("<H", log.guest.mem, HDR + 126, start + len(data))
+            log.lines(now=100.0)
+            log.take_dialogue()
+        talking_to[0] = "Legcrusher"
+        conversation(5, 100)  # two faces: a scene, can't tell who is who
+        self.assertEqual(log.take_speakers(), {})
+        conversation(0, 100)  # one face (and narration): that's Legcrusher talking
+        self.assertEqual(log.take_speakers(), {100: "Legcrusher"})
+        self.assertEqual(log.speaker(100), "Legcrusher")
+        talking_to[0] = None
+        conversation(57)  # not started on anyone
+        self.assertEqual(log.take_speakers(), {})
+        log.speaker_names = {100: "Legs"}  # the player's name comes first
+        self.assertEqual(log.speaker(100), "Legs")
 
     def test_the_reply_chosen(self):
         log = make_game()

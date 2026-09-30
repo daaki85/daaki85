@@ -214,7 +214,7 @@ class Layout:
             text = f.display(*data[f.record])
             if f.base and f.base.record in data:
                 base = f.base.value(*data[f.base.record])
-                if base is not None and base != f.value(*data[f.record]):
+                if base and base != f.value(*data[f.record]):  # 0: no character sheet behind it
                     text += f" ({base} without spells)"
             return text
 

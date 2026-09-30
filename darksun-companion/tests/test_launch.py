@@ -33,12 +33,30 @@ class LaunchTests(unittest.TestCase):
             with open(conf, newline="") as f:
                 text = f.read()
         lines = text.split("\r\n")
-        self.assertEqual(lines[0], "[autoexec]")
+        self.assertIn("[autoexec]", lines)
         self.assertIn(r'mount C "..\cloud_saves" -t overlay', lines)
         self.assertIn(f'mount d "{launch.DOS_DIR}"', lines)
         self.assertLess(lines.index(r"lh d:\dsclog.exe"), lines.index(r"d:\dsunlog.exe"))
         self.assertLess(lines.index("c:"), lines.index(r"d:\dsunlog.exe"))  # run from the game folder
         self.assertEqual(lines[-2:], ["exit", ""])
+
+    def test_a_window_twice_the_game_unless_asked_otherwise(self):
+        self.assertEqual(launch.display_lines({}),
+                         ["[sdl]", "fullscreen=false", "[render]", "aspect=true", "scaler=normal2x", ""])
+        self.assertIn("scaler=normal3x", launch.display_lines({"window_scale": 3}))
+        self.assertIn("scaler=none", launch.display_lines({"window_scale": 1}))
+        self.assertIn("scaler=normal2x", launch.display_lines({"window_scale": 7}))
+        self.assertEqual(launch.display_lines({"fullscreen": True}), [])  # GOG's own full screen
+        saved = launch.load_settings
+        launch.load_settings = lambda: {}
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                game = make_game(d, cloud_saves=False)
+                with open(launch.write_conf(game, os.path.join(d, "test.conf")), newline="") as f:
+                    lines = f.read().split("\r\n")
+        finally:
+            launch.load_settings = saved
+        self.assertLess(lines.index("fullscreen=false"), lines.index("[autoexec]"))
 
     def test_without_the_dice_log_it_runs_the_game_as_usual(self):
         with tempfile.TemporaryDirectory() as d:

@@ -1,0 +1,23 @@
+# Runs Templar's Ledger's tests on Windows, where players run it.
+name: Templar's Ledger tests
+
+on:
+  push:
+    branches: [templars-ledger]
+    paths: ["darksun-companion/**", ".github/workflows/ledger-tests.yml"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: darksun-companion
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: x64
+      - name: Tests
+        run: python -m unittest discover -s tests

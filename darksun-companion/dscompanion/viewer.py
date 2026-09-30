@@ -15,8 +15,8 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Dict, List, Optional, Tuple
 
-from . import art, game, launch, partyview, theme, values
-from .dicelog import DiceLog, DiceLogError
+from . import art, game, launch, partyview, spellbook, theme, values
+from .dicelog import RULE_BOOTS, RULE_HELMS, DiceLog, DiceLogError
 from .guestmem import GuestMemory
 from .layout import Layout
 from .process import ProcessError
@@ -40,6 +40,9 @@ def _query_bytes(text: str) -> bytes:
         return bytes.fromhex(text[4:])
     return text.encode("cp437", errors="replace")
 
+
+# the game window's sizes (DOSBox scales the game's 320x200, with the aspect corrected)
+WINDOW_CHOICES = {"Double (640x480)": 2, "Triple (960x720)": 3, "Full screen": None}
 
 class Viewer:
     def __init__(self, root: tk.Tk, layout: Layout, connect: Callable[[], GuestMemory]):
@@ -87,6 +90,13 @@ class Viewer:
         ttk.Button(top, text="A+", width=3, command=lambda: self.zoom(1.15)).pack(side="right", padx=(4, 12))
         ttk.Button(top, text="A-", width=3, command=lambda: self.zoom(1 / 1.15)).pack(side="right")
         ttk.Label(top, text="Text size").pack(side="right", padx=4)
+        # the size of DOSBox's window, for the next time the game is started from here
+        self.window_choice = tk.StringVar(value=self._window_label(launch.load_settings()))
+        box = ttk.Combobox(top, textvariable=self.window_choice, values=list(WINDOW_CHOICES), state="readonly",
+                           width=24)
+        box.pack(side="right", padx=(4, 12))
+        box.bind("<<ComboboxSelected>>", self._window_chosen)
+        ttk.Label(top, text="Game window").pack(side="right", padx=4)
         for key, factor in (("<Control-plus>", 1.15), ("<Control-equal>", 1.15), ("<Control-KP_Add>", 1.15),
                             ("<Control-minus>", 1 / 1.15), ("<Control-KP_Subtract>", 1 / 1.15),
                             ("<Control-0>", None)):
@@ -123,16 +133,15 @@ class Viewer:
         ttk.Button(row, text="Clear", command=lambda: self.dice_text.delete("1.0", "end")).pack(side="right")
         ttk.Button(row, text="Save...", command=lambda: self.save_text(self.dice_text, "dice log")).pack(
             side="right", padx=4)
-        self.show_all = tk.BooleanVar(value=False)
-        ttk.Checkbutton(dice, text="Show unlabelled rolls", variable=self.show_all).pack(anchor="w", pady=(4, 0))
-        # the indented lines under a roll (what a THAC0 or save was made of); hiding them leaves
-        # the rolls, results, turns and HP
-        self.show_details = tk.BooleanVar(value=True)
-        ttk.Checkbutton(dice, text="Show details (the sums behind each roll)", variable=self.show_details,
-                        command=lambda: self.dice_text.tag_configure("detail", elide=not self.show_details.get())
-                        ).pack(anchor="w", pady=(4, 0))
+        # (the switches are on the Options tab, leaving this one to the log)
         self.dice_status = tk.StringVar(value="Waiting for the game...")
-        ttk.Label(dice, textvariable=self.dice_status).pack(fill="x", pady=(4, 0))
+        ttk.Label(row, textvariable=self.dice_status).pack(side="left", fill="x")
+        # the round's order stays here while the log scrolls on: who acts now, who is still to come
+        self.round_line = tk.StringVar(value="")
+        self.round_label = ttk.Label(dice, textvariable=self.round_line, style="Status.TLabel", wraplength=900,
+                                     justify="left")
+        self.round_label.pack(fill="x", pady=(4, 0))
+        self.round_label.bind("<Configure>", lambda e: self.round_label.configure(wraplength=max(200, e.width - 8)))
         box = ttk.Frame(dice)
         box.pack(fill="both", expand=True, pady=(6, 0))
         self.dice_text = tk.Text(box, font="TkFixedFont", wrap="word", height=20)
@@ -170,6 +179,36 @@ class Viewer:
         self.talk_text.tag_configure("chosen", foreground=theme.GREEN)
         self._last_portrait: Optional[int] = None
         self.talk_text.tag_bind("speaker", "<Button-3>", self._speaker_clicked)
+
+        # what each spell and psionic power really does, from the game's records
+        spells = ttk.Frame(tabs, padding=6)
+        tabs.add(spells, text="Spells", underline=0)
+        row = ttk.Frame(spells)
+        row.pack(fill="x")
+        ttk.Label(row, text="Show").pack(side="left")
+        self.spell_kind = tk.StringVar(value="All")
+        kind = ttk.Combobox(row, textvariable=self.spell_kind, state="readonly", width=10,
+                            values=("All", "Wizard", "Priest", "Psionic"))
+        kind.pack(side="left", padx=4)
+        kind.bind("<<ComboboxSelected>>", lambda _e: self.show_spells())
+        ttk.Button(row, text="Save...", command=lambda: self.save_text(self.spell_text, "spells")).pack(side="right")
+        ttk.Button(row, text="Refresh", command=self.show_spells).pack(side="right", padx=4)
+        self.spells_party = tk.BooleanVar(value=False)
+        ttk.Checkbutton(spells, text="Only spells the party has a caster level for", variable=self.spells_party,
+                        command=self.show_spells).pack(anchor="w", pady=(4, 0))
+        box = ttk.Frame(spells)
+        box.pack(fill="both", expand=True, pady=(6, 0))
+        self.spell_text = tk.Text(box, wrap="word", height=20, font="TkTextFont")
+        theme.style_text(self.spell_text)
+        scroll = ttk.Scrollbar(box, command=self.spell_text.yview)
+        self.spell_text.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        self.spell_text.pack(side="left", fill="both", expand=True)
+        self.spell_text.tag_configure("name", font=theme.fonts()[1], foreground=theme.YELLOW)
+        self.spell_text.insert("end", "Connect to the game to read its spells.")
+        tabs.bind("<<NotebookTabChanged>>", lambda _e: self.show_spells()
+                  if tabs.select() == str(spells) and not self._spells_shown else None)
+        self._spells_shown = False
 
         tools = ttk.Frame(tabs, padding=6)
         tabs.add(tools, text="Memory tools", underline=0)
@@ -218,7 +257,49 @@ class Viewer:
         self.hex.tag_configure("selected", background=theme.PSI_BLUE, foreground=theme.SHADOW)
         self.hex.bind("<Button-1>", self.on_hex_click)
 
+        self._build_options(tabs)
         self._apply_layout()
+
+    def _build_options(self, tabs: ttk.Notebook) -> None:
+        """The Options tab: what the dice log shows, and what the Ledger adds to the game."""
+        options = ttk.Frame(tabs, padding=6)
+        tabs.add(options, text="Options", underline=0)
+        settings = launch.load_settings()
+        log = ttk.LabelFrame(options, text="Dice log", padding=6)
+        log.pack(fill="x")
+        self.show_all = tk.BooleanVar(value=False)
+        ttk.Checkbutton(log, text="Show unlabelled rolls", variable=self.show_all).pack(anchor="w")
+        # the indented lines under a roll (what a THAC0 or save was made of); hiding them leaves
+        # the rolls, results, turns and HP
+        self.show_details = tk.BooleanVar(value=True)
+        ttk.Checkbutton(log, text="Show details (the sums behind each roll)", variable=self.show_details,
+                        command=lambda: self.dice_text.tag_configure("detail", elide=not self.show_details.get())
+                        ).pack(anchor="w", pady=(4, 0))
+        in_game = ttk.LabelFrame(options, text="In the game (when started with the dice log)", padding=6)
+        in_game.pack(fill="x", pady=(8, 0))
+        # the game's own window, at the end of each turn in a fight: that turn's rolls
+        self.popups = tk.BooleanVar(value=bool(settings.get("turn_popups", True)))
+        ttk.Checkbutton(in_game, text="Show each turn's rolls in the game (click Continue to go on)",
+                        variable=self.popups, command=self._popups_changed).pack(anchor="w")
+        self.popup_detail = tk.BooleanVar(value=settings.get("turn_popups_detail", True))
+        ttk.Checkbutton(in_game, text="... in detail, as in the log (MORE shows the next lines)",
+                        variable=self.popup_detail, command=self._popups_changed).pack(anchor="w", padx=(20, 0))
+        # the game's Look box, on a monster in a fight: what hurts it, then all of it in a window
+        self.monster_info = tk.BooleanVar(value=bool(settings.get("monster_info", True)))
+        ttk.Checkbutton(in_game, text="Describe monsters when you Look at them in a fight (defences, then a window)",
+                        variable=self.monster_info, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        rules = ttk.LabelFrame(options, text="Rule changes (in games started with the dice log)", padding=6)
+        rules.pack(fill="x", pady=(8, 0))
+        self.helm_ac = tk.BooleanVar(value=bool(settings.get("helm_ac", True)))
+        ttk.Checkbutton(rules, text="Helms give AC 1 (the game's helms give none)", variable=self.helm_ac,
+                        command=self._popups_changed).pack(anchor="w")
+        self.boots_move = tk.BooleanVar(value=bool(settings.get("boots_move", True)))
+        ttk.Checkbutton(rules, text="Boots give 1 more move in a fight", variable=self.boots_move,
+                        command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        # the companion's own item: a Ring +1 on the dead prisoner in the arena (ring.py)
+        self.arena_ring = tk.BooleanVar(value=bool(settings.get("arena_ring", True)))
+        ttk.Checkbutton(in_game, text="Put a Ring +1 (+1 AC, +1 on saves) on the dead prisoner in the arena",
+                        variable=self.arena_ring, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
 
     def _slot_box(self, parent) -> ttk.Combobox:
         box = ttk.Combobox(parent, width=3, state="readonly")
@@ -449,6 +530,12 @@ class Viewer:
             if self.dice is None:
                 self.dice = DiceLog(self.guest)
                 self.dice.speaker_names = launch.speaker_names()
+                self.dice.learned_speakers = launch.learned_speakers()
+                self.dice.popups = self.popups.get()
+                self.dice.popup_detail = self.popup_detail.get()
+                self.dice.monster_info = self.monster_info.get()
+                self.dice.arena_ring = self.arena_ring.get()
+                self.dice.rules = self._rules()
             try:
                 self.dice_status.set(self.dice.attach())
             except DiceLogError as e:
@@ -463,9 +550,97 @@ class Viewer:
         lines = self.dice.lines(self.show_all.get())
         if lines:
             self._append_dice(lines)
+        self.round_line.set(self._round_text())
+        learned = self.dice.take_speakers()
+        if learned:  # names worked out from conversations: keep them, and show them on earlier lines
+            launch.add_learned_speakers(learned)
+            for portrait in learned:
+                self._rename_portrait(portrait)
         talk = self.dice.take_dialogue()
         if talk:
             self._append_dialogue(talk)
+
+    def _round_text(self) -> str:
+        """The round in progress, in initiative order: who acts now, who is still to come."""
+        try:
+            status = self.dice.round_status()
+        except (struct.error, IndexError, ValueError, OSError):
+            return ""
+        if not status:
+            return ""
+        def names(rows):
+            return ", ".join(f"{name} {score}" for name, score in rows)
+        parts = [f"Round {status['round']}." if status["round"] else "This round."]
+        if status["now"]:
+            parts.append(f"Now: {status['now'][0]} ({status['now'][1]}).")
+        parts.append(f"Still to act: {names(status['next'])}." if status["next"] else "No one else to act.")
+        if status["done"]:
+            parts.append(f"Done: {names(status['done'])}.")
+        if status["down"]:
+            parts.append(f"Down: {names(status['down'])}.")
+        return " ".join(parts)
+
+    @staticmethod
+    def _window_label(settings: dict) -> str:
+        if settings.get("fullscreen"):
+            return "Full screen"
+        scale = settings.get("window_scale", 2)
+        return next((label for label, v in WINDOW_CHOICES.items() if v == scale), "Double (640x480)")
+
+    def _window_chosen(self, _event=None) -> None:
+        """Remember the game window's size; it applies the next time the game is started."""
+        scale = WINDOW_CHOICES[self.window_choice.get()]
+        settings = launch.load_settings()
+        if scale is None:
+            settings["fullscreen"] = True
+        else:
+            settings["fullscreen"] = False
+            settings["window_scale"] = scale
+        launch.save_settings(settings)
+        self.status.set(f"Game window: {self.window_choice.get()}, from the next time you start the game "
+                        "(Alt+Enter switches full screen while playing).")
+
+    def _popups_changed(self) -> None:
+        on = self.popups.get()
+        settings = launch.load_settings()
+        settings["turn_popups"] = on
+        settings["turn_popups_detail"] = self.popup_detail.get()
+        settings["monster_info"] = self.monster_info.get()
+        settings["arena_ring"] = self.arena_ring.get()
+        settings["helm_ac"] = self.helm_ac.get()
+        settings["boots_move"] = self.boots_move.get()
+        launch.save_settings(settings)
+        if self.dice is not None:
+            self.dice.set_popups(on)
+            self.dice.popup_detail = self.popup_detail.get()
+            self.dice.set_monster_info(self.monster_info.get())
+            self.dice.arena_ring = self.arena_ring.get()
+            self.dice.set_rules(self._rules())
+
+    def _rules(self) -> int:
+        return (RULE_HELMS if self.helm_ac.get() else 0) | (RULE_BOOTS if self.boots_move.get() else 0)
+
+    def show_spells(self) -> None:
+        """Fill the Spells tab from the running game's records."""
+        self.spell_text.delete("1.0", "end")
+        if not self.guest or self.ds is None:
+            self.spell_text.insert("end", "Connect to the game to read its spells.")
+            return
+        try:
+            spells = spellbook.all_spells(game.GameData(self.guest, self.ds))
+        except (struct.error, IndexError, ValueError, OSError) as e:
+            self.spell_text.insert("end", f"Couldn't read the spells: {e}")
+            return
+        kind = self.spell_kind.get()
+        shown = [s for s in spells if (kind == "All" or s.magic == kind)
+                 and (not self.spells_party.get() or s.casters)]
+        for info in shown:
+            first, *rest = info.lines()
+            self.spell_text.insert("end", first + "\n", "name")
+            self.spell_text.insert("end", "".join(line + "\n" for line in rest) + "\n")
+        if not shown:
+            self.spell_text.insert("end", "No spells to show.")
+        self._spells_shown = True
 
     def _speaker_clicked(self, event) -> None:
         tags = self.talk_text.tag_names(f"@{event.x},{event.y}")
@@ -491,6 +666,10 @@ class Viewer:
             self.dice.speaker_names[portrait] = name
         else:
             self.dice.speaker_names.pop(portrait, None)
+        self._rename_portrait(portrait)
+
+    def _rename_portrait(self, portrait: int) -> None:
+        """Show a portrait's current name on every line already shown from it."""
         tag = f"portrait {portrait}"
         ranges = self.talk_text.tag_ranges(tag)
         for start, end in reversed(list(zip(ranges[0::2], ranges[1::2]))):
@@ -549,7 +728,7 @@ class Viewer:
     def _ac_rows(self, slots) -> List[Tuple[str, List[str]]]:
         """The AC the game last worked out for each character in a fight, and what it was made
         of, as the dice log sees them; "-" until then."""
-        labels = ("Current AC", "  AC: armour, shield", "  AC: DEX", "  AC: spells, other")
+        labels = ("Current AC", "  AC: armour, shield", "  AC: DEX", "  AC: spells, rings, other")
         if not (self.dice and self.dice.attached and self.ds is not None and "creature" in self.layout.records):
             return [(label, ["-"] * len(slots)) for label in labels]
         table = game.far_pointer(self.guest, self.ds, game.CREATURES_PTR)
@@ -563,6 +742,26 @@ class Viewer:
             else:
                 columns.append([str(ac)] + [f"{v:+d}" for v in (detail.armour, detail.dex, detail.other)])
         return [(label, [c[i] for c in columns]) for i, label in enumerate(labels)]
+
+    def _now_rows(self, slots) -> List[Tuple[str, List[str]]]:
+        """THAC0 with each weapon ready, and the d20 each save needs, as they stand now."""
+        labels = ("  THAC0 now, each weapon", "  Saves now " + "/".join(game.SAVE_SHORT))
+        if self.ds is None:
+            return [(label, [""] * len(slots)) for label in labels]
+        gd = game.GameData(self.guest, self.ds)
+        table = game.far_pointer(self.guest, self.ds, game.CREATURES_PTR)
+        hits, saves = [], []
+        for s in slots:
+            addr = s[1].get("creature")
+            index = (addr - table) // game.CREATURE_SIZE if addr is not None else None
+            try:
+                known = index is not None and 0 <= index < game.PARTY_SIZE
+                hits.append(", ".join(f"{h.thac0} {h.name}" for h in gd.weapon_hits(index)) if known else "")
+                saves.append(" ".join(str(x.needs) for x in gd.saves_now(index)) if known else "")
+            except (struct.error, IndexError, ValueError):
+                hits.append("")
+                saves.append("")
+        return [(labels[0], hits), (labels[1], saves)]
 
     def _member_slots(self, slots) -> List[list]:
         """Each slot's spell slots (GameData.spell_slots), or [] when the game isn't running."""
@@ -593,7 +792,7 @@ class Viewer:
                 addr = s[1].get("creature")
                 skills = gd.thief_skills((addr - table) // game.CREATURE_SIZE) if addr is not None else []
                 cells.append(" ".join(f"{n}" for _, n in skills))
-            rows.append(("Thief skills PP/OL/FT/MS/HS/HN/CW/RL", cells))
+            rows.append(("Thief skills PP/OL/FT/HN/CW", cells))
             worn = []
             for s in slots:
                 addr = s[1].get("creature")
@@ -619,6 +818,10 @@ class Viewer:
             rows.append((f.label, cells))
             if f.label == "Base AC":
                 rows += self._ac_rows(slots)
+            elif f.label == "THAC0":
+                rows += self._now_rows(slots)[:1]
+            elif f.label == "Save: Spell":
+                rows += self._now_rows(slots)[1:]
         rows += self._slot_rows(slots)
 
         self._refresh_cards(slots)
@@ -652,7 +855,13 @@ class Viewer:
             known = gd and addr is not None and table is not None
             thief = gd.thief_skills(index) if known else []
             equipment = gd.equipment(index) if known else []
-            card.show(name, dict(fields), status, ac, self.art, member_slots, thief, equipment)
+            try:
+                hits = gd.weapon_hits(index) if known and index < game.PARTY_SIZE else []
+                saves = gd.saves_now(index) if known and index < game.PARTY_SIZE else []
+            except (struct.error, IndexError, ValueError):
+                hits, saves = [], []
+            boots = bool(known and self.boots_move.get() and gd.wears_boots(index))
+            card.show(name, dict(fields), status, ac, self.art, member_slots, thief, equipment, hits, saves, boots)
 
     def _hex_base(self) -> Optional[int]:
         record = self.layout.records.get(self.hex_record.get())

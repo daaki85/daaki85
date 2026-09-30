@@ -2,12 +2,13 @@
 
 A companion for **Dark Sun: Shattered Lands** (the GOG release) running in
 DOSBox, in the spirit of the Gold Box Companion. In Draj the templars keep the
-records; this ledger keeps the ones the game doesn't show you. It has three
-parts:
+records; this ledger keeps the ones the game doesn't show you. What it does:
 
 - **Party viewer:** every party member's stats, live, including numbers the
-  game doesn't show (THAC0, saving throws, attacks per round, the AC the game
-  uses in a fight and what it's made of, class ids).
+  game doesn't show: THAC0 with each weapon and the saving throws as they
+  stand now (with Bless, rings and the like counted), attacks per round, the
+  AC the game uses in a fight and what it's made of, spell slots, thief
+  skills, and everything they carry.
 - **Dice log:** the rolls the game makes behind the scenes, with what they were
   compared against and where every bonus comes from. For example:
 
@@ -28,27 +29,51 @@ parts:
   ```
 - **Dialogue:** what characters say, the replies you're offered and the one
   you picked, kept in a tab you can scroll back through.
+- **In the game itself**, in the game's own lettering: the inventory screen
+  also shows each character's THAC0 (for each weapon too), saving throws as
+  they stand now and (for thieves) the thief skills the game rolls, and the
+  View Character screen their THAC0 and saves
+  (see [In the game](#in-the-game-thac0-saves-and-thief-skills)); the USE
+  screen shows their spell slots left (see
+  [spell slots](#in-the-game-spell-slots-on-the-use-screen)); and after each
+  turn in a fight the game stops to show that turn's attack rolls, spell
+  damage and saving throws, and who is still to act (see
+  [each turn's rolls](#in-the-game-each-turns-rolls)); and Looking at a monster
+  in a fight tells you what hurts it (see
+  [the Look box](#in-the-game-what-hurts-a-monster-the-look-box)). The game,
+  these additions and the Ledger's window start together.
+- **Spells:** a tab listing what every spell and psionic power really does,
+  from the game's own records (see [the Spells tab](#the-spells-tab)).
+- **A Ring +1** (+1 AC, +1 on saving throws) to loot from the dead prisoner in
+  the arena, an item of the Ledger's own (see [The Ring +1](#the-ring-1)), and
+  two optional rule changes: helms give AC 1, boots a move more in a fight (see
+  [Rule changes](#rule-changes-helms-and-boots)).
 
-Nothing in the game folder or your save files is changed. The viewer only reads
-memory. For the dice log, the launcher runs a patched copy of the game that it
-keeps in its own folder (see
+Nothing in the game folder or your save files is changed, except that a game
+you save after the Ledger has put the Ring +1 in the arena keeps the ring (untick
+its box to go without). Apart from that ring and what it hands the dice log's
+helper, the Ledger only reads the game's memory. For the dice log, the launcher
+runs a patched copy of the game that it keeps in its own folder (see
 [How the dice log works](#how-the-dice-log-works)).
 
 The window is dressed in the game's own colours: its grey stone panels, the
 amber of its dialogue, the yellow of its character screen and the red rock of
 the arena, all sampled from the game (no game artwork is copied).
 
-![Templar's Ledger after a fight in the arena: the Characters tab and the dice log](docs/dicelog.png)
+![Templar's Ledger during a fight in the arena: the Characters tab, and the dice log with the round's order kept above it](docs/dicelog.png)
 
 ![The Dialogue tab](docs/dialogue.png)
+
+![The inventory screen's panel in the game, with THAC0, saves and thief skills added](docs/inventory.png)
 
 ## Requirements
 
 - **Windows** with DOSBox (plain DOSBox 0.74, DOSBox Staging, or the DOSBox
   bundled with the GOG/Steam release).
-- **64-bit Python 3.8+** from python.org. It includes tkinter and needs no extra
-  packages. Use 64-bit Python because 64-bit DOSBox can't be read from 32-bit
-  Python.
+- **64-bit Python 3.8+** from python.org. If it isn't installed, the `.bat`
+  files offer to install it for you (see below). Python includes tkinter and
+  needs no extra packages. It has to be 64-bit because 64-bit DOSBox can't be
+  read from 32-bit Python.
 - Linux works too if you can read other processes' memory (root, or
   `kernel.yama.ptrace_scope=0`).
 
@@ -59,26 +84,54 @@ install anything into the game folder.
 
 **One-time setup**
 
-1. Install Python from <https://www.python.org/downloads/>. On the first
-   installer screen, tick **"Add python.exe to PATH"**.
-2. Download this project: on GitHub open the `templars-ledger`
+1. Download this project: on GitHub open the `templars-ledger`
    branch, click **Code → Download ZIP**, and unzip it anywhere.
    The files you need are in the `darksun-companion` folder.
+2. Python: the first time you double-click one of the `.bat` files, it
+   checks for a 64-bit Python 3.8 or later. If there is none, it asks
+   whether to install it with Windows' own package manager (winget): that
+   downloads the official, signed installer from python.org, for your user
+   only, with no administrator rights. Answer **Y**, and when it's done, start
+   the `.bat` file again. (If you'd rather do it yourself, or winget isn't
+   there, install the 64-bit Python from <https://www.python.org/downloads/>
+   and tick **"Add python.exe to PATH"** on the installer's first screen.)
+
+Everything else is plain text you can read: the `.bat` files, the Python
+code in `dscompanion`, and the dice log helper's source (`dos\dsclog.asm`,
+which builds `dos\DSCLOG.EXE`, the small DOS program DOSBox loads). There is
+no packaged program to trust.
 
 **Every time you play**
 
 Double-click **`Start Game with Dice Log.bat`** in the `darksun-companion`
 folder. It starts Shattered Lands (through GOG's own DOSBox) with the dice log
-helper loaded, and opens Templar's Ledger next to it. Your saves are the same ones
-the game normally uses. The first time, it looks for
-the game in the usual GOG folders; if it can't find it, it asks you where the
-game is installed and remembers the answer.
+helper loaded, and opens Templar's Ledger next to it. The game gets its
+in-game additions too: each turn's rolls shown in the game (untick **Show
+each turn's rolls in the game** on the Options tab to turn that off), THAC0,
+saves and thief skills on the inventory and View Character screens, and spell
+slots on the USE screen. Your saves are the same ones the game normally uses.
+The first time, it looks for the game in the usual GOG folders; if it can't
+find it, it asks you where the game is installed and remembers the answer.
+
+DOSBox opens in a window twice the game's size (640x480), not full screen. To
+change that, pick **Game window** at the top of the Ledger: **Double
+(640x480)**, **Triple (960x720)** or **Full screen**. It's remembered, and
+used from the next time you start the game. Alt+Enter switches between window
+and full screen while playing. (From a command prompt: `--window-scale 3`,
+`--fullscreen` or `--windowed` after `launch` or `play` do the same.)
 
 Load your game. The party's stats fill in by themselves, and rolls appear in
 the **Dice log** tab as they happen.
 
 If you start the game the normal way instead, **`Start Templar's Ledger.bat`** still
 shows the party, but the dice log will say the game was started without it.
+
+**Just the game, with the in-game additions, no Ledger window:** double-click
+**`Play Dark Sun (in-game rolls).bat`**. The dice log runs unseen and stops
+when you close DOSBox. It uses the switches on the Ledger's Options tab as you
+last set them (each turn's rolls, monster descriptions, the Ring +1, the rule
+changes). If anything goes wrong it says so in a message box and
+writes the details to `play.log`.
 
 **Checking a save file (no game needed):** drag a `SAVEnn.SAV` file from the
 game folder onto **`Show Save.bat`**.
@@ -89,6 +142,7 @@ internal name):
 ```
 python -m dscompanion launch                        # start the game with the dice log, and the viewer
 python -m dscompanion view                          # the viewer only
+python -m dscompanion play                          # the game with the in-game additions, no viewer
 python -m dscompanion dicelog                       # the dice log in the command prompt
 python -m dscompanion save C:\path\to\SAVE01.SAV   # the party stored in a save
 python -m dscompanion processes                     # is DOSBox found?
@@ -100,9 +154,9 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 
 | Line | Meaning |
 |---|---|
-| `Round 2: K'ratchek 32, Cermak 31, Cilla 30, Gerakis 26, Slig 26` | A new round of a fight, numbered from the fight's start, and the order everyone acts in (highest first). The lines under it (shown with **Show details**) give each score's make-up: `    Gerakis 26 = 20 + 6 (0-9 roll), tie broken by 38 (0-199 roll)` (see Initiative below). If the log was started in the middle of a round, the list has only the rolls it saw. |
+| `Round 2: K'ratchek 32, Cermak 31, Cilla 30, Gerakis 26, Slig 26` | A new round of a fight, numbered from the fight's start, and the order everyone acts in (highest first). The order also stays in view above the log for the whole round, however far the log has scrolled: `Round 2. Now: Cilla (30). Still to act: Gerakis 26, Slig 26. Done: K'ratchek 32, Cermak 31. Down: ...`, and the in-game turn summary ends with who is still to act (or the next round's order). The lines under it (shown with **Show details**) give each score's make-up: `    Gerakis 26 = 20 + 6 (0-9 roll), tie broken by 38 (0-199 roll)` (see Initiative below). If the log was started in the middle of a round, the list has only the rolls it saw. |
 | `Gerakis's turn` | Whose turn it is now, each time the turn passes in a fight. |
-| `X attacks Y with Long Sword +1 (1d8+1): d20 = 14, needs 12+ (45%), hits AC 1, target AC 3 -> HIT` | An attack roll, the weapon and its damage dice. `needs 12+ (45%)` is the d20 this attacker needed against this target (THAC0 − target AC) and the chance of rolling it; `hits on anything but a 1` or `only a 20 hits` when it's out of the ordinary range. `X attacks Y from behind ...` and `X attacks Y BACKSTAB ...` mark attacks from behind and backstabs (see below). "Hits AC" is the lowest AC this roll hits (THAC0 − d20); the target AC is the one the game used, with armour, DEX and spells. A natural 20 always hits and a natural 1 always misses. |
+| `X attacks Y with Long Sword +1 (1d8+1): d20 = 14, needs 12+ (45%), hits AC 1, target AC 3 -> HIT` | An attack roll, the weapon and its damage dice. `needs 12+ (45%)` is the d20 this attacker needed against this target (THAC0 − target AC) and the chance of rolling it; `hits on anything but a 1` or `only a 20 hits` when it's out of the ordinary range. `X attacks Y from behind ...` and `X attacks Y BACKSTAB ...` mark attacks from behind and backstabs (see below). "Hits AC" is the lowest AC this roll hits (THAC0 − d20); the target AC is the one the game used, with armour, DEX and spells. A natural 20 always hits and a natural 1 always misses, but a 20 does no extra damage: the game has no critical hits (see below). |
 | `    THAC0 16, +1 Blessed, +6 STR, +1 weapon = 8` | Where the attacker's THAC0 for this attack comes from: STR (melee) or DEX (missiles), spells (Bless, Prayer, Slow, Graft Weapon, the target's Blur), attacking from behind, the weapon's plus, the penalty for non-metal weapons (wooden −3, bone −1, stone and obsidian −2), the two-weapon adjustment (see below), and the difficulty setting for monsters. |
 | `  X hits Y for 14: 1d8 = [6] +8 STR 20` | The damage of that hit: the dice, the weapon's bonus, and the STR bonus the game adds for melee. Damage is at least 1. |
 | `  X hits Y for 51: (1d8 = [5] +12 STR 24) x3 backstab` | A backstab (see below) multiplies the whole damage, STR bonus included. |
@@ -116,10 +170,10 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 | `    Dispel Magic on Slig's Blessed: d100 = 60, needs 85 or less (50 + 5 x 7 - 5 x 0 (its caster's level)) -> dispelled` | Dispel Magic tries each effect on its target separately: 50 + 5 for each of the dispeller's levels, less 5 for each of the level the effect was cast at. It can't touch some (Biofeedback, Diseased, Feeblemind, Poisoned, Graft Weapon, No spell use, Stuck, Mind Bar and a few more). |
 | `    Abjure on Y: d20 = 14, needs 12 or more (11 - caster level 5 + its level 6) -> sent away` | Abjure sends a summoned creature away (1000 damage) on a d20 at or over 11 - the caster's level + the creature's. |
 | `    Summoning: 1d3 = 2 picks which of its 3 creatures comes` | Which creature a summoning spell brings. |
-| `Y saves vs Fireball from X (petrification/polymorph): d20 = 6, doubled against fire = 12 +1 modifiers (incl. Blessed) = 13, needs 11 (80% to save) -> saved: half damage, 19 of 38` | A saving throw: which of the target's five saves it uses, the d20, the game's modifiers, and the number it had to reach. The game doubles the d20 against fire, cold and electricity spells (see Spells and effects). A natural 1 always fails and a natural 20 always saves. The chance of saving is worked out for you (`needs 14 (70% to save)`); with the doubled d20, Fireball's victims usually save. For a damaging spell the result says what the save left, from that target's damage roll just before it: `saved: half damage, 19 of 38`, `failed: full damage, 38`, or `saved: no damage` for spells such as Chill Touch. The HP line after it shows what the creature really lost, once resistances and protections have had their say. A failed save also lets the spell's effect take hold. Spells left on the ground (Grease, clouds) make creatures save again as they stay in them; those lines have no "from". |
+| `Y saves vs Fireball from X (petrification/polymorph): d20 = 6, doubled against fire = 12 +1 Blessed = 13, needs 11 (80% to save) -> saved: half damage, 19 of 38` | A saving throw: which of the target's five saves it uses, the d20, each of the game's modifiers by name (see Saving throws below; anything the log can't account for shows as `other`), and the number it had to reach. The game doubles the d20 against fire, cold and electricity spells (see Spells and effects). A natural 1 always fails and a natural 20 always saves. The chance of saving is worked out for you (`needs 14 (70% to save)`); with the doubled d20, Fireball's victims usually save. For a damaging spell the result says what the save left, from that target's damage roll just before it: `saved: half damage, 19 of 38`, `failed: full damage, 38`, or `saved: no damage` for spells such as Chill Touch. The HP line after it shows what the creature really lost, once resistances and protections have had their say. A failed save also lets the spell's effect take hold. Spells left on the ground (Grease, clouds) make creatures save again as they stay in them; those lines have no "from". |
 | `X gives Blessed to Y, Z: +1 to hit, +1 on saves` / `Blessed ends on Y` | A spell or psionic effect starting or ending, with what it does in the game's code where that is known: to-hit, AC and saving throws, movement and attacks, whether the creature can attack or cast, who controls it (see Spells and effects below). `Stuck on Y` (no "gives") is an effect a creature has from a spell on the ground or cast on itself. |
 | `X DEX check: d20 = 9, needs 16 or less (DEX 16) -> success` | An ability check. A natural 20 always fails. |
-| `Cilla tries to open locks: d100 = 35, needs 40 or less -> success` / `    open locks 40 = 18 + 16 thief level 4 + 10 elf... - 5 armour` | A thief skill roll (see Thief skills below), and what its chance is made of. |
+| `Cilla tries to open locks: d100 = 35, needs 40 or less -> success` / `    open locks 40 = 18 + 16 thief level 4 + 10 elf...` | A thief skill roll (see Thief skills below), and what its chance is made of. |
 | `    X's Bone Long Sword nearly broke: 0 on 0-7, then 12 on 0-19 (needed 0)` / `... BREAKS` | The weapon check the game makes after an attack sequence whose last attack hit. Only non-magical wood, bone, stone and obsidian weapons can break (and not every kind: clubs and quarterstaffs can't): they break when a 0-7 roll and then a 0-19 roll both come up 0, 1 chance in 160. The line only appears when the first roll comes up 0. |
 | `Message: Long Sword is broken !` | The game's own message boxes: broken or corroded weapons and armour, level-ups, "NO PATH FROM HERE" and so on. |
 | `  Slig now 8/18 HP (-10)` / `  Gerakis now 51/54 HP (+1)` | Any combatant's hit points going down or up, with what's left out of their most. The game never shows a monster's HP; this does. The line comes just after the damage that caused it (sometimes after the next roll, when the game is quick). |
@@ -138,7 +192,8 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 starting, whose turn it is, attack rolls, saves, spells, kills. Lines indented
 two spaces are their results (damage, HP left); lines indented four spaces are
 the details: the sums behind a THAC0, a save's modifiers, the initiative
-scores. Untick **Show details** to hide the details and keep the rest; they
+scores. Untick **Show details** (on the Options tab, with the Ledger's other
+switches) to hide the details and keep the rest; they
 come back when it's ticked again. In the window, each kind has its colour
 (hits green, misses grey, damage amber, saves blue, turns sand, rounds
 underlined with a gap above), but the words say the same thing, so nothing
@@ -157,8 +212,8 @@ The viewer's **Current AC** row is the AC the game last used for each
 character in a fight (armour, DEX and spells included), and the rows under it
 say what it was made of: armour and shield (and spells that take their place,
 such as Spirit Armor and Magical Vestments), DEX (the game's table: −1 at 15
-down to −6 at 24; not counted when attacked from behind), and spells and
-anything else. They show "-" until the game has worked out that character's AC
+down to −6 at 24; not counted when attacked from behind), and spells, rings
+(see [The Ring +1](#the-ring-1)) and anything else. They show "-" until the game has worked out that character's AC
 in a fight.
 
 Ability scores such as `STR 24 (20 without spells)` show the score now and, in
@@ -293,10 +348,10 @@ Fireball, cast at a Slig next to her, killed her.
 
 ### Thief skills
 
-The game never shows thief skills, but it rolls them: for locks, traps and
-other things its scripts ask for. Sometimes it's the party's best member at it
-who tries. The roll is a d100 that must come in under the skill's chance. The
-game's code works the chance out as:
+The game never shows thief skills, but it rolls them: for traps, and for the
+locks, walls and so on its scripts ask for (see Where the game rolls them). The
+roll is a d100 that must come in under the skill's chance. The game's code works
+the chance out as:
 - a base for each skill (28, 18, 13, 28, 18, 23, 78, −4),
 - plus 4 for each thief level,
 - plus a racial adjustment. These are AD&D's, for example a dwarf gets +10 to
@@ -304,12 +359,18 @@ game's code works the chance out as:
 - plus DEX: −5 for each point below 12, 11, 12, 13 or 11 (the first five skills);
   +5 for each point above 16, 15, 17, 16 or 16; and −3 for each point above
   21, 20, 21, 19 or 19, so very high DEX gains less,
-- minus an armour penalty (5, 0, 0, 10, 5, 0, 10, 0) when the thief wears
-  anything but leather,
+- minus an equipment penalty (5, 0, 0, 10, 5, 0, 10, 0) when the thief has
+  anything at all in the leg armour slot, the quiver or either hand. That is the
+  game's own check: it doesn't look at what the item is (leather or metal) and
+  ignores chest and arm armour and helmets, so a thief holding any weapon pays
+  it. (The manual's "anything other than leather-type armor" is AD&D's rule,
+  not what the code does.)
 - plus the situation's bonus or penalty (a hard lock, say).
 
-Only characters with thief levels have the skills. The exception is finding
-traps: anyone with Find Traps on them can try. The character must be Okay.
+Only characters with thief levels have the skills; everyone else's chance is 0.
+The character's condition must be Okay (the status the character screen shows
+under HP): a thief who is
+Stunned, Out Cold, Dying and so on can't use the skills.
 
 Some effects rule out a skill:
 - Blind, Afraid, Confused, Berserk and Paralyzed stop them all, except that a
@@ -322,15 +383,53 @@ Some effects rule out a skill:
   divided by (100 + 10 × Enlarge's level)%, for climbing multiplied by it. With
   no bonus or penalty it changes nothing; with a penalty, climbing gets harder.
 
+Two effects make a skill certain instead: Detect Traps (anyone, thief or not,
+finds traps) and Invisible (hiding in shadows).
+
 These effects work on the situation's bonus: ruling a skill out takes 1000 off
-it, so the roll can't succeed.
+it, so the roll can't succeed, and making it certain adds 1000. (One more rule
+in the code would make move silently certain, and hearing noise impossible, for
+someone wearing one particular item on their legs, but the game passes that
+check its two lists the wrong way round, so it never applies.)
 
 The game gives the skills no names. The eight are AD&D's in AD&D's order (pick
 pockets, open locks, find/remove traps, move silently, hide in shadows, hear
 noise, climb walls, read languages): the checks above fit them.
 
-The **Characters** tab shows each thief's chances before armour and the situation.
-**All fields** has them in a row in that order.
+#### Where the game rolls them
+
+There is no hide or sneak command, and nothing in the game's code rolls a thief
+skill on its own: every roll comes from the game's scripts (conversations,
+doors, walls...), which ask in two ways. Every script in GPLDATA.GFF decodes
+(see `dscompanion/gpl.py`), so these are all of them:
+- **13 skill checks**: find/remove traps 4 times (a hidden passage, a secret
+  door, a loose rug, a cord on a lava-dome egg; bonuses −10 to +3), open locks
+  4 times (a safe, a grate and cell doors; −4 to +8), climb walls 3 times, and
+  pick pockets and hear noise once each (a key in a trustee's pocket; two men
+  arguing by a wagon, a check for the whole party). Most are made by the
+  character who acted.
+- **50 trap triggers, in 16 scripts.** A script sets off an object at a spot on
+  the map (a trap, or a blast: the bound prisoners in the arena, a Drajian
+  messenger's thrown sphere, a summoning circle, a breaking mirror...). First
+  the party's best at find/remove traps rolls, with no bonus; success, or
+  Detect Traps on the character who set it off, avoids it. This is the roll the
+  arena prisoner makes.
+
+A party check always goes to the member with the best chance. (The game also
+has a script command that lets each member try in turn, but no script uses it.)
+
+**Move silently, hide in shadows and read languages are never rolled** anywhere
+in the game, so they make no difference; nor does the equipment penalty on
+them. The scripts also make 3 ability checks (a d20 under the ability): CHA
+twice and STR once.
+
+`python -m dscompanion checks` lists them all with the script's text around
+each (spoilers).
+
+The **Characters** tab shows each thief's chances before equipment and the
+situation, for the five skills the game rolls (pick pockets, open locks,
+find/remove traps, hear noise, climb walls). **All fields** has them in a row
+in that order.
 
 ### Psionics
 
@@ -446,6 +545,340 @@ From the game's code:
   attack of the round the damage, STR bonus included, is multiplied: x2 at
   thief levels 1-4, x3 at 5-8, x4 at 9-12, x5 from 13.
 
+Which weapons can backstab, from the game's item tables. Weight belongs to the
+weapon's kind and material, in the game's units, which look like tenths of a
+pound (a dagger is 10, a club 30, a mace 100, as AD&D's 1, 3 and 10 lb), so
+the limit is 4 lb. Missile weapons (slings, bows, a thrown chatkcha) never
+backstab: it has to be melee.
+
+| Weapon | Material | Damage | Weight | Backstab |
+|---|---|---|---|---|
+| Dagger | stone, obsidian | 1d4 | 10 | yes |
+| Long Sword | bone | 1d8 | 20 | yes |
+| Long Sword | obsidian | 1d8 | 30 | yes |
+| Long Sword | metal | 1d8 | 40 | yes (the limit) |
+| Club | wood | 1d6 | 30 | yes |
+| Quarterstaff | wood | 1d6 | 40 | yes |
+| Dark Flame (+2) | obsidian | 1d8 | 40 | yes |
+| Shillelagh, Flame Blade, Spiritual Hammer (spells) | | 2d4, 1d4+4, 1d4+1 | 10, 40, 40 | yes |
+| Axe (and Soulcrusher +1) | metal | 1d8 | 70 | no |
+| Mace (and the Wyvern Hook) | bone | 1d6+1 | 100 | no |
+| Blackmace (+1) | obsidian | 1d6+1 | 100 | no |
+| Cahulaks | bone | 1d6 | 120 | no |
+| Gythka | bone | 2d4 | 120 | no |
+| Polearm | bone | 1d10 | 150 | no |
+
+About a dozen more weapon kinds are in the game's tables with no item of
+theirs in its data (monsters' own, made by scripts, or unused).
+
+### Saving throws
+
+From the game's saving throw routine. The spell names which of the character
+sheet's five saves to use (almost always petrification/polymorph, see Spells
+and effects). The d20 counts double against fire, cold and electricity; a
+natural 1 always fails and a natural 20 always saves; otherwise the d20 and
+the modifiers below must reach the save's number.
+
+The target's spells and effects:
+- Blessed +1, Barkskin +1, Spirit Armor +3 (but not on
+  paralysis/poison/death saves), and the Save penalty effect -1.
+- Prayer: +1 if its caster is on your side, -1 if not.
+- Protection from Evil +2 against an evil caster (lawful, neutral or chaotic
+  evil); Protection from Fire and from Cold +3 against fire and cold spells;
+  Protection from Lightning +4 against electricity.
+- +4 against a spell aimed at one target (not an area) when the caster can't
+  see you: the caster is Blind, or you're Invisible (or Invisible to Undead,
+  against an undead caster) and the caster can't detect invisibility.
+
+Class, race and abilities:
+- WIS, against mind-affecting spells, charms and holds, fear and illusions:
+  -6 at WIS 1, -4 at 2, -3 at 3, -2 at 4, -1 at 5-7, +1 at 15, +2 at 16,
+  +3 at 17 and +4 at 18 and up.
+- CON, on paralysis/poison/death saves: -2 at CON 1, -1 at 2, +1 at 19-20,
+  +2 at 21-22, +3 at 23-24 and +4 at 25. Dwarves and halflings also add
+  CON x 2 / 7 (+1 for every 3.5 points).
+- Druids +2 against fire and electricity; psionicists +2 against
+  mind-affecting spells and charms.
+- Some spells carry a modifier of their own (a monster's poison at -4).
+
+Spells with rules of their own: creatures of 6th level or lower can't save
+against Cloudkill; against Chaos only warriors (fighters, gladiators and
+rangers) can; against Dismissal the target adds its level and takes away the
+caster's; and against Scare, 6th level and up always save and everyone below
+can't. The Scare code looks meant to let some elf or half-elf priests save
+(AD&D gives elves, half-elves and priests a bonus), but it asks for a
+creature that is both an elf and a half-elf, so no one qualifies.
+
+Rules in the code that never come into play: a DEX adjustment and Cloak of
+Bravery's +4 against fear both apply only to a kind of spell that no spell in
+the game is marked as. And nothing in the game gives saves from items: there
+are no rings or cloaks of protection, which is why the Ledger adds
+[one](#the-ring-1). Its +1 is in the log's saving throws as `+1 Ring +1`.
+
+### The Ring +1
+
+A ring of protection the game never had: **+1 AC and +1 on every saving
+throw** for whoever wears it. With **Put a Ring +1 (+1 AC, +1 on saves) on the
+dead prisoner in the arena** ticked on the Options tab (it is by default),
+the Ledger puts one in the body lying just below the Tied-up Prisoner in the
+arena, the first time the party is there with the Ledger (or **Play Dark Sun
+(in-game rolls)**) running:
+
+```
+A Ring +1 (+1 AC, +1 on saves) is on the dead prisoner in the arena, below the Tied-up Prisoner.
+```
+
+Look at the body (right-click until the cursor is the eye, then click it) to
+open it, click the ring, then click a character to put it in their backpack;
+wear it on a finger from the inventory screen. The game calls it **RING +1**.
+The Ledger puts one there only while there is no Ring +1 in the arena or with
+the party, so taking it doesn't make another appear.
+
+How it works: the game has a plain "Ring" item that nothing in it has a plus
+on, and no item that betters saving throws. The Ledger adds a Ring with a plus
+of 1 the way the game fills a container (an item record from its free list,
+and the ring's name in an unused entry of the game's name table). The dice
+log's patched game does the rest (see
+[How the dice log works](#how-the-dice-log-works)): where it adds up AC, a
+ring counts like armour does (its plus, on top of AC 0), and where it adds up
+a saving throw's modifiers, it starts from the pluses of the rings worn. So:
+
+- The ring works in games started with the dice log. In the original game
+  it is a plain ring, and without the Ledger running its name is blank (the
+  game reads the name table afresh each time it starts, and the Ledger writes
+  the name back within a few seconds).
+- The AC it gives shows on the View Character and inventory screens and in the
+  Ledger's **AC: spells, rings, other** row; the +1 on saves in the saves those
+  screens and the Characters tab show, and in the log.
+- A ring the original game has (the plain Ring and the Serpent Ring are the
+  only kind the patch looks at) has no plus, so it plays as before.
+
+### Rule changes: helms and boots
+
+Two small changes to the game's rules, both on the Options tab (on by default;
+they take effect in games started with the dice log, while the Ledger runs or
+with **Play Dark Sun (in-game rolls)**, which uses the Options as last set):
+
+- **Helms give AC 1.** The game's helms count as armour but give AC 0. With
+  **Helms give AC 1** ticked they give 1: the plain leather Helm, Dapartea's
+  Helm, the metal Helm of Contemplation and the Helm of Might (item types 5,
+  89 and 109, all at AC 0 in the game's tables). It shows on the View
+  Character and inventory screens like any armour.
+- **Boots give a move.** With **Boots give 1 more move in a fight** ticked,
+  whoever wears boots (Leather Boots, Serpent Boots: anything on the feet)
+  gets 1 more move each round of a fight (13 rather than 12, say; Haste and
+  Slow still double and halve it). The game sets each round's movement when it
+  rolls initiative, so boots put on mid-fight count from the next round. The
+  Characters tab shows it: `Move: 12 (13 in a fight: boots)`.
+
+How: the helper sets the helm types' AC as the game's AC routine reads it
+(`INT F8h`, the Ring +1's place), and adds the move where the game sets a
+round's movement, Move x 10 (`INT FBh`). Untick either and the game's own
+rule is back at once.
+
+### No critical hits
+
+A natural 20 on an attack always hits, and a natural 1 always misses, but
+that is all the d20 does: the game has no critical hits or fumbles. Its attack
+routine uses the d20 only for those two checks and the comparison with THAC0,
+and never passes it to the damage routine, so a hit on a 20 rolls the same
+damage as any other. A backstab is the only thing that multiplies damage.
+
+### In the game: THAC0, saves and thief skills
+
+Started with the dice log, the game's own inventory screen (the one with the
+character's figure and their equipment) shows three more things in its
+right-hand panel, drawn by the game's text routine so they look like the rest:
+
+- above STR, **THAC0** and the five **saving throws**, with the usual AD&D
+  short labels: `PPD` paralysis/poison/death, `RSW` rod/staff/wand, `PP`
+  petrification/polymorph, `BW` breath weapon, `SP` spell;
+- at the right of each weapon's damage line, the THAC0 with that weapon
+  (`T14`);
+- right of the abilities, level with STR to WIS, for a character with thief
+  levels, the five **thief skills** the game ever rolls: `PICK` pockets, open `LOCK`s,
+  find/remove `TRAP`s, `HEAR` noise, `CLMB` walls (move silently, hide in
+  shadows and read languages are never checked; see Where the game rolls
+  them). Not below the weapons: three weapons fill the panel down to its
+  buttons.
+
+The **View Character** screen gets THAC0 and the saves too, under the item
+icons: `THAC0: 15` and `SAVE: 8 12 11` / `15 13`, the saves in the order
+above.
+
+![The View Character screen with THAC0 and the saves added, as they stand under Bless](docs/view-character.png)
+
+They're the numbers as they stand now, worked out by the Ledger the way the
+game's own attack and saving throw routines do. Each time the game draws one
+of these screens, the helper has the Ledger bring them up to date first (the
+game waits a moment for it), so putting on a ring or readying another weapon
+shows at once. Spells start and end as time passes in the game, which it
+doesn't while these screens are open; open the screen again to see such a
+change.
+
+- **THAC0**: the character's THAC0 less STR's to-hit adjustment (DEX's for a
+  missile weapon), the weapon's plus (or, for a plain wooden, bone, stone or
+  obsidian weapon, its material's penalty), Bless and Prayer (+1), Curse
+  (-1), Slow (-4) and Graft Weapon (+1). The THAC0 at the top is the main
+  weapon's: the right hand's, else the left's, else the missile weapon's.
+  What depends on the target (attacking from behind or backstabbing, a Blurred
+  target) is left out; the dice log shows it on each attack.
+- **Saves**: the d20 each needs, the character sheet's number less what the
+  game adds to every save: the [Ring +1](#the-ring-1), Bless, Prayer,
+  Barkskin, Spirit Armor (not on PPD), the Save penalty, and on PPD the CON
+  adjustment (and a dwarf's or halfling's CON bonus). What depends on the
+  spell or its caster (WIS against mind spells, Protection from Fire, a
+  doubled d20 against fire...) is left out; the dice log shows it on each
+  save. A 1 always fails and a 20 always saves, so they show between 2 and 20.
+- **Thief skills**: before armour and the situation (see Thief skills).
+
+The Characters tab shows the same THAC0 with each weapon and saves. The
+game's own numbers (the character sheet's) come back on these screens when
+the Ledger isn't running.
+
+How: the patched game calls the helper (`INT 65h`) just after the panel's
+weapon lines; the helper prints the lines with the game's own text routine,
+whose address, like the selected character, it reads from the game's code
+around the patch (overlays move, so nothing is fixed in advance). The View
+Character screen does the same through `INT F3h`, called while it draws the
+character's panel, and the routine that lists the weapons through `INT FAh`
+after each one. The Ledger keeps the numbers in the helper's memory, with the
+time it last did: older than 5 seconds, the helper shows the sheet's numbers
+instead. Before a screen is drawn, the helper asks the Ledger to update them
+and waits for its answer, half a second at most. Nothing else in the game changes.
+
+### In the game: spell slots on the USE screen
+
+The game's USE (cast spells) screen shows, at the top of the panel under the
+spells, how many spells of each level the selected character can still cast,
+and the most they get after resting: `WIZ` for preservers' wizard spells, `PRI`
+for clerics', druids' and rangers' priest spells, one `left/most` per spell
+level from the 1st (six to a line):
+
+![The USE screen with Daaki's spell slots above a Guava's icon](docs/use-slots.png)
+
+The numbers go down as spells are cast (the screen shows the new count when it
+is next drawn) and back up after resting. That panel is where the game puts
+the icons of the character's usable magic items (fruit, wands and the like),
+along its bottom from the left, so the slots take only the three lines above
+them: a character with both wizard and priest spells gets the two lines without
+the `SPELLS LEFT BY LEVEL` heading.
+
+The numbers are the same as on the Characters tab (see Spell slots): the
+Ledger works them out, including the WIS bonus, and keeps a copy in the
+helper's memory, which the patched game (`INT F2h`, where the USE screen
+labels its LEVEL button) prints with the game's own text routine. Picking a
+character or a spell level repaints the screen's panels after that, so the
+helper prints them again when the game has finished redrawing the USE window
+(`INT F4h`, at the end of the game's window-redraw routine). So they show,
+and stay, while Templar's Ledger (or its command-line dice log) is running.
+
+### In the game: each turn's rolls
+
+With **Show each turn's rolls in the game** ticked on the Options tab (the
+default; or `python -m dscompanion dicelog --popups`), the game stops at the end
+of every turn in a fight in which someone attacked or cast a spell, and shows
+that turn's rolls in its own dialogue window, with **Continue** to go on. They
+are the dice log's own lines: each attack's d20, the AC it would hit and the
+target's AC, how the THAC0 was worked out, and for a hit the damage dice and
+bonuses; a spell's damage dice, and each saving throw against it. (The chance
+to hit or to save is left out: the log has it.) The last line says who is
+still to act this round (`Still to act this round: Jellybelly, Mountain
+Stalker`), `End of round 2.` when everyone has, or, when the new round's
+order is already in, that order (`Round 3: Dreamwalker, Jellybelly, Mlemlem,
+Daaki`). The window shows five lines at a time; its **MORE** arrow shows the
+next ones:
+
+![The game's window at the end of a turn, in detail](docs/turn-detail.png)
+
+![The game's window after a Defiler's Cone of Cold](docs/turn-spell.png)
+
+Untick **... in detail** (or add `--short-popups`) for one line per target
+instead (and each spell's first line):
+
+![The game's window at the end of Mlemlem's turn, in short](docs/turn-summary.png)
+
+`20 vs 11+ HIT, 12 damage` is the d20, the roll it needed (THAC0 − the
+target's AC; a natural 20 always hits, a 1 always misses), and the damage the
+hit did.
+
+Each turn gets its own window, monsters' included. (The game plays a
+monster's whole turn inside one call, so the helper is also called there, just
+before such a turn starts: `INT F7h`.)
+
+How: the patched game calls the helper (`INT F1h`) in its combat loop, right
+after the call that may pass the turn on. When whose turn it is has changed,
+the helper counts it and waits up to a third of a second for the Ledger,
+which writes the summary into the helper's memory; the helper then feeds it to
+the game's dialogue window the way the game's scripts do for a narration
+(the emblem, the text, "Press continue"). If the Ledger isn't running, or the
+box is unticked, the game doesn't wait at all. (INT 66h-6Fh can't be used: the
+game calls those itself, looking for sound drivers.)
+
+### In the game: what hurts a monster (the Look box)
+
+In a fight, Look at a monster (right-click until the cursor is the Look icon,
+then click the monster) and the game's small box, under its name and level,
+now also shows its hit points and AC, its THAC0 and magic resistance (`MR`),
+and its most important defence: `NEEDS +1 WEAPON`, `IMM FIRE COLD`,
+`NO CRUSH`, `HALF FROM WPNS` or `UNDEAD`. Its own status lines (casting,
+charmed, held...) follow in any row left. When there's more to say, closing
+the box shows everything in the game's dialogue window: the weapons it needs,
+the damage it's immune to or takes half of, spells that don't work on it, and
+what its hits do besides damage. The dice log gets the same lines (`Look:
+...`). Untick **Describe monsters when you Look at them in a fight** on the
+Options tab to turn this off.
+
+![The Look box on the arena's Defiler: HP, AC and THAC0 added](docs/look-box.png)
+
+(The arena's Defiler, like the other people in the early fights, has no
+special defences, so its box shows just the numbers.)
+
+How: the patched game calls the helper (`INT F5h`) where the box has drawn its
+first status rows; the helper asks the Ledger (as for each turn's rolls), and
+prints the lines with the game's text routine. `INT F6h`, at the end of the
+routine that closes the box, shows the whole description.
+
+### Monsters' defences
+
+From the game's damage code (DSUN.EXE); none of this is in the manual:
+
+- Every creature has a monster kind, and each kind a resistance class and a
+  set of properties, in a table the game fills when it starts.
+- Every hit has damage kinds: fire, cold, electricity, acid, poison, draining,
+  psionic, death, and for weapons crushing, edged or pointed, from the item's
+  type. A weapon's hit also carries its magic: one bit for +1 or better, one
+  for +2 or better and one for +3 or better (the weapon's plus, or its
+  ammunition's if that's higher). A monster's own attacks count as magical by
+  its level: (level - 2) / 2, so a 6th-level monster hits like a +2 weapon.
+- A resistance class is up to four rules: "these kinds of damage: this
+  percent of it". The largest percent that applies counts. So "crushing, edged
+  and pointed: 0%; +1 or better: 100%" is a monster only magical weapons hurt.
+  The game's 14 classes come to: only +1 (or +2) weapons hurt it, sometimes
+  with immunity to poison and draining, or to fire; half damage from
+  non-magical weapons and psionic attacks; immune to crushing weapons, or to
+  edged and pointed ones; immune to fire and cold (and half from
+  electricity); half from fire; immune to poison; immune to psionic attacks.
+- Properties: can't be charmed or held; unaffected by spells left on the
+  ground (fogs, clouds, walls, Web, Grease); not held by Grease, Web,
+  Entangle, Solid Fog or Quicksand; and hits that also cast one of the
+  monsters' powers on the target: 2d6 cold, 2d6 or 20 acid, paralysis,
+  poison of 10 or 30 damage, a deadly Poison, disease on 1 hit in 10.
+- Undead (race 9 on the character sheet) take nothing from poison and
+  draining, and mind-affecting spells, charms and holds don't work on them.
+
+### The Spells tab
+
+What each wizard and priest spell and psionic power does, read from the
+running game's records: its damage dice and kinds (and that damage stops
+growing at caster level 10), its saving throw (which of the five, any
+modifier, whether the d20 counts double, and whether saving halves or stops
+the damage), the effect it gives and what that does, how long it lasts, and
+each party member's caster level for it. **Show** picks wizard, priest or
+psionic, and **Only spells the party has a caster level for** leaves out the
+rest. **Save...** writes it to a text file. It's filled when you open the tab
+(or press **Refresh**) while the game is running.
+
 ### The Dialogue tab
 
 Everything the game shows in its dialogue window, one entry per window of
@@ -455,9 +888,18 @@ such as "Answer Yes or No", above them), and then the one you picked:
 it; the log reads the reply's text from the game's own list.)
 
 **Who's speaking.** The game's dialogue window gets only a portrait number,
-never a name, so a speaker the log can't name shows as `Portrait 57`. Portrait
-119 is named `The Announcer`, as the game itself calls him ("Yell something
-back at the Announcer?"). To name any other speaker, right-click the name
+never a name. But when the game runs a script on someone (you click them, or
+they come up to you), it notes who; the log reads that when a conversation
+opens. A conversation that shows one face, started on a named creature outside
+the party, is that creature talking, and from then on the portrait carries its
+name: in the pens, portrait 5 became `Kurzak` ("Legcrusher! Get gladiators!")
+and portrait 100 `Legcrusher` ("Kurzak told me to bring you to the arena").
+When several faces take turns in one conversation, nothing is learned from it,
+as it can't be told who is who. Names learned are shown on the lines already
+there too, and kept in `settings.json` (`speakers_learned`). A speaker not
+named yet shows as `Portrait 57`. Portrait 119 is named `The Announcer`, as the
+game itself calls him ("Yell something back at the Announcer?"). To name a
+speaker yourself (your name wins over a learned one), right-click the name
 line in the Dialogue tab, or press **Name speaker...** (it names the latest
 speaker). The name replaces the number on every line from that portrait,
 the ones already shown included, and is remembered in `settings.json` for
@@ -480,16 +922,25 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    (`dscompanion/gamepatch.py`). The start of `rand()`, the end of the saving
    throw, the end of the AC calculation, the start of the routine that fills
    the dialogue window and the start of the message box routine become
-   `INT 60h` to `64h`, and the copy looks for its data files in the current
+   `INT 60h` to `64h`, the inventory screen's panel calls `INT 65h`, the
+   combat loop `INT F1h`, the USE screen `INT F2h`, the View Character screen
+   `INT F3h`, the end of the window redraw `INT F4h`, the Look box `INT F5h`
+   and `INT F6h`, the start of a monster's turn `INT F7h` (see In the
+   game), and the places where AC and a saving throw's modifiers are added up
+   `INT F8h` and `INT F9h` (for [the Ring +1](#the-ring-1) and helms), each
+   weapon's line on the inventory screen `INT FAh`, and the start of a round's
+   movement `INT FBh` (for boots), and
+   the copy looks for its data files in the current
    folder rather than next to itself. DOSBox runs it from the game folder, so
    it uses your saves as usual.
 2. `dos\DSCLOG.EXE` (source in `dos\dsclog.asm`) is a tiny DOS program loaded
    into upper memory before the game, so the game loses no memory. It answers
    those interrupts. Its `rand()` returns exactly the numbers the original
    would and also records each call, what code called it, and that code's
-   arguments (dice count and sides, THAC0, AC...) in a ring buffer. The others
+   arguments (dice count and sides, THAC0, AC...) in a ring buffer. Others
    record the final saving throw total, the AC the game uses, and the text
-   of dialogues and messages (in a second buffer).
+   of dialogues and messages (in a second buffer); the rest draw the in-game
+   additions and make the Ring +1 and the rule changes count.
 3. Templar's Ledger finds the buffer in DOSBox's memory and reads it every 50 ms.
    It works out what each roll was for from the code that asked for it, and
    reads the rest (names, weapons, spells, effects) from the game's own data.
@@ -498,19 +949,24 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    unless **Show unlabelled rolls** is ticked.
 
 Because the replacement produces identical numbers, the game plays exactly as
-it would without it.
+it would without it, apart from what you choose: the Ring +1 and the
+[rule changes](#rule-changes-helms-and-boots) on the Options tab.
 
 Limitations:
 - Only the GOG release (`DSUN.EXE` of 611,408 bytes) is supported. With
   another version the launcher starts the game without the dice log and says
   why.
-- Rolls made outside combat (for example treasure or random encounters) show
-  up only with **Show unlabelled rolls**, as raw numbers.
+- Outside combat, the thief skill, trap and ability checks and the character
+  creation rolls are labelled; other rolls there (for example treasure or
+  random encounters) show up only with **Show unlabelled rolls**, as raw
+  numbers.
 - A save-file load from the main menu is recognised, so the spells already
   active in it aren't reported as new. Loading a save of the same party in the
   middle of play isn't, and its effects may be listed as if just cast.
-- Dialogue speakers are portrait numbers until you name them (see above):
-  the game doesn't keep a name with the dialogue.
+- Dialogue speakers are portrait numbers until the log learns their names or
+  you name them (see above): the game doesn't keep a name with the dialogue.
+  A learned name is the creature the conversation was started on, so a scene
+  in which one face speaks for someone else would get that someone's name.
 - Weapon breaking was checked against the game's code, and the check's rolls
   were seen in play, but no weapon happened to break during testing; the
   game's own "is broken !" message is logged either way.
@@ -530,8 +986,9 @@ WCAG 2.0 level AA:
   **Ctrl 0** (back to normal), enlarge or shrink all text up to 2.5 times.
 - **Keyboard:** Tab and Shift+Tab move between controls, and the one with the
   keyboard focus is outlined in yellow. **Ctrl+Tab** switches tabs, as do
-  **Alt+L** (Dice log), **Alt+I** (Dialogue) and **Alt+M** (Memory tools),
-  and on the party side **Alt+C** (Characters) and **Alt+A** (All fields).
+  **Alt+L** (Dice log), **Alt+I** (Dialogue), **Alt+S** (Spells), **Alt+M**
+  (Memory tools) and **Alt+O** (Options), and on the party side **Alt+C** (Characters) and
+  **Alt+A** (All fields).
 - **The game's font** is only used for the title: it's a 9-pixel bitmap
   font, fine enlarged as a heading but harder to read than ordinary text,
   so everything else is in the system's fonts.
@@ -553,15 +1010,27 @@ The party pane has two tabs:
   each has left: `Blur (22 rounds)`, `Stoneskin (5 charges)`; from the game's own
   clock and timers). Then the character
   sheet: scores, sex, race and alignment, classes and levels, experience,
-  AC, THAC0, movement and attacks. AC is the one the game last used in a
-  fight, with the base AC beside it; before the first fight only the base AC
-  is known. Then what they wear and hold, by the game's own slot names ("Right
-  hand: Bone Long Sword", "Chest: Leather Chest Armor"; "Carried" for anything
-  not worn), with each item's material and plus. Last, for spellcasters, their
-  spell slots (see below), and for thieves their skills. Scroll
+  AC, THAC0 with each weapon ready (`THAC0: 15 with Wooden Club, 14 with
+  Wooden Bow (base 19)`), the saves as the d20 needed now (see
+  [In the game](#in-the-game-thac0-saves-and-thief-skills)), movement (and a
+  fight's, with boots: `Move: 12 (13 in a fight: boots)`) and attacks. AC is
+  the one the game last used in a fight, with the base AC beside it; before the
+  first fight only the base AC is known. Then what they wear and hold, by the
+  game's own slot names ("Right hand: Bone Long Sword", "Chest: Leather Chest
+  Armor"; "Carried" for anything in the backpack), with each item's material
+  and plus. Last, for spellcasters, their spell slots (see below), and for
+  thieves their skills. Scroll
   with the mouse wheel, or Tab to the cards and use the arrow and Page keys.
-- **All fields** (Alt+A): every field the layout maps, in a table, with the
-  spell slots as its last two rows.
+- **All fields** (Alt+A): every field the layout maps, in a table, with rows
+  of its own for the AC in a fight and what it's made of, THAC0 with each
+  weapon and the saves now, and at the end the spell slots, thief skills and
+  equipment.
+
+The other side has the **Dice log**, **Dialogue**, **Spells** and **Memory
+tools** tabs, and **Options** (Alt+O) with the Ledger's switches: what the
+dice log shows (unlabelled rolls, details), what it adds to the game (each
+turn's rolls, monster descriptions, the Ring +1) and the rule changes (helms,
+boots). The switches for the game are remembered for next time.
 
 **Spell slots.** `Priest spells left: 1st 5/5, 2nd 3/3, 3rd 2/2, 4th 1/1`
 means five first-level priest spells can still be cast out of five, and so
@@ -631,7 +1100,7 @@ parties, plus the in-game View Character screens.
 | creature | `+0x02` | s16 | Current PSP | ≤ max PSP everywhere |
 | creature | `+0x06` | u16 | Entity ID (`0x80nn` for the party) | same value in the sheet at `+0x10` |
 | creature | `+0x1a` | s8 | Base AC, before armour and DEX | 10 for humanoids, 5 for the thri-kreen; the AC the game shows is worked out from this |
-| creature | `+0x1b` | u8 | Movement | 12, 15 for the thri-kreen |
+| creature | `+0x1b` | u8 | Movement | 12, 15 for the thri-kreen; each round of a fight gives Move × 10 movement points |
 | creature | `+0x1f` | u8 | THAC0 | matches the AD&D warrior table at levels 3, 4, 7 and 8 |
 | creature | `+0x22` | u8 ×6 | STR DEX CON INT WIS CHA | same as the sheet |
 | creature | `+0x28` | str 18 | Name | |
@@ -658,6 +1127,30 @@ segment: `DS:0x1665` points to the creature table and `DS:0x1661` to the
 sheets (a creature's sheet number is its word at `+0x04`). The data segment
 starts with Borland's copyright string at `DS:0x0004`, which is how the viewer
 finds the party by itself (`dscompanion/game.py`).
+
+**Items.** A creature's items hang off its record at `+0x08`, `+0x0a` and
+`+0x0c`: each is an object number (the object table has a kind, 1 for an item
+and 2 for a creature, and an index), the first item of a list, whose own
+records then name the next. Items are 21-byte records (`DS:0x165D`), item
+types 20-byte ones (`DS:0x1669`, 115 of them, from GPLDATA.GFF):
+
+| Record | Offset | Field |
+|---|---|---|
+| item | `+0x04` | the next item in the list (9999: the end) |
+| item | `+0x08` | a container's contents (an object number), as in a Dead Body |
+| item | `+0x0a` | its type |
+| item | `+0x11` | where it's worn: 0-12 the game's slots (arm, ammo, missile, right hand, finger, waist, legs, head, neck, chest, left hand, cloak, foot), 13 and up a backpack cell |
+| item | `+0x12` | its name (an entry of the game's name table, 25 bytes each) |
+| item | `+0x14` | its plus |
+| type | `+0x04` | weight, in tenths of a pound |
+| type | `+0x08` | material in the low four bits (wood, bone, stone, obsidian, metal, leather); `0x80` spares a weapon the material's to-hit penalty |
+| type | `+0x0c`, `+0x0d`, `+0x0e` | damage dice: sides, count, bonus |
+| type | `+0x0f` | `0x80`: counts for AC |
+| type | `+0x12` | its AC (on top of the item's plus) |
+
+Free item records and free objects are kept in lists (`DS:0x4D76`,
+`DS:0x4D72`), which is how the Ledger adds [the Ring +1](#the-ring-1) as the
+game would.
 
 Also seen: per-region `RGnn` chunks hold a combined creature record, sheet and
 inventory for each character. Region *nn* uses `SAVE` chunks *nn*×60+1 and up
@@ -693,3 +1186,16 @@ block's host address with `--host-base`.
 ```
 python -m unittest discover -s tests
 ```
+
+`tests/test_dsclog.py` runs the helper's interrupt handlers in a CPU emulator
+when `unicorn` is installed (`pip install unicorn`), and is skipped otherwise.
+After changing `dos/dsclog.asm`, rebuild the helper with
+[NASM](https://www.nasm.us/):
+
+```
+nasm -f bin -o dos/DSCLOG.EXE dos/dsclog.asm
+```
+
+The header's signature (`DSCLOGvC` now) goes up whenever the helper and the
+Ledger must change together (`HDR_SIG` in `dscompanion/dicelog.py`), so a
+Ledger never talks to an older helper.

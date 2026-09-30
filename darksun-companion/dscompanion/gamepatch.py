@@ -10,7 +10,12 @@ instruction that DSCLOG.EXE answers (see dos/dsclog.asm):
   * the end of the AC calculation, where DSCLOG records the AC the game uses;
   * the start of the routine that feeds the dialogue window, where DSCLOG
     copies the text, the replies to choose from and the portrait shown;
-  * the start of the message box routine ("... is broken !", level ups).
+  * the start of the message box routine ("... is broken !", level ups);
+  * two places where the game adds up AC and saving throw modifiers, so that a worn
+    ring with a plus (the Ring +1 the companion can put in the arena) counts;
+  * the routine that lists a character's weapons, where DSCLOG adds each one's THAC0;
+  * the start of a turn in a fight, where DSCLOG can add a move for boots (a rule change
+    the companion turns on, like AC 1 for helms, which the AC place above gives).
 
 A last change lets the copy live outside the game folder: the game looks for
 its data files in the folder its EXE is in, and the copy looks in the current
@@ -26,7 +31,9 @@ from typing import NamedTuple
 
 GOG_SIZE = 611408  # DSUN.EXE of the GOG release (1.1)
 
-VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG = 0x60, 0x61, 0x62, 0x63, 0x64  # must match dsclog.asm
+VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR = range(0x60, 0x66)  # as in dsclog.asm
+VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT = 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7  # not 66h-6Fh: the game calls those itself, looking for drivers
+VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE = 0xF8, 0xF9, 0xFA, 0xFB
 
 
 class Patch(NamedTuple):
@@ -51,6 +58,43 @@ PATCHES = (
     Patch("text", 0x7CE83, bytes.fromhex("558bec"), _interrupt(VEC_TEXT, 3)),
     # the message box routine (far pointer to the message): push bp / mov bp,sp
     Patch("message", 0x5536E, bytes.fromhex("558bec"), _interrupt(VEC_MSG, 3)),
+    # the inventory screen's right-hand panel, just after its weapon lines: add sp,0Eh
+    # (DSCLOG then adds THAC0, the saves and thief skills, in the game's own lettering)
+    Patch("inventory", 0x6F6BF, bytes.fromhex("83c40e"), _interrupt(VEC_CHAR, 3)),
+    # the combat loop, straight after the call that may pass the turn on: add sp,4
+    # (DSCLOG then shows the companion's summary of the turn that ended, if it wants to)
+    Patch("turn", 0x1C953, bytes.fromhex("83c404"), _interrupt(VEC_TURN, 3)),
+    # the combat routine that call runs, once it has passed the turn on and before it plays a
+    # turn the computer runs (a monster's) whole: cmp word [bp-2],0 (DSCLOG checks the turn
+    # there too, so the turn before gets its own summary, then does the compare)
+    Patch("next", 0x5734F, bytes.fromhex("837efe00"), _interrupt(VEC_NEXT, 4)),
+    # the USE (cast spells) screen, after it labels its LEVEL button: add sp,0Ch
+    # (DSCLOG then draws the character's spell slots under the spells)
+    Patch("use", 0x70FBB, bytes.fromhex("83c40c"), _interrupt(VEC_USE, 3)),
+    # the View Character screen's upper panel, once drawn: push dword 000B0140h
+    # (DSCLOG then adds THAC0 and the saves under the item icons, and does the push)
+    Patch("view", 0x8A471, bytes.fromhex("666840010b00"), _interrupt(VEC_VIEW, 6)),
+    # the end of the routine that brings a window to the front and redraws it: xor ax,ax /
+    # pop si (for the USE screen's window, DSCLOG draws the spell slots again)
+    Patch("window", 0x2BBA9, bytes.fromhex("33c05e"), _interrupt(VEC_WIN, 3)),
+    # the Look box (a creature in a fight), once its first status rows are drawn: mov si,ax /
+    # xor di,di (DSCLOG then adds the monster's defences in the rows left, and does the moves)
+    Patch("look", 0x5FCDA, bytes.fromhex("8bf033ff"), _interrupt(VEC_LOOK, 4)),
+    # the end of the routine that closes the Look box: mov word [0844h],270Fh (DSCLOG does it,
+    # then shows the monster's whole description in the dialogue window)
+    Patch("unlook", 0x5F2AA, bytes.fromhex("c70644080f27"), _interrupt(VEC_UNLOOK, 6)),
+    # the AC function, as it reads a worn item's type flags: mov al,es:[bx+0Fh] / cbw (DSCLOG
+    # does it, marking rings as counting for AC, so a ring's plus betters AC)
+    Patch("ring_ac", 0x58EBD, bytes.fromhex("268a470f98"), _interrupt(VEC_RING_AC, 5)),
+    # the start of the saving throw's modifiers: xor si,si (DSCLOG starts SI, their sum, at
+    # the plus of the rings the one saving wears)
+    Patch("ring_save", 0x79D47, bytes.fromhex("33f6"), _interrupt(VEC_RING_SAVE, 2)),
+    # the routine that lists a creature's weapons (the inventory screen, the Look box), straight
+    # after drawing one: add sp,10h (DSCLOG does it, then adds that weapon's THAC0)
+    Patch("weapon", 0x7276E, bytes.fromhex("83c410"), _interrupt(VEC_WEAPON, 3)),
+    # where a creature's turn in a fight starts: mov es:[bx+22Bh],ax, its movement for the turn
+    # (DSCLOG does it, adding 1 move for boots when the companion's rule is on)
+    Patch("move", 0x57566, bytes.fromhex("2689872b02"), _interrupt(VEC_MOVE, 5)),
     # The data path is argv[0] cut after its last \ or :, kept at DS:4B81h. The
     # code that finds the cut becomes: path = ".\", then on to "mov byte [si],0"
     # which ends it. (Not an empty path: the save list needs a \ in it.)

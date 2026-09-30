@@ -2,10 +2,12 @@
 ;
 ; A tiny TSR that stays resident (load it high with LH) and holds a ring
 ; buffer plus a replacement for the game's Borland rand(). The companion runs a
-; patched copy of the game (DSUNLOG.EXE) whose rand() and two "probe" places
+; patched copy of the game (DSUNLOG.EXE) whose rand() and a few "probe" places
 ; start with INT instructions; this TSR answers those interrupts
-; (VEC_RAND, VEC_SAVE, VEC_AC) and the companion reads the ring buffer from
-; DOSBox's memory.
+; (VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG) and the companion reads the ring buffer
+; from DOSBox's memory. VEC_CHAR adds THAC0, the saving throws and thief skills to the
+; game's inventory screen. VEC_RING_AC and VEC_RING_SAVE make a ring with a plus (the
+; companion's Ring +1) better the AC and saving throws of whoever wears it.
 ;
 ; STUB produces exactly the numbers the original rand() would
 ; (seed = seed * 0x015A4E35 + 1, result = (seed >> 16) & 0x7FFF), so the game
@@ -25,6 +27,18 @@ VEC_SAVE equ 0x61     ; PROBE_SAVE
 VEC_AC   equ 0x62     ; PROBE_AC
 VEC_TEXT equ 0x63     ; PROBE_TEXT
 VEC_MSG  equ 0x64     ; PROBE_MSG
+VEC_CHAR equ 0x65     ; PROBE_CHAR
+VEC_TURN equ 0xF1     ; PROBE_TURN (not 66h-6Fh: the game calls those, looking for drivers)
+VEC_USE  equ 0xF2     ; PROBE_USE
+VEC_VIEW equ 0xF3     ; PROBE_VIEW
+VEC_WIN  equ 0xF4     ; PROBE_WIN
+VEC_LOOK equ 0xF5     ; PROBE_LOOK
+VEC_UNLOOK equ 0xF6   ; PROBE_UNLOOK
+VEC_NEXT equ 0xF7     ; PROBE_NEXT
+VEC_RING_AC equ 0xF8  ; PROBE_RING_AC
+VEC_RING_SAVE equ 0xF9  ; PROBE_RING_SAVE
+VEC_WEAPON equ 0xFA   ; PROBE_WEAPON
+VEC_MOVE   equ 0xFB   ; PROBE_MOVE
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -53,7 +67,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGv6'          ; +0
+sig      db 'DSCLOGvC'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -89,6 +103,30 @@ tbuf_off dw tbuf                ; +128 offset of the text buffer in this segment
 tsize    dw TSIZE               ; +130 its size (a power of two)
 probe_text_off dw probe_text    ; +132 offset of PROBE_TEXT in this segment
 probe_msg_off dw probe_msg      ; +134 offset of PROBE_MSG in this segment
+probe_char_off dw probe_char    ; +136 offset of PROBE_CHAR in this segment
+turn_seq  dw 0                  ; +138 turns that have ended in a fight (PROBE_TURN counts them)
+reply_seq dw 0                  ; +140 the companion sets this to TURN_SEQ once MSG_BUF is ready
+popups_on dw 0                  ; +142 the companion sets 1 to have turn summaries shown
+msg_off   dw msg_buf            ; +144 offset of MSG_BUF: the summary, NUL-terminated
+ended     dw 0                  ; +146 the combatant whose turn just ended
+slots_off dw slots_text         ; +148 offset of SLOTS_TEXT: 4 x SLOTS_SIZE bytes, one per party
+                                ;      member, lines separated by "|", NUL-terminated (the companion
+                                ;      keeps them up to date); PROBE_USE draws them
+look_seq   dw 0                 ; +150 monsters looked at in a fight (PROBE_LOOK counts them)
+look_reply dw 0                 ; +152 the companion sets this to LOOK_SEQ once LOOK_TEXT is ready
+look_who   dw 0                 ; +154 the combatant looked at
+look_off   dw look_text         ; +156 offset of LOOK_TEXT: up to 3 short lines for the Look box,
+                                ;      separated by "|", NUL-terminated
+look_full_off dw look_full      ; +158 offset of LOOK_FULL: the whole description, shown in the
+                                ;      dialogue window afterwards (empty: none)
+look_on    dw 0                 ; +160 the companion sets 1 to have monsters described
+stats_off  dw stats             ; +162 offset of STATS: for each party member, the THAC0 and
+                                ;      saves as they stand now (see STATS)
+stats_stamp dw 0                ; +164 the BIOS timer when the companion last wrote STATS: older
+                                ;      than STATS_FRESH, the screens show the game's own numbers
+stats_req  dw 0                 ; +166 counted up when a screen is about to show STATS ...
+stats_reply dw 0                ; +168 ... and set to it by the companion once STATS are up to date
+rules      dw 0                 ; +170 rule changes the companion turns on (RULE_HELMS, RULE_BOOTS)
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -454,6 +492,1109 @@ text_leave:                     ; record CL = kind, DS:SI = dword, DX = word, th
         push word [cs:t_ip]
         iret
 
+; PROBE_INV: INT VEC_CHAR replaces "add sp,0Eh" (3 bytes: INT + NOP) in the inventory
+; screen's routine for its right-hand panel, straight after the weapon lines (AX = how many
+; lines they took). Does the add, then adds in the game's own lettering: THAC0 and the five
+; saving throws above STR, and for a thief the eight skills in a column right of the
+; abilities (below the weapons, three of which reach the buttons, there'd be no room).
+; The routine's code holds the (relocated) far address of the game's text routine at a
+; fixed distance before the patch: it is read from there.
+IV_PATCH  equ 0x6F6BF           ; DSUN.EXE offsets
+IV_DRAW   equ 0x6F626           ; "lcall 0150h:016Dh" operand: the text routine
+IV_WHO    equ 0x6F634           ; "mov ax,0348h" operand: segment of the character number (+25Bh)
+THIEF_CLASS equ 17
+THIEF_TABLE equ 0x3FAA - 0x4356 ; the thief tables' segment, relative to DS
+probe_char:
+        pop word [cs:t_ip]
+        pop word [cs:t_cs]
+        pop word [cs:t_fl]
+        add sp, 0x0E            ; the replaced instruction
+        sti
+        pushad
+        push es
+        push fs
+        push gs
+        mov es, [cs:t_cs]
+        mov di, [cs:t_ip]
+        sub di, 2               ; ES:DI = the patch
+        mov eax, [es:di + IV_DRAW - IV_PATCH]
+        mov [cs:c_draw], eax
+        mov fs, [es:di + IV_WHO - IV_PATCH]
+        mov eax, [0x11A4]       ; the panel's window
+        mov [cs:c_winptr], eax
+        mov bx, [fs:0x25B]      ; the character on show
+        mov [cs:c_who], bx
+        imul ax, bx, 0x47
+        les si, [0x1661]
+        add si, ax              ; ES:SI = the character sheet
+        cmp word [es:si + 0x10], 0
+        je .done                ; an empty slot
+        imul bx, bx, 0x3A
+        lfs di, [0x1665]
+        add di, bx              ; FS:DI = the creature record
+        ; THAC0 and the saves
+        mov al, [fs:di + 0x1F]
+        mov bx, c_cells_top
+        call c_cells_saves
+        ; thief skills, for a character with thief levels
+        xor cx, cx
+        mov bx, 0x21
+.cls:   cmp byte [es:si + bx], THIEF_CLASS
+        je .thief
+        inc bx
+        inc cx
+        cmp cx, 3
+        jb .cls
+        jmp .done
+.thief: mov al, [es:si + bx + 3]  ; the thief level (levels follow the classes)
+        call c_thief
+.done:
+        pop gs
+        pop fs
+        pop es
+        popad
+        push word [cs:t_fl]
+        push word [cs:t_cs]
+        push word [cs:t_ip]
+        iret
+
+; PROBE_VIEW: INT VEC_VIEW replaces "push dword 000B0140h" (6 bytes: INT + 4 NOPs) near the
+; end of the View Character screen's routine for its upper panel, once the game has drawn
+; its own lines. Adds THAC0 and the saves under the item icons, then does the push.
+; The routine's code holds, at fixed distances before the patch, the (relocated) far address
+; of the text routine, the segment of the panel's window handle and the segment of the
+; selected character's number: they are read from there.
+CH_PATCH  equ 0x8A471           ; DSUN.EXE offsets
+CH_DRAW   equ 0x8A2C8           ; "lcall 0150h:016Dh" operand: the text routine
+CH_WIN    equ 0x8A2BD           ; "mov ax,0430h" operand: segment of the window's far pointer
+CH_WHO    equ 0x8A2D6           ; "mov ax,0348h" operand: segment of the character number (+25Bh)
+probe_view:
+        pop word [cs:t_ip]
+        pop word [cs:t_cs]
+        pop word [cs:t_fl]
+        sti
+        pushad
+        push es
+        push fs
+        mov es, [cs:t_cs]
+        mov di, [cs:t_ip]
+        sub di, 2               ; ES:DI = the patch
+        mov eax, [es:di + CH_DRAW - CH_PATCH]
+        mov [cs:c_draw], eax
+        mov fs, [es:di + CH_WIN - CH_PATCH]
+        mov eax, [fs:0]         ; the panel's window
+        mov [cs:c_winptr], eax
+        mov fs, [es:di + CH_WHO - CH_PATCH]
+        mov bx, [fs:0x25B]      ; the character on show
+        cmp bx, 3
+        ja .done
+        mov [cs:c_who], bx
+        imul ax, bx, 0x47
+        les si, [0x1661]
+        add si, ax              ; ES:SI = the character sheet
+        cmp word [es:si + 0x10], 0
+        je .done                ; an empty slot
+        imul bx, bx, 0x3A
+        lfs di, [0x1665]
+        mov al, [fs:di + bx + 0x1F]  ; THAC0
+        call c_load_stats       ; (or the companion's, as they stand now)
+        mov di, v_thac0 + 7
+        mov al, [cs:c_vals]
+        call c_itoa_s
+        mov di, v_saves1 + 5
+        mov al, [cs:c_vals + 1]
+        call v_two
+        mov al, [cs:c_vals + 2]
+        call v_two
+        mov al, [cs:c_vals + 3]
+        call v_two
+        mov di, v_saves2 + 5
+        mov al, [cs:c_vals + 4]
+        call v_two
+        mov al, [cs:c_vals + 5]
+        call v_two
+        push word 0x3A          ; under the item icons
+        push word 0xCD
+        push cs
+        push word v_thac0
+        call c_draw_line
+        push word 0x41
+        push word 0xCD
+        push cs
+        push word v_saves1
+        call c_draw_line
+        push word 0x48
+        push word 0xCD
+        push cs
+        push word v_saves2
+        call c_draw_line
+.done:  pop fs
+        pop es
+        popad
+        push dword 0x000B0140   ; the replaced instruction
+        push word [cs:t_fl]
+        push word [cs:t_cs]
+        push word [cs:t_ip]
+        iret
+
+v_two:                          ; AL (0-99) -> two digits (a space for a leading 0) and a space
+        push bx                 ; at CS:DI; DI moves on
+        xor ah, ah
+        mov bl, 10
+        div bl
+        add ax, '00'
+        cmp al, '0'
+        jne .tens
+        mov al, ' '
+.tens:  mov [cs:di], al
+        mov [cs:di + 1], ah
+        mov byte [cs:di + 2], ' '
+        add di, 3
+        pop bx
+        ret
+
+v_thac0  db 'THAC0: ', 0, 0, 0, 0
+v_saves1 db 'SAVE:00 00 00 ', 0
+v_saves2 db '     00 00 ', 0
+
+; THAC0 (AL) and the saves (sheet +37h..+3Bh at ES:SI), or the companion's numbers as they
+; stand now, as the cells at CS:BX say
+c_cells_saves:
+        call c_load_stats
+        mov byte [cs:c_signed], 1  ; (THAC0 can be below 0)
+        mov cx, 6
+        jmp c_cells
+
+; the eight thief skills of the character (sheet ES:SI, creature FS:DI, thief level AL):
+; base + 4 a level + the race's adjustment + DEX, from the game's tables (before armour,
+; as the Templar's Ledger shows them)
+c_thief:
+        push si
+        mov dl, al
+        shl dl, 2               ; 4 a level
+        mov ax, ds
+        add ax, THIEF_TABLE
+        mov gs, ax
+        mov dh, [fs:di + 0x23]  ; DEX
+        movzx di, byte [es:si + 0x18]  ; race
+        shl di, 3
+        add di, 8               ; +8 + race * 8
+        xor bx, bx
+.skill: movsx ax, byte [gs:bx]  ; base
+        movzx cx, dl
+        add ax, cx
+        movsx cx, byte [gs:bx + di]  ; race
+        add ax, cx
+        push dx                 ; DEX: -5 a point below LOW, +5 a point above HIGH, -3 above TOP
+        movzx dx, dh
+        movzx cx, byte [gs:bx + 0x90]
+        sub cx, dx
+        jle .nolow
+        imul cx, cx, 5
+        sub ax, cx
+.nolow: mov cx, dx
+        push dx
+        movzx dx, byte [gs:bx + 0x98]
+        sub cx, dx
+        pop dx
+        jle .nohigh
+        imul cx, cx, 5
+        add ax, cx
+.nohigh:
+        mov cx, dx
+        push dx
+        movzx dx, byte [gs:bx + 0xA0]
+        sub cx, dx
+        pop dx
+        jle .notop
+        imul cx, cx, 3
+        sub ax, cx
+.notop: pop dx
+        cmp ax, 0
+        jge .pos
+        xor ax, ax              ; below 0: shown as 0
+.pos:   cmp ax, 255
+        jbe .fits
+        mov ax, 255
+.fits:  mov [cs:c_vals + bx], al
+        inc bx
+        cmp bx, 8
+        jb .skill
+        pop si
+        mov al, [cs:c_vals + 5] ; only the five the game ever rolls: move silently, hide in
+        mov [cs:c_vals + 3], al ; shadows and read languages are never checked (the Templar's
+        mov al, [cs:c_vals + 6] ; Ledger's script decoder found no script asking for them)
+        mov [cs:c_vals + 4], al
+        mov bx, c_cells_thief
+        mov cx, 5
+        mov byte [cs:c_signed], 0
+        ; fall through
+
+; CX cells at CS:BX: each x, y, label offset, value's x (words); the values are C_VALS in
+; order. Keeps ES, SI, DI.
+c_cells:
+        push es
+        push si
+        push di
+        xor si, si
+.cell:  push cx
+        push bx
+        push word [cs:bx + 2]   ; y
+        push word [cs:bx]       ; x
+        push cs
+        push word [cs:bx + 4]   ; the label
+        call c_draw_line
+        pop bx
+        push bx
+        mov al, [cs:c_vals + si]
+        mov di, c_num
+        or si, si
+        jnz .unsigned
+        cmp byte [cs:c_signed], 0
+        je .unsigned
+        call c_itoa_s           ; the first cell of THAC0 and the saves
+        jmp .number
+.unsigned:
+        call c_itoa
+.number:
+        push word [cs:bx + 2]
+        push word [cs:bx + 6]   ; the value's x
+        push cs
+        push word c_num
+        call c_draw_line
+        pop bx
+        pop cx
+        add bx, 8
+        inc si
+        loop .cell
+        pop di
+        pop si
+        pop es
+        ret
+
+c_draw_line:                    ; stack: text far pointer, x, y (near return address first)
+        push bp
+        mov bp, sp
+        push dword [bp + 4]     ; the text, for the format's %s
+        push word [0x3270]      ; the colours, as the game sets them for its AC line
+        push word 0x14
+        push word [0x326E]
+        push dword 0x00FE00FF
+        push word 0
+        push ds
+        push word 0x0E11        ; the format: "%C%C%C%s"
+        push dword [bp + 8]     ; x, y
+        push dword [cs:c_winptr]  ; the window
+        call far [cs:c_draw]
+        add sp, 0x1C
+        pop bp
+        ret 8
+
+c_itoa:                         ; AL (unsigned) -> decimal at CS:DI, NUL-terminated; keeps BX, CX
+        push bx
+        push cx
+        xor ah, ah
+        mov bl, 10
+        xor cx, cx
+.div:   div bl
+        push ax                 ; AH = a digit
+        inc cx
+        xor ah, ah
+        or al, al
+        jnz .div
+.put:   pop ax
+        add ah, '0'
+        mov [cs:di], ah
+        inc di
+        loop .put
+        mov byte [cs:di], 0
+        pop cx
+        pop bx
+        ret
+
+; cells: x, y, label, value's x (window coordinates: the stats' labels are at x 0ECh, their
+; values at 104h, STR at y 35h, lines 7 apart)
+c_cells_top:
+        dw 0xEC, 0x10, l_thac0, 0x111
+        dw 0xEC, 0x17, l_ppd, 0x103,  0x113, 0x17, l_rsw, 0x12A
+        dw 0xEC, 0x1E, l_pp, 0x103,   0x113, 0x1E, l_bw, 0x12A
+        dw 0xEC, 0x25, l_sp, 0x103
+c_cells_thief:                  ; right of the abilities (whose values end by 10Eh), in the
+        dw 0x113, 0x35, l_pick, 0x12D  ; saves' second column, level with STR..WIS
+        dw 0x113, 0x3C, l_lock, 0x12D
+        dw 0x113, 0x43, l_trap, 0x12D
+        dw 0x113, 0x4A, l_hear, 0x12D
+        dw 0x113, 0x51, l_clmb, 0x12D
+l_thac0 db 'THAC0:', 0
+l_ppd   db 'PPD', 0
+l_rsw   db 'RSW', 0
+l_pp    db 'PP', 0
+l_bw    db 'BW', 0
+l_sp    db 'SP', 0
+l_pick  db 'PICK', 0
+l_lock  db 'LOCK', 0
+l_trap  db 'TRAP', 0
+l_hear  db 'HEAR', 0
+l_clmb  db 'CLMB', 0
+c_vals  times 8 db 0
+c_num   db 0, 0, 0, 0
+c_draw  dd 0
+c_winptr dd 0
+
+
+; PROBE_TURN: INT VEC_TURN replaces "add sp,4" (3 bytes: INT + NOP) in the game's combat
+; loop, straight after the call that runs combat and may pass the turn on (it is given the
+; address of DS:4979h, whose turn it is). When the turn has changed and the companion wants
+; summaries, note whose turn ended, wait a moment (at most TURN_WAIT timer ticks) for the
+; companion to put that turn's summary in MSG_BUF, and show it with the game's own message
+; window, as the game's scripts do for a narration: the emblem instead of a portrait, the
+; text, then "Continue" to click (the scripts' own "Press continue"), then CLOSE.
+; The dialogue window's routines are reached through the game's overlay stub for them,
+; whose segment is a fixed distance from the game's data segment.
+DLG_STUB  equ 0x42CA - 0x4356   ; the stub's segment (DSUN.EXE: 42CAh) less the data segment's
+DLG_FEED  equ 0x25              ; the window's input: (kind, far text, word), see the text buffer
+DLG_WAIT  equ 0x34              ; wait for a reply to be clicked
+S_PRESS   equ 0x15E8            ; DS: "Press continue"
+S_CONT    equ 0x15F7            ; DS: "Continue"
+S_CLOSE   equ 0x1F11            ; DS: "CLOSE"
+TURN_WAIT equ 7                 ; timer ticks (55 ms each)
+probe_turn:                     ; (re-entered while the window waits: all state on the stack)
+        push bp                 ; the replaced "add sp,4": move the interrupt frame (and BP)
+        mov bp, sp              ; up over the 4 bytes, so IRET returns with them gone
+        push ax
+        mov ax, [bp + 6]
+        mov [bp + 10], ax       ; flags
+        mov ax, [bp + 4]
+        mov [bp + 8], ax        ; CS
+        mov ax, [bp + 2]
+        mov [bp + 6], ax        ; IP
+        mov ax, [bp]
+        mov [bp + 4], ax        ; BP
+        pop ax
+        mov sp, bp
+        add sp, 4
+        pop bp
+        sti
+        pushad
+        push es
+        call turn_check
+        pop es
+        popad
+        iret
+
+; PROBE_NEXT: INT VEC_NEXT replaces "cmp word [bp-2],0" (4 bytes: INT + 2 NOPs) in the combat
+; routine PROBE_TURN's call runs, once it has passed the turn on (DS:4979h) and before it
+; plays the turn of a combatant the computer runs (a monster, or someone charmed). The game
+; plays such a turn whole before its loop reaches PROBE_TURN, so without this the monster's
+; rolls would join the summary of the turn before. Checks the turn as PROBE_TURN does, then
+; sets the flags as the compare would have.
+probe_next:
+        sti
+        pushad
+        push es
+        call turn_check
+        pop es
+        popad
+        cmp word [bp - 2], 0    ; the replaced compare (BP: the combat routine's frame)
+        pushf
+        push ax
+        push bx
+        mov bx, sp
+        mov ax, [ss:bx + 4]
+        mov [ss:bx + 10], ax    ; its flags, for IRET
+        pop bx
+        pop ax
+        add sp, 2
+        iret
+
+; whose turn it is (DS:4979h) has changed since last seen: count it, wait a moment for the
+; companion's summary of the turn that ended (MSG_BUF) and show it; DS = the game's
+turn_check:
+        cmp byte [cs:showing], 0
+        jne .out                ; a summary is up: leave the game's loop alone meanwhile
+        mov bx, [0x4979]        ; whose turn it is now
+        xchg bx, [cs:last_turn]
+        cmp bx, [cs:last_turn]
+        je .out                 ; the same as last time
+        cmp word [cs:popups_on], 0
+        je .out
+        mov [cs:ended], bx
+        inc word [cs:turn_seq]
+        xor ax, ax
+        mov es, ax
+        mov dx, [es:0x46C]      ; the BIOS timer
+.wait:  mov ax, [cs:reply_seq]
+        cmp ax, [cs:turn_seq]
+        je .ready
+        mov ax, [es:0x46C]
+        sub ax, dx
+        cmp ax, TURN_WAIT
+        jb .wait
+        jmp .out                ; no answer: the companion isn't reading
+.ready: cmp byte [cs:msg_buf], 0
+        je .out                 ; nothing to say about that turn
+        mov word [cs:show_text], msg_buf
+        call show_window
+.out:   ret
+
+; the text at CS:[SHOW_TEXT] in the game's dialogue window, with "Continue" to click;
+; DS = the game's
+show_window:
+        mov byte [cs:showing], 1
+        mov ax, ds
+        add ax, DLG_STUB
+        mov [cs:dlg + 2], ax
+        mov word [cs:dlg], DLG_FEED
+        xor bx, bx
+        push word 0             ; the emblem (portrait 0)
+        push bx
+        push bx
+        push word 1
+        call far [cs:dlg]
+        add sp, 8
+        push word 0             ; the text
+        push cs
+        push word [cs:show_text]
+        push word 2
+        call far [cs:dlg]
+        add sp, 8
+        push word 0             ; "Press continue": the replies' title, then the one reply
+        push ds
+        push word S_PRESS
+        push word 0
+        call far [cs:dlg]
+        add sp, 8
+        push word 0
+        push ds
+        push word S_CONT
+        push word 0
+        call far [cs:dlg]
+        add sp, 8
+        push word 0             ; show the reply
+        push dword 0
+        push word 3
+        call far [cs:dlg]
+        add sp, 8
+        mov word [cs:dlg], DLG_WAIT
+        call far [cs:dlg]       ; until it's clicked
+        mov word [cs:dlg], DLG_FEED
+        push word 0             ; and close the window
+        push ds
+        push word S_CLOSE
+        push word 2
+        call far [cs:dlg]
+        add sp, 8
+        mov byte [cs:showing], 0
+        ret
+
+show_text dw 0                  ; the text SHOW_WINDOW shows
+dlg     dd 0                    ; the dialogue window routine being called
+showing db 0                    ; 1 while PROBE_TURN has a summary up
+last_turn dw 0xFFFF
+
+; PROBE_USE: INT VEC_USE replaces "add sp,0Ch" (3 bytes: INT + NOP) in the USE (cast spells)
+; screen's routine that labels its LEVEL button, which runs whenever the screen is drawn
+; or the level changes. Draws the selected character's spell slots (SLOTS_TEXT, from the
+; companion) in the empty panel under the spells, with the game's own text routine.
+USE_TEXT_SEG equ 0x2B7A - 0x4356 ; the text routine's segment (DSUN.EXE: 2B7Ah) less DS's
+USE_TEXT_OFF equ 0x16D
+USE_WHO_SEG  equ 0x3931 - 0x4356 ; the selected character's number is at this segment:25Bh
+SLOTS_SIZE   equ 96
+MSG_SIZE     equ 900         ; the turn summary: the dialogue window keeps up to 1024 bytes
+probe_use:
+        push bp                 ; the replaced "add sp,0Ch": move the interrupt frame (and BP)
+        mov bp, sp              ; up over the 12 bytes
+        push ax
+        mov ax, [bp + 6]
+        mov [bp + 18], ax
+        mov ax, [bp + 4]
+        mov [bp + 16], ax
+        mov ax, [bp + 2]
+        mov [bp + 14], ax
+        mov ax, [bp]
+        mov [bp + 12], ax
+        pop ax
+        mov sp, bp
+        add sp, 12
+        pop bp
+        sti
+        pushad
+        push es
+        push fs
+        mov eax, [0x11A4]       ; the USE screen is up: PROBE_WIN may redraw on this window
+        mov [cs:use_win], eax
+        call use_draw
+        pop fs
+        pop es
+        popad
+        iret
+
+; PROBE_WIN: INT VEC_WIN replaces "xor ax,ax / pop si" (3 bytes: INT + NOP) at the end of the
+; game's routine that brings a window to the front and redraws it (its window far pointer the
+; argument, at the routine's BP+6), which repaints the USE screen's panels when a character or
+; spell level is picked, after the LEVEL button's label (where PROBE_USE draws). For the USE
+; screen's window, once PROBE_USE has drawn on it (not while the screen opens), the slots are
+; drawn again. Everything is kept on the stack: drawing may run the routine again.
+WIN_USE_SEG equ 0x40BC - 0x4356 ; the USE screen's window pointer is at this segment:0
+probe_win:
+        push bp
+        mov bp, sp              ; BP+2 the interrupt frame, BP+8 the routine's saved SI
+        sti
+        pushad
+        push es
+        push fs
+        mov di, [bp]            ; the routine's BP
+        mov eax, [ss:di + 6]    ; its window
+        or eax, eax
+        jz .done
+        cmp eax, [cs:use_win]
+        jne .done               ; not a USE screen PROBE_USE has drawn on
+        cmp eax, [0x11A4]
+        jne .done               ; not the window on show
+        mov bx, ds
+        add bx, WIN_USE_SEG
+        mov es, bx
+        cmp eax, [es:0]
+        jne .done               ; not the USE screen
+        call use_draw
+.done:  pop fs
+        pop es
+        popad
+        xor ax, ax              ; the replaced "xor ax,ax"
+        mov si, [bp + 8]        ; ... and "pop si": move the interrupt frame up over it
+        push dx
+        mov dx, [bp + 6]
+        mov [bp + 8], dx
+        mov dx, [bp + 4]
+        mov [bp + 6], dx
+        mov dx, [bp + 2]
+        mov [bp + 4], dx
+        pop dx
+        mov sp, bp
+        pop bp
+        add sp, 2
+        iret
+
+use_win dd 0                    ; the USE screen's window, as PROBE_USE last saw it
+
+use_draw:                       ; the selected character's slots in the USE screen's panel
+        mov ax, ds
+        add ax, USE_WHO_SEG
+        mov es, ax
+        mov bx, [es:0x25B]      ; the character on show
+        cmp bx, 3
+        ja .done
+        imul si, bx, SLOTS_SIZE
+        add si, slots_text
+        cmp byte [cs:si], 0
+        je .done                ; no spells
+        mov ax, ds
+        add ax, USE_TEXT_SEG
+        mov [cs:c_draw + 2], ax
+        mov word [cs:c_draw], USE_TEXT_OFF
+        mov eax, [0x11A4]       ; the screen's window
+        mov [cs:c_winptr], eax
+        mov dx, USE_FIRST_Y
+.line:  mov di, u_line          ; copy one line (up to "|" or the end) and draw it
+.copy:  mov al, [cs:si]
+        cmp al, '|'
+        je .cut
+        cmp al, 0
+        je .cut
+        mov [cs:di], al
+        inc si
+        inc di
+        cmp di, u_line + SLOTS_SIZE - 1
+        jb .copy
+.cut:   mov byte [cs:di], 0
+        push si
+        push dx
+        push dx                 ; y
+        push word USE_X         ; x
+        push cs
+        push word u_line
+        call c_draw_line
+        pop dx
+        pop si
+        add dx, USE_STEP
+        cmp byte [cs:si], '|'
+        jne .done
+        inc si
+        cmp dx, USE_LAST_Y
+        jbe .line
+.done:  ret
+; PROBE_LOOK: INT VEC_LOOK replaces "mov si,ax / xor di,di" (4 bytes: INT + 2 NOPs) in the
+; routine that fills the Look box (right-click to Look, then a monster in a fight), where the
+; first of its four status rows have been drawn and AX says how many. Asks the companion
+; for up to three short lines about the monster (LOOK_TEXT), prints them in the rows left
+; with the game's text routine, as the box prints the monster's level, and moves the game's
+; row count past them, so its own status lines follow in any row still free. If the
+; companion also gave the whole description (LOOK_FULL), PROBE_TURN shows it in the dialogue
+; window as the box closes (PROBE_UNLOOK).
+LOOK_PATCH equ 0x5FCDA          ; DSUN.EXE offsets
+LOOK_DRAW  equ 0x5FCB8          ; "lcall 0090h:0A40h" operand: the text routine
+LOOK_ROWS  equ 4                ; the box's status rows: y = (row + 2) * 7 + 10h
+probe_look:
+        sti
+        pushad
+        push es
+        mov si, sp              ; SS:SI: ES, then EDI, ESI, EBP, ESP, EBX, EDX, ECX, EAX, IP, CS, flags
+        mov ax, [ss:si + 30]
+        mov [cs:l_row], ax      ; the rows the game has used
+        cmp word [cs:look_on], 0
+        je .done
+        mov bx, [bp + 0xA]      ; the combatant (BP: the Look routine's frame)
+        mov [cs:look_who], bx
+        mov byte [cs:look_text], 0
+        mov byte [cs:look_full], 0
+        inc word [cs:look_seq]
+        xor ax, ax
+        mov es, ax
+        mov dx, [es:0x46C]      ; the BIOS timer
+.wait:  mov ax, [cs:look_reply]
+        cmp ax, [cs:look_seq]
+        je .ready
+        mov ax, [es:0x46C]
+        sub ax, dx
+        cmp ax, TURN_WAIT
+        jb .wait
+        jmp .done               ; no answer: the companion isn't reading
+.ready: mov es, [ss:si + 36]
+        mov di, [ss:si + 34]
+        sub di, 2               ; ES:DI = the patch
+        mov eax, [es:di + LOOK_DRAW - LOOK_PATCH]
+        mov [cs:l_draw], eax
+        mov eax, [bp + 6]       ; the box's window
+        mov [cs:l_win], eax
+        mov di, look_text
+.line:  cmp word [cs:l_row], LOOK_ROWS
+        jae .full
+        cmp byte [cs:di], 0
+        je .full
+        mov bx, l_line          ; the next line, up to "|", into L_LINE
+.copy:  mov al, [cs:di]
+        cmp al, '|'
+        je .cut
+        or al, al
+        je .cut
+        cmp bx, l_line + L_LINE_SIZE - 1
+        jae .skip
+        mov [cs:bx], al
+        inc bx
+.skip:  inc di
+        jmp .copy
+.cut:   mov byte [cs:bx], 0
+        cmp byte [cs:di], '|'
+        jne .draw
+        inc di
+.draw:  push di
+        mov ax, [cs:l_row]
+        add ax, 2
+        imul ax, ax, 7
+        add ax, 0x10
+        push word 0x11          ; as the box prints LEVEL
+        push word 0x1F
+        push ax                 ; y
+        push word 6             ; x
+        push cs
+        push word l_line
+        push dword [cs:l_win]
+        call far [cs:l_draw]
+        add sp, 16
+        pop di
+        inc word [cs:l_row]
+        jmp .line
+.full:  cmp byte [cs:look_full], 0
+        je .done
+        mov byte [cs:look_pending], 1
+.done:  mov si, sp              ; the replaced code: SI = the rows used, DI = 0
+        mov ax, [cs:l_row]
+        mov [ss:si + 6], ax
+        mov dword [ss:si + 2], 0
+        pop es
+        popad
+        iret
+
+; PROBE_UNLOOK: INT VEC_UNLOOK replaces "mov word [0844h],270Fh" (6 bytes: INT + 4 NOPs) at the
+; end of the routine that closes the Look box (the game forgets whom it was looking at). Does
+; that, then shows the monster's whole description (LOOK_FULL) in the dialogue window.
+probe_unlook:
+        mov word [0x844], 0x270F  ; the replaced instruction (DS = the game's)
+        sti
+        pushad
+        push es
+        cmp byte [cs:look_pending], 0
+        je .out
+        cmp byte [cs:showing], 0
+        jne .out
+        mov byte [cs:look_pending], 0
+        mov word [cs:show_text], look_full
+        call show_window
+.out:   pop es
+        popad
+        iret
+
+; STATS: STATS_SIZE bytes for each party member, kept by the companion: +0 1 if in use, +1 THAC0
+; with the main weapon (signed), +2 the five saves as the d20 needed now, +8 three words: the
+; item numbers of the weapons ready, +14 three bytes: the THAC0 with each (signed)
+STATS_SIZE  equ 20
+STATS_FRESH equ 91              ; timer ticks (5 seconds)
+STATS_WAIT  equ 9               ; ... (half a second): the longest a screen waits for fresh STATS
+stats   times 4 * STATS_SIZE db 0
+
+; A screen is being drawn: while the companion is keeping STATS, have it bring them up to date
+; (an item just put on, say) and wait for that, once for all the screen's lines (not again
+; within 2 timer ticks). The game stands still meanwhile, so its state is what's drawn.
+stats_sync:
+        push ax
+        push dx
+        push es
+        xor ax, ax
+        mov es, ax
+        mov dx, [es:0x46C]
+        mov ax, dx
+        sub ax, [cs:sync_at]
+        cmp ax, 2
+        jb .out                 ; this screen's already
+        mov ax, dx
+        sub ax, [cs:stats_stamp]
+        cmp ax, STATS_FRESH
+        jae .out                ; the companion isn't running
+        inc word [cs:stats_req]
+.wait:  mov ax, [cs:stats_reply]
+        cmp ax, [cs:stats_req]
+        je .done
+        mov ax, [es:0x46C]
+        sub ax, dx
+        cmp ax, STATS_WAIT
+        jb .wait
+.done:  mov ax, [es:0x46C]
+        mov [cs:sync_at], ax
+.out:   pop es
+        pop dx
+        pop ax
+        ret
+
+sync_at dw 0
+
+; BX = a party member (0-3): CF clear and CS:BX = their STATS entry if the companion keeps it
+; current, CF set if not
+stats_for:
+        cmp bx, 3
+        ja .no
+        push ax
+        push es
+        xor ax, ax
+        mov es, ax
+        mov ax, [es:0x46C]
+        sub ax, [cs:stats_stamp]
+        cmp ax, STATS_FRESH
+        pop es
+        pop ax
+        jae .no
+        imul bx, bx, STATS_SIZE
+        add bx, stats
+        cmp byte [cs:bx], 0
+        je .no
+        clc
+        ret
+.no:    stc
+        ret
+
+; THAC0 (AL) and the saves (sheet +37h..+3Bh at ES:SI) into C_VALS, or the companion's numbers
+; for the character in C_WHO instead. Keeps ES, SI, DI.
+c_load_stats:
+        push bx
+        mov [cs:c_vals], al
+        mov eax, [es:si + 0x37]
+        mov [cs:c_vals + 1], eax
+        mov al, [es:si + 0x3B]
+        mov [cs:c_vals + 5], al
+        mov bx, [cs:c_who]
+        call stats_sync
+        call stats_for
+        jc .own
+        mov al, [cs:bx + 1]
+        mov [cs:c_vals], al
+        mov eax, [cs:bx + 2]
+        mov [cs:c_vals + 1], eax
+        mov al, [cs:bx + 6]
+        mov [cs:c_vals + 5], al
+.own:   pop bx
+        ret
+
+c_itoa_s:                       ; AL (signed) -> decimal at CS:DI, with "-" below 0; keeps BX, CX
+        test al, al
+        jns c_itoa
+        mov byte [cs:di], '-'
+        inc di
+        neg al
+        jmp c_itoa
+
+; PROBE_WEAPON: INT VEC_WEAPON replaces "add sp,10h" (3 bytes: INT + NOP) straight after the
+; routine that lists a creature's weapons (on the inventory screen, and in the Look box) has
+; drawn one: its name, then its damage, AX lines from y = [BP+0Eh]. Does the add, then puts
+; the THAC0 the companion worked out for that weapon at the right of its last line.
+W_PATCH equ 0x7276E             ; DSUN.EXE offsets
+W_DRAW  equ 0x72851             ; "lcall 0090h:0A40h" operand: the routine that draws the lines
+W_X     equ 0x12A               ; (window coordinates: the lines start at 0ECh)
+probe_weapon:
+        pop word [cs:w_ip]
+        pop word [cs:w_cs]
+        pop word [cs:w_fl]
+        add sp, 0x10            ; the replaced instruction
+        sti
+        pushad
+        push es
+        or ax, ax
+        jz .done
+        mov [cs:w_lines], ax
+        mov bx, [bp + 0x0A]     ; the creature (its object number: the party's are 0-3)
+        cmp bx, 3
+        ja .done
+        call stats_sync
+        call stats_for
+        jc .done
+        mov si, [bp - 2]        ; the entry of the item list the weapon came from
+        imul si, si, 10
+        mov dx, [bp + si - 0x330]  ; its item number
+        xor cx, cx
+.find:  mov di, cx
+        shl di, 1
+        cmp [cs:bx + di + 8], dx
+        je .found
+        inc cx
+        cmp cx, 3
+        jb .find
+        jmp .done
+.found: mov di, cx
+        mov al, [cs:bx + di + 14]
+        mov di, w_text + 1
+        call c_itoa_s
+        mov es, [cs:w_cs]
+        mov di, [cs:w_ip]
+        mov eax, [es:di + W_DRAW - W_PATCH - 2]
+        mov [cs:w_draw], eax
+        mov ax, [cs:w_lines]
+        dec ax
+        imul ax, ax, 7
+        add ax, [bp + 0x0E]     ; the weapon's last line
+        push word [bp + 0x12]   ; the colours, as the routine draws its lines
+        push word [bp + 0x10]
+        push ax
+        push word W_X
+        push cs
+        push word w_text
+        push dword [bp + 6]     ; the window
+        call far [cs:w_draw]
+        add sp, 0x10
+.done:  pop es
+        popad
+        push word [cs:w_fl]
+        push word [cs:w_cs]
+        push word [cs:w_ip]
+        iret
+
+w_ip    dw 0
+w_cs    dw 0
+w_fl    dw 0
+w_lines dw 0
+w_draw  dd 0
+w_text  db 'T', 0, 0, 0, 0
+c_who   dw 0
+c_signed db 0
+
+; RINGS: the game has rings (item type RING_TYPE, a plain "Ring") but nothing that makes
+; one better AC or saves. The companion can put a Ring +1 in the arena; these two make its
+; plus count, as a ring of protection's would.
+RING_TYPE  equ 102
+HELM_LEATHER equ 5              ; the helm item types: Helm, Dapartea's Helm; Helm of
+HELM_METAL   equ 89             ; Contemplation; and a leather one no object uses (Helm of
+HELM_OTHER   equ 109            ; Might, made by a script)
+FINGER     equ 4                ; the item's slot byte while worn on a finger
+THINGS     equ 0xC36            ; the things table (3 bytes each: kind, index) in its segment
+NO_THING   equ 0x270F
+CREATURES  equ 0x1665           ; DS: far pointer to the creature records (3Ah bytes each)
+ITEMS      equ 0x165D           ; DS: far pointer to the item records (15h bytes each)
+
+; PROBE_RING_AC: INT VEC_RING_AC replaces "mov al,es:[bx+0Fh] / cbw" (5 bytes: INT + 3 NOPs)
+; in the AC function, where ES:BX is a worn item's type and CX its number; bit 80h of AX
+; says the type counts for AC (the plus less the type's AC). Does that, counting rings too.
+probe_ring_ac:
+        mov al, [es:bx+0x0F]
+        cbw
+        cmp cx, RING_TYPE
+        jne .helm
+        or al, 0x80
+        iret
+.helm:  cmp cx, HELM_LEATHER    ; a helm: AC 1 with RULE_HELMS (the game's are all 0), 0 without
+        je .is
+        cmp cx, HELM_METAL
+        je .is
+        cmp cx, HELM_OTHER
+        je .is
+        iret
+.is:    push ax
+        xor al, al
+        test byte [cs:rules], RULE_HELMS
+        jz .set
+        inc al
+.set:   mov [es:bx+0x12], al    ; (the type's AC, read next)
+        pop ax
+        iret
+
+; PROBE_RING_SAVE: INT VEC_RING_SAVE replaces "xor si,si" (2 bytes) at the start of the
+; function that adds up a saving throw's modifiers into SI, DI being the one saving. Starts
+; SI at the plus of the rings they wear instead of 0.
+probe_ring_save:
+        push bp
+        mov bp, sp              ; SS:BP+2 = our return address
+        push ax
+        push bx
+        push cx
+        push dx
+        push es
+        xor si, si
+        les bx, [bp+2]
+        mov ax, [es:bx+6]       ; the things table's segment: the code after the patch is
+        call ring_plus          ; "mov bx,di / imul bx,bx,3 / mov ax,<segment>"
+        pop es
+        pop dx
+        pop cx
+        pop bx
+        pop ax
+        pop bp
+        iret
+
+ring_plus:                      ; DS = the game's, AX = the things table's segment, DI = a
+        mov [cs:r_things], ax   ; creature's thing: SI += the pluses of the rings it wears
+        mov es, ax
+        mov bx, di
+        imul bx, bx, 3
+        cmp byte [es:bx+THINGS], 2
+        jne .done               ; not a creature
+        mov ax, [es:bx+THINGS+1]
+        mov word [cs:ws_slot], FINGER
+        mov word [cs:ws_type], RING_TYPE
+        call worn_scan
+        add si, [cs:ws_plus]
+.done:  ret
+
+; The items creature AX (DS = the game's, R_THINGS the things table's segment) wears in slot
+; WS_SLOT, of type WS_TYPE (0FFFFh: any): WS_COUNT of them, their positive pluses adding up to
+; WS_PLUS. Keeps SI, DI, BP.
+worn_scan:
+        push cx
+        imul ax, ax, 0x3A
+        mov [cs:r_creature], ax
+        mov word [cs:ws_count], 0
+        mov word [cs:ws_plus], 0
+        mov cx, 8               ; its item lists, each a thing: +8, +0Ah, +0Ch
+.list:  les bx, [CREATURES]
+        add bx, [cs:r_creature]
+        add bx, cx
+        mov dx, [es:bx]
+        cmp dx, NO_THING
+        jae .next
+        mov es, [cs:r_things]
+        mov bx, dx
+        imul bx, bx, 3
+        cmp byte [es:bx+THINGS], 1
+        jne .next               ; not an item
+        mov dx, [es:bx+THINGS+1]
+        mov byte [cs:r_left], 100
+.item:  cmp dx, NO_THING
+        jae .next
+        les bx, [ITEMS]
+        mov ax, dx
+        imul ax, ax, 0x15
+        add bx, ax
+        mov al, [es:bx+0x11]
+        cmp al, [cs:ws_slot]
+        jne .on
+        mov ax, [cs:ws_type]
+        cmp ax, 0xFFFF
+        je .match
+        cmp [es:bx+0x0A], ax
+        jne .on
+.match: inc word [cs:ws_count]
+        mov al, [es:bx+0x14]    ; the plus
+        cbw
+        or ax, ax
+        jle .on
+        add [cs:ws_plus], ax
+.on:    mov dx, [es:bx+4]       ; the next item in the list
+        dec byte [cs:r_left]
+        jnz .item
+.next:  add cx, 2
+        cmp cx, 0x0E
+        jb .list
+        pop cx
+        ret
+
+r_things   dw 0
+r_creature dw 0
+r_left     db 0
+ws_slot    dw 0
+ws_type    dw 0
+ws_count   dw 0
+ws_plus    dw 0
+
+; RULES (set by the companion, from its Options): a helm counts AC 1, boots add 1 to movement
+; in a fight
+RULE_HELMS equ 1
+RULE_BOOTS equ 2
+FOOT       equ 12               ; the item's slot byte while worn on the feet
+THINGS_SEG equ 0x3972 - 0x4356  ; the things table's segment, relative to DS
+
+; PROBE_MOVE: INT VEC_MOVE replaces "mov es:[bx+22Bh],ax" (5 bytes: INT + 3 NOPs) where a
+; creature's turn in a fight starts: AX = its movement for the turn (its Move x 10), SI the
+; creature. Does the move, with 10 more for boots on its feet when RULE_BOOTS is on.
+probe_move:
+        test byte [cs:rules], RULE_BOOTS
+        jz .store
+        push ax
+        push bx
+        push cx
+        push dx
+        push es
+        mov ax, ds
+        add ax, THINGS_SEG
+        mov [cs:r_things], ax
+        mov ax, si
+        mov word [cs:ws_slot], FOOT
+        mov word [cs:ws_type], 0xFFFF
+        call worn_scan
+        pop es
+        pop dx
+        pop cx
+        pop bx
+        pop ax
+        cmp word [cs:ws_count], 0
+        je .store
+        add ax, 10
+.store: mov [es:bx+0x22B], ax
+        iret
+
+L_LINE_SIZE equ 24
+LOOK_SIZE   equ 80
+LOOK_FULL_SIZE equ 700
+l_row   dw 0
+l_draw  dd 0
+l_win   dd 0
+l_line  times L_LINE_SIZE db 0
+look_pending db 0
+look_text times LOOK_SIZE db 0
+look_full times LOOK_FULL_SIZE db 0
+
+USE_X      equ 0x96             ; the panel under the spells (window coordinates): its top,
+USE_FIRST_Y equ 0x6C            ; three lines above where the icons of usable items (fruit,
+USE_STEP   equ 7                ; wands...) go, along the panel's bottom from 0x81
+USE_LAST_Y equ 0x7A
+u_line  times SLOTS_SIZE db 0
+slots_text times 4 * SLOTS_SIZE db 0
+msg_buf times MSG_SIZE db 0
+
 tput:                           ; AL -> text buffer at position BX
         push bx
         and bx, TSIZE - 1
@@ -484,8 +1625,8 @@ install:                        ; DS = ES = PSP, CS = the image
         mov [cs:psp], es
         push cs
         pop ds
-        mov si, vectors         ; the vectors must be free
-        mov cx, 5
+        mov si, all_vectors     ; the vectors must be free
+        mov cx, 17
 .check:
         lodsb
         mov ah, 35h
@@ -516,6 +1657,42 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_MSG
         mov dx, probe_msg
         int 21h
+        mov ax, 2500h + VEC_CHAR
+        mov dx, probe_char
+        int 21h
+        mov ax, 2500h + VEC_TURN
+        mov dx, probe_turn
+        int 21h
+        mov ax, 2500h + VEC_USE
+        mov dx, probe_use
+        int 21h
+        mov ax, 2500h + VEC_VIEW
+        mov dx, probe_view
+        int 21h
+        mov ax, 2500h + VEC_WIN
+        mov dx, probe_win
+        int 21h
+        mov ax, 2500h + VEC_LOOK
+        mov dx, probe_look
+        int 21h
+        mov ax, 2500h + VEC_UNLOOK
+        mov dx, probe_unlook
+        int 21h
+        mov ax, 2500h + VEC_NEXT
+        mov dx, probe_next
+        int 21h
+        mov ax, 2500h + VEC_RING_AC
+        mov dx, probe_ring_ac
+        int 21h
+        mov ax, 2500h + VEC_RING_SAVE
+        mov dx, probe_ring_save
+        int 21h
+        mov ax, 2500h + VEC_WEAPON
+        mov dx, probe_weapon
+        int 21h
+        mov ax, 2500h + VEC_MOVE
+        mov dx, probe_move
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -531,7 +1708,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-64h are in use (already loaded?). Not loaded.', 13, 10, '$'
+busy    db 'DSCLOG: interrupts 60h-65h or F1h-FBh are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE
 
         align 16, db 0
 image_len equ $ - $$

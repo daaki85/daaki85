@@ -23,14 +23,32 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
-from . import game
+from . import game, monsters, ring
 from .game import (CONVENTIONAL_AND_UPPER, CREATURE_ABILITIES, CREATURE_SIDE, CREATURE_THAC0, EFFECT_NAMES,
                    EFFECT_RULES, MATERIAL_TO_HIT, MATERIALS, SAVE_NAMES, STR_DAMAGE, GameData)
 from .guestmem import GuestMemory
-from .textlog import KIND_MESSAGE, Dialogue, DialogueEntry, TextBuffer
+from .textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGv6"
+HDR_SIG = b"DSCLOGvC"
+# DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
+TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
+MSG_SIZE = 900
+# the roll an attack needs and the chance of it, in the log's attack line (left out in the game)
+TO_HIT_CHANCE = re.compile(r", (?:needs \d+\+|hits on anything but a 1|only a 20 hits) \(\d+%\)"
+                           r"| \(\d+% to save\)")  # ... and a save's chance (its "needs 12" stays)
+# ... and the party's spell slots, for the game's USE screen (PROBE_USE)
+TSR_SLOTS_OFF, SLOTS_SIZE = 148, 96
+SLOTS_LINES = 3  # lines of spell slots the USE screen has room for
+# ... and what the Look box says about a monster (PROBE_LOOK)
+TSR_LOOK_SEQ, TSR_LOOK_REPLY, TSR_LOOK_WHO, TSR_LOOK_OFF, TSR_LOOK_FULL_OFF, TSR_LOOK_ON = 150, 152, 154, 156, 158, 160
+LOOK_SIZE, LOOK_FULL_SIZE = 80, 700
+# ... and the party's THAC0 and saves as they stand now, for the game's screens (see STATS)
+TSR_STATS_OFF, TSR_STATS_STAMP, TSR_STATS_REQ, TSR_STATS_REPLY, STATS_SIZE = 162, 164, 166, 168, 20
+BIOS_TIMER = 0x46C
+# ... and the rule changes it makes to the game (the Options tab)
+TSR_RULES, RULE_HELMS, RULE_BOOTS = 170, 1, 2
+SLOT_KINDS = {"Wizard": "WIZ", "Priest": "PRI"}
 RAND_PATCHED = b"\xcd\x60"  # INT 60h at the start of rand() in DSUNLOG.EXE
 RAND_IP = 0x822  # rand()'s offset in the game's first code segment
 SEED = 0x4122  # DS offset of rand()'s 32-bit seed
@@ -129,6 +147,7 @@ KIND_ROLL, KIND_SAVE, KIND_AC = 0, 1, 2
 THIEF = 17  # class number
 
 EFFECT_INTERVAL = 0.25  # seconds between looks at the active effects
+RING_INTERVAL = 3.0  # seconds between looks for the arena's Ring +1
 LOAD_SETTLE = 3.0  # seconds after the party changes (a game was loaded) when effects are not news
 PENDING_SECONDS = 1.0  # how long dice wait to learn which spell they belong to
 SPELL_WINDOW = 15.0  # seconds after a spell's roll in which HP changes are put down to the spell
@@ -252,7 +271,7 @@ class AcDetail(NamedTuple):
     base: int  # from the character sheet
     armour: int  # armour and shields (and spells that stand in for armour)
     dex: int
-    other: int  # spells and the rest
+    other: int  # spells, rings and the rest
     total: int
 
 
@@ -273,8 +292,28 @@ class DiceLog:
         self._psp: Dict[int, int] = {}  # party member -> PSP when last looked at
         self._last_damage: Optional[Tuple[int, int]] = None  # (spell, damage) last rolled
         self._turn: Optional[int] = None  # whose turn it was when last looked at
+        self.round_order: List[Tuple[Optional[int], str, int]] = []  # this round: (combatant, name, score)
+        self.round_number = 0
+        self._acted: set = set()  # combatants whose turn has come this round
         self._reply: Optional[Tuple[int, str]] = None  # the reply being flashed when last looked at
         self.speaker_names: Dict[int, str] = {}  # portrait -> the name the player gave it
+        self.learned_speakers: Dict[int, str] = {}  # portrait -> the name worked out from conversations
+        self._new_speakers: Dict[int, str] = {}  # learned since take_speakers()
+        self._talk: Optional[dict] = None  # the conversation on screen: its portraits and who it's with
+        self.popups = False  # in-game turn summaries (set_popups)
+        self.popup_detail = True  # ... with the dice log's lines, or in short
+        self.monster_info = True  # monsters' defences in the game's Look box (set_monster_info)
+        self.arena_ring = True  # put the Ring +1 on the dead prisoner in the arena (ring.py)
+        self.rules = 0  # RULE_HELMS | RULE_BOOTS: rule changes DSCLOG makes (set_rules)
+        self._ring_check = 0.0
+        self._look_seq = 0
+        self._turn_seq = 0
+        self._turn_attacks: Dict[int, List[dict]] = {}  # creature -> this turn's attacks
+        self._turn_log: List[str] = []  # this turn's rolls as the log has them (attacks, spells, saves)
+        self._slots_written = b""
+        self._stats_written = b""
+        self._own_text: set = set()  # summaries shown in the game's window, not to log as dialogue
+        self._skip_choice = False
         self._hits: Dict[int, int] = {}  # creature -> damage of weapon hits not yet seen in its HP
         self._round, self._round_time = 0, None  # this fight's round, and the game time it began
         self._save_rolls: Dict[Tuple[int, int], int] = {}  # (SS, save frame BP) -> natural d20
@@ -308,7 +347,7 @@ class DiceLog:
         low = self.guest.read(0, CONVENTIONAL_AND_UPPER)
         hdr = next((m.start() for m in re.finditer(re.escape(HDR_SIG), low) if m.start() % 16 == 0), None)
         if hdr is None:
-            if re.search(rb"DSCLOGv\d", low):
+            if re.search(rb"DSCLOGv[0-9A-Z]", low):
                 raise DiceLogError("An older DSCLOG is loaded. Restart the game with 'Start Game with Dice Log.bat'.")
             raise DiceLogError("DSCLOG is not loaded. Start the game with 'Start Game with Dice Log.bat'.")
         ds = game.find_data_segment(self.guest, low)
@@ -324,6 +363,11 @@ class DiceLog:
         self.tracker = PartyTracker(self.game)
         self.text = TextBuffer(self.guest.read, hdr)
         self.set_record_everything(self.record_everything)
+        self.set_popups(self.popups)
+        self.set_monster_info(self.monster_info)
+        self.set_rules(self.rules)
+        self._turn_seq = struct.unpack("<H", self.guest.read(hdr + TSR_TURN_SEQ, 2))[0]
+        self._look_seq = struct.unpack("<H", self.guest.read(hdr + TSR_LOOK_SEQ, 2))[0]
         self.last_seq = struct.unpack("<H", self.guest.read(hdr + 8, 2))[0]
         self._effects = None
         return "Dice log attached."
@@ -335,6 +379,240 @@ class DiceLog:
             filters = () if record_everything else FILTERS
             packed = b"".join(bytes([len(f)]) + f.ljust(8, b"\0") for f in filters)
             self.guest.write(self.tsr_hdr + 32, struct.pack("<H", len(filters)) + packed)
+
+    def set_popups(self, on: bool) -> None:
+        """Have the game show, when a turn in a fight ends, a summary of that turn's attacks."""
+        self.popups = on
+        if self.tsr_hdr is not None:
+            self.guest.write(self.tsr_hdr + TSR_POPUPS, struct.pack("<H", int(on)))
+
+    def set_monster_info(self, on: bool) -> None:
+        """Have the game's Look box (in a fight) say what hurts a monster, and then show all of it."""
+        self.monster_info = on
+        if self.tsr_hdr is not None:
+            self.guest.write(self.tsr_hdr + TSR_LOOK_ON, struct.pack("<H", int(on)))
+
+    def use_settings(self, settings: dict) -> None:
+        """The Options tab's switches for the game, as saved (for the logs without a window)."""
+        self.popups = bool(settings.get("turn_popups", True))
+        self.popup_detail = bool(settings.get("turn_popups_detail", True))
+        self.monster_info = bool(settings.get("monster_info", True))
+        self.arena_ring = bool(settings.get("arena_ring", True))
+        self.rules = (RULE_HELMS if settings.get("helm_ac", True) else 0) | \
+            (RULE_BOOTS if settings.get("boots_move", True) else 0)
+
+    def set_rules(self, rules: int) -> None:
+        """Turn the rule changes on or off: helms count AC 1, boots add a move in a fight."""
+        self.rules = rules
+        if self.tsr_hdr is not None:
+            self.guest.write(self.tsr_hdr + TSR_RULES, struct.pack("<H", rules))
+
+    def _answer_look(self) -> List[str]:
+        """DSCLOG asks about a creature the player looks at in a fight: give the Look box its
+        short lines and the whole description, and log it."""
+        if self.tsr_hdr is None:
+            return []
+        seq = struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_LOOK_SEQ, 2))[0]
+        if seq == self._look_seq:
+            return []
+        self._look_seq = seq
+        who = struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_LOOK_WHO, 2))[0]
+        short: List[str] = []
+        full: List[str] = []
+        index = self.game.combatant_creature(who)
+        if index is not None and index >= game.PARTY_SIZE:
+            try:
+                tables = monsters.MonsterTables(self.guest.read, self.game.load_seg)
+                short, full = monsters.monster_lines(self.game, tables, index, self.last_ac.get(index))
+            except (struct.error, IndexError, ValueError):
+                short, full = [], []
+        base = self.tsr_hdr - struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_HDR_OFF, 2))[0]
+        text = "|".join(short).encode("cp437", "replace")[:LOOK_SIZE - 1]
+        # the window only when there's more to say than the box's HP, AC and THAC0
+        whole = " ".join(full).replace("%", " pct").encode("cp437", "replace")[:LOOK_FULL_SIZE - 1] \
+            if len(full) > 1 else b""
+        if whole:
+            self._own_text.add(whole.decode("cp437"))  # not dialogue
+        self.guest.write(base + struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_LOOK_OFF, 2))[0], text + b"\0")
+        self.guest.write(base + struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_LOOK_FULL_OFF, 2))[0],
+                         whole + b"\0")
+        self.guest.write(self.tsr_hdr + TSR_LOOK_REPLY, struct.pack("<H", seq))
+        return [f"Look: {full[0]}"] + [f"    {line}" for line in full[1:]] if full else []
+
+    def _note_turn(self, lines: List[str]) -> None:
+        """Keep the turn's rolls for the game's summary: everything the log says about them
+        (attacks, damage, spells, saving throws), not the round's order or unlabelled dice."""
+        skip = False
+        for line in lines:
+            if not line.startswith(" "):
+                skip = line.startswith(("Round ", "Initiative", "Dice:", "Message:"))
+            if not skip:
+                self._turn_log.append(line)
+
+    @staticmethod
+    def _for_game(line: str) -> str:
+        """A log line as the game's window shows it: without an attack's roll needed and chance
+        ("needs 8+ (65%)", as the AC the roll hits and the target's AC say it) or a save's chance."""
+        return TO_HIT_CHANCE.sub("", line.strip())
+
+    def turn_summary(self, combatant: int, detail: bool = True) -> str:
+        """What happened during that combatant's turn, for the game's window. In detail, the dice
+        log's lines for it, a line each: attacks (the roll, the THAC0 worked out, the damage
+        dice), spells' damage and saving throws; otherwise in short, the attacks as
+        "Daaki attacks Guard: 18 vs 8+ HIT, 13 damage; 5 vs 8+ miss" and the spells' first lines."""
+        own = self.game.combatant_creature(combatant)
+        order = sorted(self._turn_attacks, key=lambda c: c != own)  # stable: the rest in order of attacking
+        if detail:
+            text = "\n".join(self._for_game(line) for line in self._turn_log)
+        else:
+            parts = []
+            for creature in order:
+                target = None
+                for a in self._turn_attacks[creature]:
+                    roll = f"{a['d20']} vs {min(max(a['need'], 2), 20)}+"
+                    roll += (f" HIT, {a['damage']} damage" if a["damage"] is not None else " HIT") if a["hit"] else " miss"
+                    if a["target"] != target:
+                        target = a["target"]
+                        parts.append(f"{self.game.creature_name(creature)} attacks {target}: {roll}")
+                    else:
+                        parts[-1] += f"; {roll}"
+            parts += [self._for_game(line) for line in self._turn_log
+                      if not line.startswith(" ") and " attacks " not in line]  # spells, saves
+            text = ". ".join(parts)
+        if len(text) > MSG_SIZE - 1:  # what the game's window can take
+            text = text[:MSG_SIZE - 4].rsplit(" ", 1)[0] + "..."
+        return text
+
+    def slots_lines(self, member: int) -> str:
+        """A party member's spell slots for the game's USE screen, "|" between lines:
+        "SPELLS LEFT BY LEVEL|WIZ 2/2 1/1|PRI 5/5 3/3 2/2 1/1" (six levels a line). The
+        screen has room for SLOTS_LINES lines above the icons of any usable items, so the
+        heading goes when the slots need them all, and anything past them is cut."""
+        lines = []
+        for kind, levels in self.game.spell_slots(member):
+            top = max(level for level, _, _ in levels)
+            by_level = {level: (left, most) for level, left, most in levels}
+            cells = [f"{by_level.get(n, (0, 0))[0]}/{by_level.get(n, (0, 0))[1]}" for n in range(1, top + 1)]
+            for i in range(0, len(cells), 6):
+                lines.append(("    " if i else f"{SLOT_KINDS.get(kind, kind[:3].upper())} ") + " ".join(cells[i:i + 6]))
+        if lines and len(lines) < SLOTS_LINES:
+            lines.insert(0, "SPELLS LEFT BY LEVEL")
+        return "|".join(lines[:SLOTS_LINES])
+
+    def _write_slots(self) -> None:
+        """Keep DSCLOG's copy of the party's spell slots current."""
+        if self.tsr_hdr is None:
+            return
+        base = self.tsr_hdr - struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_HDR_OFF, 2))[0]
+        table = base + struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_SLOTS_OFF, 2))[0]
+        data = b""
+        for member in range(game.PARTY_SIZE):
+            try:
+                text = self.slots_lines(member)
+            except (struct.error, IndexError, ValueError):
+                text = ""
+            data += text.encode("cp437", "replace")[:SLOTS_SIZE - 1].ljust(SLOTS_SIZE, b"\0")
+        if data != self._slots_written:
+            self.guest.write(table, data)
+            self._slots_written = data
+
+    def stats_entry(self, member: int) -> bytes:
+        """A party member's STATS entry for DSCLOG: THAC0 with the main weapon, the five saves as
+        the d20 needed now, and THAC0 with each weapon ready."""
+        g = self.game
+        rec = g.creature(member)
+        if len(rec) < game.CREATURE_SIZE or not rec[game.CREATURE_NAME]:
+            return bytes(STATS_SIZE)
+        saves, hits = g.saves_now(member), g.weapon_hits(member)
+        if len(saves) != 5 or not hits:
+            return bytes(STATS_SIZE)
+        clamp = lambda n: max(-99, min(99, n))
+        weapons = [h for h in hits if h.item >= 0][:3]
+        out = struct.pack("<Bb5Bx", 1, clamp(hits[0].thac0), *(s.needs for s in saves))
+        out += struct.pack("<3H", *([h.item for h in weapons] + [game.NO_ITEM] * (3 - len(weapons))))
+        out += struct.pack("<3b", *([clamp(h.thac0) for h in weapons] + [0] * (3 - len(weapons))))
+        return out.ljust(STATS_SIZE, b"\0")
+
+    def _answer_stats(self) -> None:
+        """A game screen is about to show THAC0 and the saves: bring them up to date first (the
+        game waits for this, so an item just put on counts)."""
+        if self.tsr_hdr is None:
+            return
+        req = self.guest.read(self.tsr_hdr + TSR_STATS_REQ, 2)
+        if req != self.guest.read(self.tsr_hdr + TSR_STATS_REPLY, 2):
+            self._write_stats()
+            self.guest.write(self.tsr_hdr + TSR_STATS_REPLY, req)
+
+    def _write_stats(self) -> None:
+        """Keep DSCLOG's copy of the party's THAC0 and saves current, and say it is."""
+        if self.tsr_hdr is None:
+            return
+        offset = struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_STATS_OFF, 2))[0]
+        if not offset:
+            return
+        table = self.tsr_hdr - struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_HDR_OFF, 2))[0] + offset
+        data = b""
+        for member in range(game.PARTY_SIZE):
+            try:
+                data += self.stats_entry(member)
+            except (struct.error, IndexError, ValueError):
+                data += bytes(STATS_SIZE)
+        if data != self._stats_written:
+            self.guest.write(table, data)
+            self._stats_written = data
+        self.guest.write(self.tsr_hdr + TSR_STATS_STAMP, self.guest.read(BIOS_TIMER, 2))
+
+    def _not_ours(self, entries: List[DialogueEntry]) -> List[DialogueEntry]:
+        """Dialogue without the turn summaries the log itself had the game show (and their
+        "Continue")."""
+        out = []
+        for entry in entries:
+            said = " ".join(entry.text.split())  # DSCLOG keeps the first 400 characters of a text
+            own = next((t for t in self._own_text if said and " ".join(t.split()).startswith(said)), None)
+            if own is not None:
+                self._own_text.discard(own)
+                self._skip_choice = True
+            elif entry.chosen and self._skip_choice:
+                self._skip_choice = False
+            else:
+                out.append(entry)
+        return out
+
+    def _turn_waiting(self) -> bool:
+        """DSCLOG has counted a turn's end the log hasn't answered yet."""
+        if self.tsr_hdr is None:
+            return False
+        return struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_TURN_SEQ, 2))[0] != self._turn_seq
+
+    def _answer_turn(self) -> None:
+        """DSCLOG counts a turn's end and waits a moment for the summary: give it."""
+        if self.tsr_hdr is None:
+            return
+        seq = struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_TURN_SEQ, 2))[0]
+        if seq == self._turn_seq:
+            return
+        self._turn_seq = seq
+        ended = struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_ENDED, 2))[0]
+        summary = self.turn_summary(ended, self.popup_detail) if self.popups else ""
+        if summary:  # and who is still to come, so the order isn't lost deep in a round
+            try:
+                still = self.still_to_act(ended, frozenset(self._turn_attacks))
+            except (struct.error, IndexError, ValueError):
+                still = ""
+            if still:
+                summary += ("\n" if self.popup_detail else ". ") + still
+        summary = summary.replace("%", " pct")  # the game's window shows no "%", even as "%%"
+        if len(summary) > MSG_SIZE - 1:
+            summary = summary[:MSG_SIZE - 4].rsplit(" ", 1)[0] + "..."
+        if summary:
+            self._own_text.add(summary)  # to leave out of the Dialogue tab
+        text = summary.encode("cp437", "replace")[:MSG_SIZE - 1]
+        base = self.tsr_hdr - struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_HDR_OFF, 2))[0]
+        msg = base + struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_MSG_OFF, 2))[0]
+        self.guest.write(msg, text + b"\0")
+        self.guest.write(self.tsr_hdr + TSR_REPLY_SEQ, struct.pack("<H", seq))
+        self._turn_attacks.clear()
+        self._turn_log.clear()
 
     @property
     def attached(self) -> bool:
@@ -378,6 +656,13 @@ class DiceLog:
         out: List[str] = []
         for e in self.poll():
             out += self.describe(e, show_all, now)
+        if self._initiative and self._initiative_roll is None and self._turn_waiting():
+            # the round's last turn has ended and the new round's rolls are all in: its order
+            # first, for the end of the summary
+            out += self.initiative_lines()
+        self._answer_turn()  # after the entries: they hold the turn's last attack
+        self._answer_stats()
+        out += self._answer_look()
         changes = self.hp_changes(now) + self.psp_changes()
         if not self._party_check(now):  # not while a game is loading: its records are half-filled
             out += changes
@@ -386,14 +671,18 @@ class DiceLog:
                 if rec.text.strip():
                     out.append(f"Message: {' '.join(rec.text.split())}")
             else:
-                self._dialogue += self.dialogue.add(rec, now)
-        self._dialogue += self.dialogue.idle(now)
-        self._dialogue += self._reply_choice(now)
+                self._follow_talk(rec)
+                self._dialogue += self._not_ours(self.dialogue.add(rec, now))
+        self._dialogue += self._not_ours(self.dialogue.idle(now))
+        self._dialogue += self._not_ours(self._reply_choice(now))
         if now >= self._next_effect_check:
             self._next_effect_check = now + EFFECT_INTERVAL
             out += self.effect_changes(now)
+            self._write_slots()
+            self._write_stats()
             if not self._party_check(now):
                 out += self.tracker.check(now)
+                out += self._arena_ring(now)
         if self._initiative and now - self._initiative_at >= INITIATIVE_WAIT:
             out += self.initiative_lines()
         out += self.turn_lines()  # after the round's order and the last turn's XP
@@ -404,6 +693,18 @@ class DiceLog:
             out.append(f"({self.missed} rolls came too fast to record)")
             self.missed = 0
         return out
+
+    def _arena_ring(self, now: float) -> List[str]:
+        """The Ring +1: its name (wherever it is by now), and in the arena, the ring itself."""
+        if now < self._ring_check:
+            return []
+        self._ring_check = now + RING_INTERVAL
+        try:
+            ring.name_ring(self.game)
+            placed = ring.place_ring(self.game) if self.arena_ring else None
+        except (struct.error, IndexError, ValueError):
+            return []
+        return [placed] if placed else []
 
     def psp_changes(self) -> List[str]:
         """The party's PSP going down (a psionic power used, or kept up another round: the game
@@ -473,7 +774,34 @@ class DiceLog:
             return "(no portrait)"
         if portrait == 0:
             return "Narration"  # the window shows an emblem, not a face
-        return self.speaker_names.get(portrait) or game.SPEAKERS.get(portrait) or f"Portrait {portrait}"
+        return (self.speaker_names.get(portrait) or self.learned_speakers.get(portrait)
+                or game.SPEAKERS.get(portrait) or f"Portrait {portrait}")
+
+    def _follow_talk(self, rec) -> None:
+        """Learn portraits' names: a conversation (the window opening to CLOSE) that shows a single
+        face, started on a named creature, is that creature talking. With several faces (a scene
+        where others speak too) it can't be told who is who, so nothing is learned."""
+        if rec.kind == KIND_PORTRAIT:
+            if self._talk is None:
+                try:
+                    target = self.game.talk_target()
+                except (struct.error, IndexError, ValueError):
+                    target = None
+                self._talk = {"portraits": set(), "with": target}
+            if rec.value:
+                self._talk["portraits"].add(rec.value)
+        elif rec.kind == KIND_TEXT and rec.text == "CLOSE" and self._talk is not None:
+            talk, self._talk = self._talk, None
+            if len(talk["portraits"]) == 1 and talk["with"]:
+                portrait = next(iter(talk["portraits"]))
+                if self.learned_speakers.get(portrait) != talk["with"]:
+                    self.learned_speakers[portrait] = talk["with"]
+                    self._new_speakers[portrait] = talk["with"]
+
+    def take_speakers(self) -> Dict[int, str]:
+        """Portrait names learned since the last call."""
+        out, self._new_speakers = self._new_speakers, {}
+        return out
 
     def _reply_choice(self, now: float) -> List[DialogueEntry]:
         """The player's answer, once, when they click a reply."""
@@ -545,7 +873,9 @@ class DiceLog:
     def describe(self, e: Entry, show_all: bool = False, now: float = 0.0) -> List[str]:
         """Log lines for `e` (none if it isn't worth showing, or completes later)."""
         try:
-            return self._describe(e, show_all, now)
+            said = self._describe(e, show_all, now)
+            self._note_turn(said)  # (only what's labelled: show_all adds rand() lines, not for the game)
+            return said
         except Exception as err:  # an unexpected entry must never stop the log
             if show_all:
                 return [f"rand() = {e.raw}  (at {e.cs:04x}:{e.ip:04x}; could not decode: {err})"]
@@ -581,11 +911,61 @@ class DiceLog:
         if turn is None or turn == self._turn:
             return []
         self._turn = turn
+        self._acted.add(turn)
         now = self.game.game_time()
         if self._round_time is None or now is None or now - self._round_time > FIGHT_GAP:
             return []  # not in a fight
         name = self.game.combatant_name(turn)
         return [f"{name}'s turn"] if name != "?" else []
+
+    def round_status(self, acted_creatures: frozenset = frozenset()) -> Optional[dict]:
+        """The round in progress, for keeping its order in view: {"round", "now": (name, score),
+        "next": [(name, score)...], "done": [...], "down": [...]}, in initiative order; None
+        outside a fight. Creatures (indexes) in `acted_creatures` count as done: their rolls
+        are in, though the game hasn't passed the turn on yet."""
+        now = self.game.game_time()
+        if not self.round_order or self._round_time is None or now is None or now - self._round_time > FIGHT_GAP:
+            return None
+        acting = self.game.whose_turn()
+        out = {"round": self.round_number, "now": None, "next": [], "done": [], "down": []}
+        for combatant, name, score in self.round_order:
+            index = self.game.combatant_creature(combatant) if combatant is not None else None
+            try:
+                if index is not None:
+                    hp = struct.unpack_from("<h", self.game.creature(index), 0)[0]
+                else:  # a killed creature leaves the fight's table
+                    hp = 0 if combatant is not None else 1
+            except (struct.error, IndexError, ValueError):
+                hp = 1
+            if hp <= 0:
+                out["down"].append((name, score))
+            elif index is not None and index in acted_creatures:
+                out["done"].append((name, score))
+            elif combatant == acting:
+                out["now"] = (name, score)
+            elif combatant in self._acted:
+                out["done"].append((name, score))
+            else:
+                out["next"].append((name, score))
+        return out
+
+    def still_to_act(self, ended: Optional[int] = None, acted_creatures: frozenset = frozenset()) -> str:
+        """For the end of the game's turn summary: 'Still to act this round: Mlemlem, Guard';
+        when the turn that ended (combatant `ended`) was the last of its round and the new
+        round's order is in, 'Round 3: Dreamwalker, Jellybelly'; when everyone has acted but
+        the new round isn't rolled yet, 'End of round 2.'; or "". The creatures whose rolls the
+        summary shows (`acted_creatures`) have had their turn, whoever the game says is acting:
+        it runs a monster's whole turn before the helper can ask."""
+        new_round = ended is not None and ended not in self._acted  # its rolls were the last round's
+        status = self.round_status(frozenset() if new_round else acted_creatures)
+        if not status:
+            return ""
+        names = ([status["now"][0]] if status["now"] else []) + [n for n, _ in status["next"]]
+        if new_round and status["round"] and names:
+            return f"Round {status['round']}: " + ", ".join(names)
+        if not names:
+            return f"End of round {status['round']}." if status["round"] else ""
+        return "Still to act this round: " + ", ".join(names)
 
     def _round_number(self) -> int:
         """The round of this fight: the game's clock moves 60 seconds a round, and a longer gap
@@ -614,7 +994,7 @@ class DiceLog:
             # the game keeps each creature's tie-break roll: that says whose rolls these were
             found = [(c, i) for c, i in sorted(combatants.items()) if i not in used and table[i][1] == tie]
             if not found:
-                rows.append((INITIATIVE_BASE + roll, tie, f"? {INITIATIVE_BASE + roll}", f"{roll} (0-9 roll)"))
+                rows.append((INITIATIVE_BASE + roll, tie, f"? {INITIATIVE_BASE + roll}", f"{roll} (0-9 roll)", None, "?"))
                 continue
             combatant, index = found[0]
             used.add(index)
@@ -630,13 +1010,16 @@ class DiceLog:
                 parts.append((stored - score, "other"))
                 score = stored
             steps = f"{roll} (0-9 roll)" + "".join(f" {signed(v)} {name}" for v, name in parts)
-            rows.append((score, tie, f"{g.creature_name(index)} {score}", steps))
+            rows.append((score, tie, f"{g.creature_name(index)} {score}", steps, combatant, g.creature_name(index)))
         rows.sort(key=lambda r: (-r[0], -r[1]))
         scores = Counter(r[0] for r in rows)
         number = self._round_number()
-        order = ", ".join(who for _, _, who, _ in rows)
+        self.round_number = number
+        self.round_order = [(combatant, name, score) for score, _, _, _, combatant, name in rows]
+        self._acted = set()
+        order = ", ".join(r[2] for r in rows)
         out = [f"Round {number}" + (f": {order}" if order else "") if number else f"Initiative: {order}"]
-        for score, tie, who, steps in rows:
+        for score, tie, who, steps, _, _ in rows:
             tied = f", tie broken by {tie} (0-199 roll)" if scores[score] > 1 else ""
             out.append(f"    {who} = {INITIATIVE_BASE} + {steps}{tied}")
         return out
@@ -688,8 +1071,8 @@ class DiceLog:
         steps = [f"{n}" if what == "base" else f"{signed(n)} {what}" for what, n in parts]
         if bonus:
             steps.append(f"{signed(bonus)} this attempt")
-        if rest:  # the only other part of the chance: the penalty for armour other than leather
-            steps.append(f"{signed(rest)} armour")
+        if rest:  # the only other part of the chance: the equipment penalty
+            steps.append(f"{signed(rest)} equipment")
         return [head, f"    {name} {chance} = " + " ".join(steps).replace(" +", " + ").replace(" -", " - ")]
 
     # attacks ---------------------------------------------------------------------
@@ -717,8 +1100,10 @@ class DiceLog:
         needs = ("hits on anything but a 1" if need <= 2 else "only a 20 hits" if need > 20 else f"needs {need}+")
         head = (f"{g.creature_name(attacker)} attacks {target}{how}{with_what}: d20 = {d20}{note}, "
                 f"{needs} ({chance}%), hits AC {thac0 - d20}, target AC {ac} -> {'HIT' if hit else 'miss'}")
-        return [head, "    " + self._thac0_breakdown(e, thac0, attacker, attacker_combatant,
-                                                     target_combatant, weapon, mode)]
+        breakdown = self._thac0_breakdown(e, thac0, attacker, attacker_combatant, target_combatant, weapon, mode)
+        self._turn_attacks.setdefault(attacker, []).append(
+            {"target": target, "d20": d20, "need": need, "hit": hit, "damage": None})
+        return [head, "    " + breakdown]
 
     def _thac0_breakdown(self, e: Entry, thac0: int, attacker: int, attacker_combatant: int,
                          target_combatant: int, weapon, mode: int) -> str:
@@ -894,7 +1279,12 @@ class DiceLog:
         target = g.combatant_creature(e.glob[0])
         if target is not None:  # so the HP it takes isn't put down to a spell being cast
             self._hits[target] = self._hits.get(target, 0) + total
-        return [f"  {g.creature_name(attacker)} hits {g.combatant_name(e.glob[0])} for {total}: {steps}"]
+        last = next((a for a in reversed(self._turn_attacks.get(attacker, [])) if a["hit"] and a["damage"] is None),
+                    None)
+        line = f"{g.creature_name(attacker)} hits {g.combatant_name(e.glob[0])} for {total}: {steps}"
+        if last is not None:  # for the turn's summary in the game
+            last["damage"] = total
+        return ["  " + line]
 
     def _overlay_duration(self, e: Entry, count: int, sides: int) -> bool:
         """The duration routine's roll when the overlay manager has swapped its return address
@@ -1256,8 +1646,15 @@ class DiceLog:
             if rules and rules.save_modifier:
                 parts.append(f"{signed(rules.save_modifier)} spell")
             rest = total - rolled - (rules.save_modifier if rules else 0)
-            if rest:
-                parts.append(f"{signed(rest)} {self._save_modifier_sources(target)}")
+            try:
+                known = g.save_modifiers(target, caster, spell, index)
+            except (struct.error, IndexError, ValueError):
+                known = []
+            parts += [f"{signed(amount)} {why}" for amount, why in known]
+            other = rest - sum(amount for amount, _ in known)
+            if other:  # Dismissal weighs the levels; anything else the log doesn't know of
+                parts.append(f"{signed(other)} " + ("levels (the target's less the caster's)"
+                                                    if g.spell_name(spell) == "Dismissal" else "other"))
             if parts:
                 steps += " " + " ".join(parts) + f" = {total}"
         else:
@@ -1281,12 +1678,6 @@ class DiceLog:
         if self.game.save_negates_damage(spell):
             return f"saved: no damage (not {rolled})" if rolled is not None else "saved: no damage"
         return f"saved: half damage, {rolled // 2} of {rolled}" if rolled is not None else "saved: half damage"
-
-    def _save_modifier_sources(self, target: int) -> str:
-        """'modifiers', naming the target's effects the game counts in saving throws."""
-        names = [EFFECT_NAMES[x.id] for x in self.game.effects()
-                 if x.owner == target and x.id in EFFECT_RULES and "saves" in EFFECT_RULES[x.id]]
-        return "modifiers" + (f" (incl. {', '.join(dict.fromkeys(names))})" if names else "")
 
     # AC --------------------------------------------------------------------------------
 
