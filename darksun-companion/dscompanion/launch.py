@@ -114,9 +114,26 @@ def find_game_dir(given: Optional[str] = None) -> Optional[str]:
     return None
 
 
+SCALERS = {2: "normal2x", 3: "normal3x"}
+
+
+def display_lines(settings: dict) -> List[str]:
+    """DOSBox's display, over GOG's settings (full screen): a window, by default twice the
+    game's 320x200 (640x480 with the aspect correction GOG turns on); `window_scale` 3 makes it
+    three times, 1 leaves it at 320x240; `fullscreen` true keeps GOG's full screen. Alt+Enter
+    switches either way in DOSBox."""
+    if settings.get("fullscreen"):
+        return []
+    scale = settings.get("window_scale", 2)
+    scale = scale if scale in (1, 2, 3) else 2
+    return ["[sdl]", "fullscreen=false", "[render]", "aspect=true",
+            "scaler=" + ("none" if scale == 1 else SCALERS[scale]), ""]
+
+
 def write_conf(game_dir: str, path: str = CONF, dice_log: bool = True) -> str:
     """Our replacement for dosbox_darksun_single.conf. Without the dice log it just runs the game."""
-    lines = ["[autoexec]", "@echo off", "cls", 'mount c ".."']
+    lines = display_lines(load_settings())
+    lines += ["[autoexec]", "@echo off", "cls", 'mount c ".."']
     if os.path.isdir(os.path.join(game_dir, "cloud_saves")):
         lines.append(r'mount C "..\cloud_saves" -t overlay')  # where GOG keeps the saves
     lines += [f'mount d "{DOS_DIR}"', "c:"]

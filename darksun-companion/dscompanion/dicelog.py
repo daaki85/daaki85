@@ -280,6 +280,9 @@ class DiceLog:
         self._psp: Dict[int, int] = {}  # party member -> PSP when last looked at
         self._last_damage: Optional[Tuple[int, int]] = None  # (spell, damage) last rolled
         self._turn: Optional[int] = None  # whose turn it was when last looked at
+        self.round_order: List[Tuple[Optional[int], str, int]] = []  # this round: (combatant, name, score)
+        self.round_number = 0
+        self._acted: set = set()  # combatants whose turn has come this round
         self._reply: Optional[Tuple[int, str]] = None  # the reply being flashed when last looked at
         self.speaker_names: Dict[int, str] = {}  # portrait -> the name the player gave it
         self.learned_speakers: Dict[int, str] = {}  # portrait -> the name worked out from conversations
@@ -447,6 +450,13 @@ class DiceLog:
         self._turn_seq = seq
         ended = struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_ENDED, 2))[0]
         summary = self.turn_summary(ended, self.popup_detail) if self.popups else ""
+        if summary:  # and who is still to come, so the order isn't lost deep in a round
+            try:
+                still = self.still_to_act()
+            except (struct.error, IndexError, ValueError):
+                still = ""
+            if still:
+                summary += ("\n" if self.popup_detail else ". ") + still
         summary = summary.replace("%", " pct")  # the game's window shows no "%", even as "%%"
         if len(summary) > MSG_SIZE - 1:
             summary = summary[:MSG_SIZE - 4].rsplit(" ", 1)[0] + "..."
@@ -734,11 +744,45 @@ class DiceLog:
         if turn is None or turn == self._turn:
             return []
         self._turn = turn
+        self._acted.add(turn)
         now = self.game.game_time()
         if self._round_time is None or now is None or now - self._round_time > FIGHT_GAP:
             return []  # not in a fight
         name = self.game.combatant_name(turn)
         return [f"{name}'s turn"] if name != "?" else []
+
+    def round_status(self) -> Optional[dict]:
+        """The round in progress, for keeping its order in view: {"round", "now": (name, score),
+        "next": [(name, score)...], "done": [...], "down": [...]}, in initiative order; None
+        outside a fight."""
+        now = self.game.game_time()
+        if not self.round_order or self._round_time is None or now is None or now - self._round_time > FIGHT_GAP:
+            return None
+        acting = self.game.whose_turn()
+        out = {"round": self.round_number, "now": None, "next": [], "done": [], "down": []}
+        for combatant, name, score in self.round_order:
+            index = self.game.combatant_creature(combatant) if combatant is not None else None
+            try:
+                hp = struct.unpack_from("<h", self.game.creature(index), 0)[0] if index is not None else 1
+            except (struct.error, IndexError, ValueError):
+                hp = 1
+            if hp <= 0:
+                out["down"].append((name, score))
+            elif combatant == acting:
+                out["now"] = (name, score)
+            elif combatant in self._acted:
+                out["done"].append((name, score))
+            else:
+                out["next"].append((name, score))
+        return out
+
+    def still_to_act(self) -> str:
+        """'Still to act this round: Mlemlem, Guard' (for the game's turn summary), or ""."""
+        status = self.round_status()
+        if not status:
+            return ""
+        names = ([status["now"][0]] if status["now"] else []) + [n for n, _ in status["next"]]
+        return "Still to act this round: " + ", ".join(names) if names else ""
 
     def _round_number(self) -> int:
         """The round of this fight: the game's clock moves 60 seconds a round, and a longer gap
@@ -767,7 +811,7 @@ class DiceLog:
             # the game keeps each creature's tie-break roll: that says whose rolls these were
             found = [(c, i) for c, i in sorted(combatants.items()) if i not in used and table[i][1] == tie]
             if not found:
-                rows.append((INITIATIVE_BASE + roll, tie, f"? {INITIATIVE_BASE + roll}", f"{roll} (0-9 roll)"))
+                rows.append((INITIATIVE_BASE + roll, tie, f"? {INITIATIVE_BASE + roll}", f"{roll} (0-9 roll)", None, "?"))
                 continue
             combatant, index = found[0]
             used.add(index)
@@ -783,13 +827,16 @@ class DiceLog:
                 parts.append((stored - score, "other"))
                 score = stored
             steps = f"{roll} (0-9 roll)" + "".join(f" {signed(v)} {name}" for v, name in parts)
-            rows.append((score, tie, f"{g.creature_name(index)} {score}", steps))
+            rows.append((score, tie, f"{g.creature_name(index)} {score}", steps, combatant, g.creature_name(index)))
         rows.sort(key=lambda r: (-r[0], -r[1]))
         scores = Counter(r[0] for r in rows)
         number = self._round_number()
-        order = ", ".join(who for _, _, who, _ in rows)
+        self.round_number = number
+        self.round_order = [(combatant, name, score) for score, _, _, _, combatant, name in rows]
+        self._acted = set()
+        order = ", ".join(r[2] for r in rows)
         out = [f"Round {number}" + (f": {order}" if order else "") if number else f"Initiative: {order}"]
-        for score, tie, who, steps in rows:
+        for score, tie, who, steps, _, _ in rows:
             tied = f", tie broken by {tie} (0-199 roll)" if scores[score] > 1 else ""
             out.append(f"    {who} = {INITIATIVE_BASE} + {steps}{tied}")
         return out

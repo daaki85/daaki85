@@ -133,7 +133,7 @@ class Viewer:
                         ).pack(anchor="w", pady=(4, 0))
         # the game's own window, at the end of each turn in a fight: that turn's attacks
         settings = launch.load_settings()
-        self.popups = tk.BooleanVar(value=bool(settings.get("turn_popups")))
+        self.popups = tk.BooleanVar(value=bool(settings.get("turn_popups", True)))
         ttk.Checkbutton(dice, text="Show each turn's attacks in the game (click Continue to go on)",
                         variable=self.popups, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
         self.popup_detail = tk.BooleanVar(value=settings.get("turn_popups_detail", True))
@@ -141,6 +141,12 @@ class Viewer:
                         variable=self.popup_detail, command=self._popups_changed).pack(anchor="w", padx=(20, 0))
         self.dice_status = tk.StringVar(value="Waiting for the game...")
         ttk.Label(dice, textvariable=self.dice_status).pack(fill="x", pady=(4, 0))
+        # the round's order stays here while the log scrolls on: who acts now, who is still to come
+        self.round_line = tk.StringVar(value="")
+        self.round_label = ttk.Label(dice, textvariable=self.round_line, style="Status.TLabel", wraplength=900,
+                                     justify="left")
+        self.round_label.pack(fill="x", pady=(4, 0))
+        self.round_label.bind("<Configure>", lambda e: self.round_label.configure(wraplength=max(200, e.width - 8)))
         box = ttk.Frame(dice)
         box.pack(fill="both", expand=True, pady=(6, 0))
         self.dice_text = tk.Text(box, font="TkFixedFont", wrap="word", height=20)
@@ -474,6 +480,7 @@ class Viewer:
         lines = self.dice.lines(self.show_all.get())
         if lines:
             self._append_dice(lines)
+        self.round_line.set(self._round_text())
         learned = self.dice.take_speakers()
         if learned:  # names worked out from conversations: keep them, and show them on earlier lines
             launch.add_learned_speakers(learned)
@@ -482,6 +489,26 @@ class Viewer:
         talk = self.dice.take_dialogue()
         if talk:
             self._append_dialogue(talk)
+
+    def _round_text(self) -> str:
+        """The round in progress, in initiative order: who acts now, who is still to come."""
+        try:
+            status = self.dice.round_status()
+        except (struct.error, IndexError, ValueError, OSError):
+            return ""
+        if not status:
+            return ""
+        def names(rows):
+            return ", ".join(f"{name} {score}" for name, score in rows)
+        parts = [f"Round {status['round']}." if status["round"] else "This round."]
+        if status["now"]:
+            parts.append(f"Now: {status['now'][0]} ({status['now'][1]}).")
+        parts.append(f"Still to act: {names(status['next'])}." if status["next"] else "No one else to act.")
+        if status["done"]:
+            parts.append(f"Done: {names(status['done'])}.")
+        if status["down"]:
+            parts.append(f"Down: {names(status['down'])}.")
+        return " ".join(parts)
 
     def _popups_changed(self) -> None:
         on = self.popups.get()

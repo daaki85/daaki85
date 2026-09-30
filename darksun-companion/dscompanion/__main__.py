@@ -11,7 +11,7 @@ from .process import ProcessMemory, find_dosbox_processes
 from .savefile import load_party
 from .search import OPS, SearchSession
 
-DEFAULT_LAYOUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+DEFAULT_LAYOUT = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                               "layouts", "shattered_lands.json")
 SEARCH_FILE = ".dscompanion-search.json"
 
@@ -208,9 +208,13 @@ def _game_dir(args) -> str:
         if not launch.is_game_dir(game_dir):
             raise CliError(f"{game_dir} has no DSUN.EXE and DOSBOX folder; pick the GOG install folder.")
     settings = launch.load_settings()
-    if settings.get("game_dir") != game_dir:
-        settings["game_dir"] = game_dir
-        launch.save_settings(settings)
+    changed = dict(settings, game_dir=game_dir)
+    if getattr(args, "window_scale", None):
+        changed["window_scale"] = args.window_scale
+    if getattr(args, "fullscreen", None) is not None:
+        changed["fullscreen"] = args.fullscreen
+    if changed != settings:
+        launch.save_settings(changed)
     return game_dir
 
 
@@ -319,11 +323,21 @@ def main(argv=None) -> int:
     s = sub.add_parser("launch", parents=[common], help="start the game with the dice log helper, then the viewer")
     s.add_argument("--game-dir", help="the game's install folder (remembered after the first time)")
     s.add_argument("--layout", default=DEFAULT_LAYOUT, help="layout JSON file")
+    s.add_argument("--window-scale", type=int, choices=(1, 2, 3),
+                   help="DOSBox's window: 2 (the default) is twice the game's 320x200, 3 three times (remembered)")
+    s.add_argument("--fullscreen", dest="fullscreen", action="store_true", default=None,
+                   help="start DOSBox full screen, as GOG does (remembered; --windowed undoes it)")
+    s.add_argument("--windowed", dest="fullscreen", action="store_false")
     s.set_defaults(func=cmd_launch)
 
     s = sub.add_parser("play", help="start the game with the in-game rolls and stats, no window of our own")
     s.add_argument("--game-dir", help="the game's install folder (remembered after the first time)")
     s.add_argument("--no-popups", action="store_true", help="without each turn's attacks in the game")
+    s.add_argument("--window-scale", type=int, choices=(1, 2, 3),
+                   help="DOSBox's window: 2 (the default) is twice the game's 320x200, 3 three times (remembered)")
+    s.add_argument("--fullscreen", dest="fullscreen", action="store_true", default=None,
+                   help="start DOSBox full screen, as GOG does (remembered; --windowed undoes it)")
+    s.add_argument("--windowed", dest="fullscreen", action="store_false")
     s.set_defaults(func=cmd_play)
 
     s = sub.add_parser("dicelog", parents=[common], help="print the game's dice rolls as they happen")

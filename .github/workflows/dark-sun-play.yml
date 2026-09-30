@@ -1,6 +1,7 @@
-# Builds "Dark Sun In-Game Rolls.exe": the game with the in-game rolls, THAC0, saves, thief
-# skills and spell slots, as one Windows program that needs no Python.
-name: Build Dark Sun In-Game Rolls
+# Builds "Dark Sun with Templars Ledger.exe": the game with the in-game rolls, THAC0, saves,
+# thief skills and spell slots, and Templar's Ledger next to it (--no-ledger: the game only),
+# as one Windows program that needs no Python.
+name: Build Dark Sun with Templars Ledger
 
 on:
   push:
@@ -25,8 +26,8 @@ jobs:
       - name: Build
         run: |
           python -m pip install pyinstaller
-          python -m PyInstaller --onefile --noconsole --name "Dark Sun In-Game Rolls" --add-data "dos/DSCLOG.EXE;dos" --collect-submodules dscompanion play.py
+          python -m PyInstaller --onefile --noconsole --name "Dark Sun with Templars Ledger" --add-data "dos/DSCLOG.EXE;dos" --add-data "layouts;layouts" --collect-submodules dscompanion play.py
       - uses: actions/upload-artifact@v4
         with:
-          name: Dark Sun In-Game Rolls
-          path: darksun-companion/dist/Dark Sun In-Game Rolls.exe
+          name: Dark Sun with Templars Ledger
+          path: darksun-companion/dist/Dark Sun with Templars Ledger.exe

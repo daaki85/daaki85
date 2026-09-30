@@ -697,6 +697,27 @@ class NewLinesTests(unittest.TestCase):
         log.speaker_names = {57: "Tithian", 119: "Herald"}  # names the player gave
         self.assertEqual((log.speaker(57), log.speaker(119)), ("Tithian", "Herald"))
 
+    def test_round_status_keeps_the_order_in_view(self):
+        log = make_game()
+        log.game.game_time = lambda: 600
+        log.game.whose_turn = lambda: 1
+        log._round_time, log.round_number = 600, 3
+        log.round_order = [(0, "Dag", 25), (1, "Daaki", 22), (2, "Jellybelly", 20), (0x29, "Mountain Stalker", 18)]
+        log._acted = {0}
+        struct.pack_into("<h", log.guest.mem, CREATURES + 2 * game.CREATURE_SIZE, 0)  # Jellybelly is down
+        struct.pack_into("<h", log.guest.mem, CREATURES + 0 * game.CREATURE_SIZE, 30)
+        struct.pack_into("<h", log.guest.mem, CREATURES + 1 * game.CREATURE_SIZE, 30)
+        struct.pack_into("<h", log.guest.mem, CREATURES + STALKER * game.CREATURE_SIZE, 30)
+        status = log.round_status()
+        self.assertEqual(status["round"], 3)
+        self.assertEqual(status["now"], ("Daaki", 22))
+        self.assertEqual(status["next"], [("Mountain Stalker", 18)])
+        self.assertEqual(status["done"], [("Dag", 25)])
+        self.assertEqual(status["down"], [("Jellybelly", 20)])
+        self.assertEqual(log.still_to_act(), "Still to act this round: Daaki, Mountain Stalker")
+        log.game.game_time = lambda: 600 + dicelog.FIGHT_GAP + 1  # the fight is over
+        self.assertIsNone(log.round_status())
+
     def test_speakers_learned_from_conversations(self):
         log = make_game()
         struct.pack_into("<H", log.guest.mem, HDR + dicelog.TSR_SLOTS_OFF, 0x1800)  # spell slots out of the way

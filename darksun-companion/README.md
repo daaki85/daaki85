@@ -78,10 +78,19 @@ install anything into the game folder.
 
 Double-click **`Start Game with Dice Log.bat`** in the `darksun-companion`
 folder. It starts Shattered Lands (through GOG's own DOSBox) with the dice log
-helper loaded, and opens Templar's Ledger next to it. Your saves are the same ones
-the game normally uses. The first time, it looks for
-the game in the usual GOG folders; if it can't find it, it asks you where the
-game is installed and remembers the answer.
+helper loaded, and opens Templar's Ledger next to it. The game gets its
+in-game additions too: each turn's attacks shown in the game (untick **Show
+each turn's attacks in the game** on the Dice log tab to turn that off), THAC0,
+saves and thief skills on the inventory and View Character screens, and spell
+slots on the USE screen. Your saves are the same ones the game normally uses.
+The first time, it looks for the game in the usual GOG folders; if it can't
+find it, it asks you where the game is installed and remembers the answer.
+
+DOSBox opens in a window twice the game's size (640x480), not full screen.
+For a window three times the size (960x720) start it once with
+`python -m dscompanion launch --window-scale 3`; `--fullscreen` goes back to
+GOG's full screen, `--windowed` back to a window. The choice is remembered.
+Alt+Enter switches between window and full screen while playing.
 
 Load your game. The party's stats fill in by themselves, and rolls appear in
 the **Dice log** tab as they happen.
@@ -89,22 +98,20 @@ the **Dice log** tab as they happen.
 If you start the game the normal way instead, **`Start Templar's Ledger.bat`** still
 shows the party, but the dice log will say the game was started without it.
 
-**Just the game, with the in-game additions.** Double-click **`Play Dark Sun
-(in-game rolls).bat`**. It starts Shattered Lands the same way, with each
-turn's attacks shown in the game (in detail, unless you unticked that in the
-Ledger), THAC0, saves and thief skills on the inventory and View Character
-screens, and spell slots on the USE screen, but opens no Ledger window: the
-dice log runs unseen and stops when you close DOSBox. If anything goes wrong it
-says so in a message box and writes the details to `play.log`.
+**Without Python: `Dark Sun with Templars Ledger.exe`.** The same thing (game,
+in-game additions and Ledger) as one Windows program. GitHub builds it each
+time this branch changes: on the repository's **Actions** tab, open the latest
+**Build Dark Sun with Templars Ledger** run and download it under
+**Artifacts** (you need to be signed in to GitHub). Put it in a folder of its
+own and double-click it: it keeps its settings, `play.log` and a `dos` folder
+(the helper and the patched copy of the game) next to itself. Started with
+`--no-ledger` (for instance from a shortcut) it runs just the game with the
+in-game additions.
 
-The same as a single Windows program that doesn't need Python: **`Dark Sun
-In-Game Rolls.exe`**. GitHub builds it each time this branch changes: on the
-repository's **Actions** tab, open the latest **Build Dark Sun In-Game Rolls**
-run and download the file under **Artifacts** (you need to be signed in to
-GitHub). Put it in a folder of its own and double-click it: it keeps its
-settings, `play.log` and a `dos` folder (the helper and the patched copy of the
-game) next to itself, and asks where the game is the first time if it can't
-find it.
+**Just the game, with the in-game additions, no Ledger window:** double-click
+**`Play Dark Sun (in-game rolls).bat`**. The dice log runs unseen and stops
+when you close DOSBox. If anything goes wrong it says so in a message box and
+writes the details to `play.log`.
 
 **Checking a save file (no game needed):** drag a `SAVEnn.SAV` file from the
 game folder onto **`Show Save.bat`**.
@@ -127,7 +134,7 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 
 | Line | Meaning |
 |---|---|
-| `Round 2: K'ratchek 32, Cermak 31, Cilla 30, Gerakis 26, Slig 26` | A new round of a fight, numbered from the fight's start, and the order everyone acts in (highest first). The lines under it (shown with **Show details**) give each score's make-up: `    Gerakis 26 = 20 + 6 (0-9 roll), tie broken by 38 (0-199 roll)` (see Initiative below). If the log was started in the middle of a round, the list has only the rolls it saw. |
+| `Round 2: K'ratchek 32, Cermak 31, Cilla 30, Gerakis 26, Slig 26` | A new round of a fight, numbered from the fight's start, and the order everyone acts in (highest first). The order also stays in view above the log for the whole round, however far the log has scrolled: `Round 2. Now: Cilla (30). Still to act: Gerakis 26, Slig 26. Done: K'ratchek 32, Cermak 31. Down: ...`, and the in-game turn summary ends with who is still to act. The lines under it (shown with **Show details**) give each score's make-up: `    Gerakis 26 = 20 + 6 (0-9 roll), tie broken by 38 (0-199 roll)` (see Initiative below). If the log was started in the middle of a round, the list has only the rolls it saw. |
 | `Gerakis's turn` | Whose turn it is now, each time the turn passes in a fight. |
 | `X attacks Y with Long Sword +1 (1d8+1): d20 = 14, needs 12+ (45%), hits AC 1, target AC 3 -> HIT` | An attack roll, the weapon and its damage dice. `needs 12+ (45%)` is the d20 this attacker needed against this target (THAC0 − target AC) and the chance of rolling it; `hits on anything but a 1` or `only a 20 hits` when it's out of the ordinary range. `X attacks Y from behind ...` and `X attacks Y BACKSTAB ...` mark attacks from behind and backstabs (see below). "Hits AC" is the lowest AC this roll hits (THAC0 − d20); the target AC is the one the game used, with armour, DEX and spells. A natural 20 always hits and a natural 1 always misses. |
 | `    THAC0 16, +1 Blessed, +6 STR, +1 weapon = 8` | Where the attacker's THAC0 for this attack comes from: STR (melee) or DEX (missiles), spells (Bless, Prayer, Slow, Graft Weapon, the target's Blur), attacking from behind, the weapon's plus, the penalty for non-metal weapons (wooden −3, bone −1, stone and obsidian −2), the two-weapon adjustment (see below), and the difficulty setting for monsters. |
