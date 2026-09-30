@@ -1559,8 +1559,15 @@ class DiceLog:
             if rules and rules.save_modifier:
                 parts.append(f"{signed(rules.save_modifier)} spell")
             rest = total - rolled - (rules.save_modifier if rules else 0)
-            if rest:
-                parts.append(f"{signed(rest)} {self._save_modifier_sources(target)}")
+            try:
+                known = g.save_modifiers(target, caster, spell, index)
+            except (struct.error, IndexError, ValueError):
+                known = []
+            parts += [f"{signed(amount)} {why}" for amount, why in known]
+            other = rest - sum(amount for amount, _ in known)
+            if other:  # Dismissal weighs the levels; anything else the log doesn't know of
+                parts.append(f"{signed(other)} " + ("levels (the target's less the caster's)"
+                                                    if g.spell_name(spell) == "Dismissal" else "other"))
             if parts:
                 steps += " " + " ".join(parts) + f" = {total}"
         else:
@@ -1584,12 +1591,6 @@ class DiceLog:
         if self.game.save_negates_damage(spell):
             return f"saved: no damage (not {rolled})" if rolled is not None else "saved: no damage"
         return f"saved: half damage, {rolled // 2} of {rolled}" if rolled is not None else "saved: half damage"
-
-    def _save_modifier_sources(self, target: int) -> str:
-        """'modifiers', naming the target's effects the game counts in saving throws."""
-        names = [EFFECT_NAMES[x.id] for x in self.game.effects()
-                 if x.owner == target and x.id in EFFECT_RULES and "saves" in EFFECT_RULES[x.id]]
-        return "modifiers" + (f" (incl. {', '.join(dict.fromkeys(names))})" if names else "")
 
     # AC --------------------------------------------------------------------------------
 

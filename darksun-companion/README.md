@@ -160,7 +160,7 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 | `    Dispel Magic on Slig's Blessed: d100 = 60, needs 85 or less (50 + 5 x 7 - 5 x 0 (its caster's level)) -> dispelled` | Dispel Magic tries each effect on its target separately: 50 + 5 for each of the dispeller's levels, less 5 for each of the level the effect was cast at. It can't touch some (Biofeedback, Diseased, Feeblemind, Poisoned, Graft Weapon, No spell use, Stuck, Mind Bar and a few more). |
 | `    Abjure on Y: d20 = 14, needs 12 or more (11 - caster level 5 + its level 6) -> sent away` | Abjure sends a summoned creature away (1000 damage) on a d20 at or over 11 - the caster's level + the creature's. |
 | `    Summoning: 1d3 = 2 picks which of its 3 creatures comes` | Which creature a summoning spell brings. |
-| `Y saves vs Fireball from X (petrification/polymorph): d20 = 6, doubled against fire = 12 +1 modifiers (incl. Blessed) = 13, needs 11 (80% to save) -> saved: half damage, 19 of 38` | A saving throw: which of the target's five saves it uses, the d20, the game's modifiers, and the number it had to reach. The game doubles the d20 against fire, cold and electricity spells (see Spells and effects). A natural 1 always fails and a natural 20 always saves. The chance of saving is worked out for you (`needs 14 (70% to save)`); with the doubled d20, Fireball's victims usually save. For a damaging spell the result says what the save left, from that target's damage roll just before it: `saved: half damage, 19 of 38`, `failed: full damage, 38`, or `saved: no damage` for spells such as Chill Touch. The HP line after it shows what the creature really lost, once resistances and protections have had their say. A failed save also lets the spell's effect take hold. Spells left on the ground (Grease, clouds) make creatures save again as they stay in them; those lines have no "from". |
+| `Y saves vs Fireball from X (petrification/polymorph): d20 = 6, doubled against fire = 12 +1 Blessed = 13, needs 11 (80% to save) -> saved: half damage, 19 of 38` | A saving throw: which of the target's five saves it uses, the d20, each of the game's modifiers by name (see Saving throws below; anything the log can't account for shows as `other`), and the number it had to reach. The game doubles the d20 against fire, cold and electricity spells (see Spells and effects). A natural 1 always fails and a natural 20 always saves. The chance of saving is worked out for you (`needs 14 (70% to save)`); with the doubled d20, Fireball's victims usually save. For a damaging spell the result says what the save left, from that target's damage roll just before it: `saved: half damage, 19 of 38`, `failed: full damage, 38`, or `saved: no damage` for spells such as Chill Touch. The HP line after it shows what the creature really lost, once resistances and protections have had their say. A failed save also lets the spell's effect take hold. Spells left on the ground (Grease, clouds) make creatures save again as they stay in them; those lines have no "from". |
 | `X gives Blessed to Y, Z: +1 to hit, +1 on saves` / `Blessed ends on Y` | A spell or psionic effect starting or ending, with what it does in the game's code where that is known: to-hit, AC and saving throws, movement and attacks, whether the creature can attack or cast, who controls it (see Spells and effects below). `Stuck on Y` (no "gives") is an effect a creature has from a spell on the ground or cast on itself. |
 | `X DEX check: d20 = 9, needs 16 or less (DEX 16) -> success` | An ability check. A natural 20 always fails. |
 | `Cilla tries to open locks: d100 = 35, needs 40 or less -> success` / `    open locks 40 = 18 + 16 thief level 4 + 10 elf...` | A thief skill roll (see Thief skills below), and what its chance is made of. |
@@ -533,6 +533,75 @@ From the game's code:
   is 20). It gets another +2 to hit (+4 in all), and on the thief's first
   attack of the round the damage, STR bonus included, is multiplied: x2 at
   thief levels 1-4, x3 at 5-8, x4 at 9-12, x5 from 13.
+
+Which weapons can backstab, from the game's item tables. Weight belongs to the
+weapon's kind and material, in the game's units, which look like tenths of a
+pound (a dagger is 10, a club 30, a mace 100, as AD&D's 1, 3 and 10 lb), so
+the limit is 4 lb. Missile weapons (slings, bows, a thrown chatkcha) never
+backstab: it has to be melee.
+
+| Weapon | Material | Damage | Weight | Backstab |
+|---|---|---|---|---|
+| Dagger | stone, obsidian | 1d4 | 10 | yes |
+| Long Sword | bone | 1d8 | 20 | yes |
+| Long Sword | obsidian | 1d8 | 30 | yes |
+| Long Sword | metal | 1d8 | 40 | yes (the limit) |
+| Club | wood | 1d6 | 30 | yes |
+| Quarterstaff | wood | 1d6 | 40 | yes |
+| Dark Flame (+2) | obsidian | 1d8 | 40 | yes |
+| Shillelagh, Flame Blade, Spiritual Hammer (spells) | | 2d4, 1d4+4, 1d4+1 | 10, 40, 40 | yes |
+| Axe (and Soulcrusher +1) | metal | 1d8 | 70 | no |
+| Mace (and the Wyvern Hook) | bone | 1d6+1 | 100 | no |
+| Blackmace (+1) | obsidian | 1d6+1 | 100 | no |
+| Cahulaks | bone | 1d6 | 120 | no |
+| Gythka | bone | 2d4 | 120 | no |
+| Polearm | bone | 1d10 | 150 | no |
+
+About a dozen more weapon kinds are in the game's tables with no item of
+theirs in its data (monsters' own, made by scripts, or unused).
+
+### Saving throws
+
+From the game's saving throw routine. The spell names which of the character
+sheet's five saves to use (almost always petrification/polymorph, see Spells
+and effects). The d20 counts double against fire, cold and electricity; a
+natural 1 always fails and a natural 20 always saves; otherwise the d20 and
+the modifiers below must reach the save's number.
+
+The target's spells and effects:
+- Blessed +1, Barkskin +1, Spirit Armor +3 (but not on
+  paralysis/poison/death saves), and the Save penalty effect -1.
+- Prayer: +1 if its caster is on your side, -1 if not.
+- Protection from Evil +2 against an evil caster (lawful, neutral or chaotic
+  evil); Protection from Fire and from Cold +3 against fire and cold spells;
+  Protection from Lightning +4 against electricity.
+- +4 against a spell aimed at one target (not an area) when the caster can't
+  see you: the caster is Blind, or you're Invisible (or Invisible to Undead,
+  against an undead caster) and the caster can't detect invisibility.
+
+Class, race and abilities:
+- WIS, against mind-affecting spells, charms and holds, fear and illusions:
+  -6 at WIS 1, -4 at 2, -3 at 3, -2 at 4, -1 at 5-7, +1 at 15, +2 at 16,
+  +3 at 17 and +4 at 18 and up.
+- CON, on paralysis/poison/death saves: -2 at CON 1, -1 at 2, +1 at 19-20,
+  +2 at 21-22, +3 at 23-24 and +4 at 25. Dwarves and halflings also add
+  CON x 2 / 7 (+1 for every 3.5 points).
+- Druids +2 against fire and electricity; psionicists +2 against
+  mind-affecting spells and charms.
+- Some spells carry a modifier of their own (a monster's poison at -4).
+
+Spells with rules of their own: creatures of 6th level or lower can't save
+against Cloudkill; against Chaos only warriors (fighters, gladiators and
+rangers) can; against Dismissal the target adds its level and takes away the
+caster's; and against Scare, 6th level and up always save and everyone below
+can't. The Scare code looks meant to let some elf or half-elf priests save
+(AD&D gives elves, half-elves and priests a bonus), but it asks for a
+creature that is both an elf and a half-elf, so no one qualifies.
+
+Rules in the code that never come into play: a DEX adjustment and Cloak of
+Bravery's +4 against fear both apply only to a kind of spell that no spell in
+the game is marked as. And nothing in the game gives saves from items: there
+are no rings or cloaks of protection.
 
 ### No critical hits
 

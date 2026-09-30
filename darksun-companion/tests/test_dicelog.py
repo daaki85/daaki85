@@ -370,7 +370,7 @@ class SaveTests(unittest.TestCase):
                          ["Hold Person damage: 2d6 = [6 + 4] = 10"])
         self.assertEqual(log.describe(self.save_roll(log, 13), now=1.1), [])
         self.assertEqual(log.describe(self.probe(15)),
-                         ["Mountain Stalker saves vs Hold Person from Dag (spell): d20 = 13 +2 modifiers = 15, "
+                         ["Mountain Stalker saves vs Hold Person from Dag (spell): d20 = 13 +2 other = 15, "
                           "needs 14 (45% to save) -> saved"])
 
     def test_save_shows_what_it_leaves(self):
@@ -556,8 +556,26 @@ class SaveTests(unittest.TestCase):
         log = make_game()
         set_effects(log, [(0x29, 0, 7), (0x29, 0, 58)])  # Blessed (saves), Displacement (AC only)
         log.describe(self.save_roll(log, 7))
-        self.assertTrue(log.describe(self.probe(9))[0].endswith(
-            "d20 = 7 +2 modifiers (incl. Blessed) = 9, needs 14 (45% to save) -> failed"))
+        self.assertTrue(log.describe(self.probe(8))[0].endswith(
+            "d20 = 7 +1 Blessed = 8, needs 14 (40% to save) -> failed"))
+        log.describe(self.save_roll(log, 7))  # something the log can't account for
+        self.assertTrue(log.describe(self.probe(10))[0].endswith(
+            "d20 = 7 +1 Blessed +2 other = 10, needs 14 (50% to save) -> failed"))
+
+    def test_modifiers_by_damage_kind_and_con(self):
+        log = make_game()
+        set_effects(log, [(0x29, 0, 40), (0x29, 0, 7)])  # Prot Fire, Blessed
+        log.describe(self.save_roll(log, 7, spell=FIREBALL))
+        self.assertEqual(log.describe(self.probe(18, needed=15, spell=FIREBALL)),
+                         ["Mountain Stalker saves vs Fireball from Dag (spell): d20 = 7, doubled against fire "
+                          "= 14 +1 Blessed +3 Prot Fire = 18, needs 15 (75% to save) -> saved"])
+        # paralysis/poison/death: a dwarf's CON counts twice over
+        m = log.guest.mem
+        m[SHEETS + STALKER * game.SHEET_SIZE + game.SHEET_RACE] = game.DWARF
+        m[CREATURES + STALKER * game.CREATURE_SIZE + game.CREATURE_ABILITIES + 2] = 19
+        m[DS * 16 + game.SAVE_CON + 19] = 1
+        self.assertEqual(log.game.save_modifiers(0x29, 0, HOLD_PERSON, game.PPD_SAVE),
+                         [(1, "Blessed"), (5, "dwarf CON 19"), (1, "CON 19")])
 
     def test_natural_20_needs_no_probe(self):
         log = make_game()

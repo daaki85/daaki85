@@ -278,6 +278,20 @@ def party_records(guest: GuestMemory, ds: int) -> List[Tuple[Optional[int], Opti
 INITIATIVE_EFFECTS = {8: -2, 22: 2, 47: -2}  # Blind, Hasted, Slowed
 
 
+# A saving throw's modifiers, as the game's routine (79D3Ch in DSUN.EXE) adds them to the d20:
+# effects on the target, its class, race and WIS or CON, and who cast the spell
+SAVE_CON, SAVE_WIS = 0x810, 0x82A  # DS: a byte per ability score (CON for paralysis/poison/death saves)
+PPD_SAVE = 1  # the sheet's paralysis/poison/death save
+EVIL_ALIGNMENTS = (3, 6, 9)  # lawful, neutral and chaotic evil
+SAVE_WIS_CATEGORY = 0x1E  # spells WIS counts against: mind-affecting, charms and holds, fear, illusions
+SAVE_PSIONICIST_CATEGORY = 0x06  # ... and psionicists' +2: mind-affecting, charms and holds
+DRUID_CLASSES, PSIONICIST = range(5, 9), 12
+DWARF, HALFLING, UNDEAD = 2, 6, 9
+EFFECT_BLESSED, EFFECT_BLIND, EFFECT_DETECT_INVIS, EFFECT_INVISIBLE, EFFECT_INVIS_UNDEAD = 7, 8, 15, 23, 24
+EFFECT_PROT_EVIL, EFFECT_PROT_COLD, EFFECT_PROT_FIRE, EFFECT_PROT_LIGHTNING = 38, 36, 40, 41
+EFFECT_SAVE_PENALTY, EFFECT_SPIRIT_ARMOR, EFFECT_BARKSKIN, EFFECT_PRAYER = 45, 56, 57, 73
+
+
 class Effect(NamedTuple):
     owner: int  # combatant id
     caster: int  # combatant id
@@ -604,6 +618,69 @@ class GameData:
         """A mind-affecting spell (charms, fear, feeblemind...): bits 26h of the word at +11h."""
         rec = self.spell_record(spell)
         return len(rec) >= SPELL_SIZE and bool(struct.unpack_from("<H", rec, 0x11)[0] & MIND_AFFECTING)
+
+    def save_modifiers(self, target: int, caster: int, spell: int, save: int) -> List[Tuple[int, str]]:
+        """What the game adds to a saving throw's d20 (besides the spell's own modifier), as
+        [(amount, why), ...]: the target's effects, class, race and WIS or CON, and whether
+        the caster is evil or can see the target."""
+        ti, ci = self.combatant_creature(target), self.combatant_creature(caster)
+        if ti is None:
+            return []
+        rec, sheet, creature = self.spell_record(spell), self.sheet(ti), self.creature(ti)
+        if len(rec) < SPELL_SIZE or len(sheet) < SHEET_SIZE or len(creature) < CREATURE_SIZE:
+            return []
+        category, = struct.unpack_from("<H", rec, 0x11)
+        kinds, = struct.unpack_from("<H", rec, 0x1A)
+        area = rec[0x17] != 0xFF  # a spell with an area (a table entry for it)
+        effects = self.effects()
+        mine = {x.id for x in effects if x.owner == target}
+        theirs = {x.id for x in effects if x.owner == caster} if caster != target else set()
+        caster_sheet = self.sheet(ci) if ci is not None else b""
+        out: List[Tuple[int, str]] = []
+        if EFFECT_SAVE_PENALTY in mine:
+            out.append((-1, EFFECT_NAMES[EFFECT_SAVE_PENALTY]))
+        if EFFECT_SPIRIT_ARMOR in mine and save != PPD_SAVE:
+            out.append((3, EFFECT_NAMES[EFFECT_SPIRIT_ARMOR]))
+        if EFFECT_BARKSKIN in mine:
+            out.append((1, EFFECT_NAMES[EFFECT_BARKSKIN]))
+        if EFFECT_BLESSED in mine:
+            out.append((1, EFFECT_NAMES[EFFECT_BLESSED]))
+        if EFFECT_PROT_EVIL in mine and len(caster_sheet) >= SHEET_SIZE and caster_sheet[0x1A] in EVIL_ALIGNMENTS:
+            out.append((2, "Prot Evil against an evil caster"))
+        for bit, eff, amount in ((0x80, EFFECT_PROT_LIGHTNING, 4), (0x04, EFFECT_PROT_COLD, 3),
+                                 (0x02, EFFECT_PROT_FIRE, 3)):
+            if kinds & bit and eff in mine:
+                out.append((amount, EFFECT_NAMES[eff]))
+        prayer = next((x for x in effects if x.id == EFFECT_PRAYER and x.owner == target), None)
+        if prayer is not None:
+            source = self.combatant_creature(prayer.caster)
+            same = source is not None and self.creature(source)[CREATURE_SIDE] == creature[CREATURE_SIDE]
+            out.append((1 if same else -1, "Prayer, " + ("its caster's side" if same else "the other side's")))
+        if not area and caster != target:
+            undead_caster = len(caster_sheet) >= SHEET_SIZE and caster_sheet[SHEET_RACE] == UNDEAD
+            if EFFECT_BLIND in theirs:
+                out.append((4, "the caster is Blind"))
+            elif EFFECT_DETECT_INVIS not in theirs and (EFFECT_INVISIBLE in mine
+                                                         or (EFFECT_INVIS_UNDEAD in mine and undead_caster)):
+                out.append((4, "Invisible to the caster"))
+        if kinds & 0x82 and any(self.class_level(ti, c) for c in DRUID_CLASSES):
+            out.append((2, "druid against fire and electricity"))
+        if self.class_level(ti, PSIONICIST) and category & SAVE_PSIONICIST_CATEGORY:
+            out.append((2, "psionicist against the mind"))
+        abilities = creature[CREATURE_ABILITIES:CREATURE_ABILITIES + 6]
+        if category & SAVE_WIS_CATEGORY:
+            wis = abilities[4]
+            adjust = struct.unpack("b", self.guest.read(self.ds * 16 + SAVE_WIS + wis, 1))[0]
+            if adjust:
+                out.append((adjust, f"WIS {wis}"))
+        if save == PPD_SAVE:
+            con = abilities[2]
+            if sheet[SHEET_RACE] in (DWARF, HALFLING):
+                out.append((con * 2 // 7, f"{'dwarf' if sheet[SHEET_RACE] == DWARF else 'halfling'} CON {con}"))
+            adjust = struct.unpack("b", self.guest.read(self.ds * 16 + SAVE_CON + con, 1))[0]
+            if adjust:
+                out.append((adjust, f"CON {con}"))
+        return [(amount, why) for amount, why in out if amount]
 
     def magic_resistance(self, combatant: int) -> Optional[int]:
         """The base magic resistance (percent) on a creature's character sheet."""
