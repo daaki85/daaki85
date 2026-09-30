@@ -65,9 +65,10 @@ PATCHES = (
     # (DSCLOG then shows the companion's summary of the turn that ended, if it wants to)
     Patch("turn", 0x1C953, bytes.fromhex("83c404"), _interrupt(VEC_TURN, 3)),
     # the combat routine that call runs, once it has passed the turn on and before it plays a
-    # turn the computer runs (a monster's) whole: cmp word [bp-2],0 (DSCLOG checks the turn
-    # there too, so the turn before gets its own summary, then does the compare)
-    Patch("next", 0x5734F, bytes.fromhex("837efe00"), _interrupt(VEC_NEXT, 4)),
+    # turn the computer runs (a monster's) whole: cmp word [bp-2],0 / jne +5 (DSCLOG checks
+    # the turn there too, so the turn before gets its own summary, then goes where the compare
+    # and the jump would have; the jump is left as it is, but DSCLOG relies on it being there)
+    Patch("next", 0x5734F, bytes.fromhex("837efe007505"), _interrupt(VEC_NEXT, 4) + bytes.fromhex("7505")),
     # the USE (cast spells) screen, after it labels its LEVEL button: add sp,0Ch
     # (DSCLOG then draws the character's spell slots under the spells)
     Patch("use", 0x70FBB, bytes.fromhex("83c40c"), _interrupt(VEC_USE, 3)),

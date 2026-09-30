@@ -67,7 +67,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvD'          ; +0
+sig      db 'DSCLOGvE'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -891,29 +891,42 @@ probe_turn:                     ; (re-entered while the window waits: all state 
         popad
         iret
 
-; PROBE_NEXT: INT VEC_NEXT replaces "cmp word [bp-2],0" (4 bytes: INT + 2 NOPs) in the combat
-; routine PROBE_TURN's call runs, once it has passed the turn on (DS:4979h) and before it
-; plays the turn of a combatant the computer runs (a monster, or someone charmed). The game
-; plays such a turn whole before its loop reaches PROBE_TURN, so without this the monster's
-; rolls would join the summary of the turn before. Checks the turn as PROBE_TURN does, then
-; sets the flags as the compare would have.
+; PROBE_NEXT: INT VEC_NEXT replaces "cmp word [bp-2],0" (4 bytes: INT + 2 NOPs, then the
+; game's "jne +5") in the combat routine PROBE_TURN's call runs, once it has passed the turn on
+; (DS:4979h) and before it plays the turn of a combatant the computer runs (a monster, or
+; someone charmed). The game plays such a turn whole before its loop reaches PROBE_TURN, so
+; without this the monster's rolls would join the summary of the turn before. Checks the turn
+; as PROBE_TURN does, then goes on where the compare and the JNE would have gone.
+; The combat routine is overlay code, and the summary's window is too: loading the window's
+; code may move the combat routine or throw it out of memory while the window is up. The
+; overlay manager then fixes up the return addresses it finds by following BP from frame to
+; frame, so the way back is put in such a frame (as a far call's return address, with BP
+; pointing at the game's), and taken from there afterwards: the combat routine where it is
+; now, or the manager's trap that loads it again. (Returning to where it was before broke
+; the game at random: the fight started over, or it stopped with "Stack overflow!")
 probe_next:
         sti
         pushad
         push es
+        mov bx, sp              ; the interrupt frame at BX+34: IP, CS, flags
+        mov ax, [ss:bx + 34]    ; (the NOPs after the INT)
+        add ax, 4               ; past the NOPs and the JNE when the compare finds 0 ...
+        cmp word [bp - 2], 0    ; the replaced compare (BP: the combat routine's frame)
+        je .frame
+        add ax, 5               ; ... and to its target when not
+.frame: push word [ss:bx + 36]
+        push ax
+        push bp
+        mov bp, sp
         call turn_check
+        pop bp
+        pop ax                  ; the way back, as the overlay manager has left it
+        pop dx
+        mov bx, sp
+        mov [ss:bx + 34], ax
+        mov [ss:bx + 36], dx
         pop es
         popad
-        cmp word [bp - 2], 0    ; the replaced compare (BP: the combat routine's frame)
-        pushf
-        push ax
-        push bx
-        mov bx, sp
-        mov ax, [ss:bx + 4]
-        mov [ss:bx + 10], ax    ; its flags, for IRET
-        pop bx
-        pop ax
-        add sp, 2
         iret
 
 ; whose turn it is (DS:4979h) has changed since last seen: count it, wait a moment for the

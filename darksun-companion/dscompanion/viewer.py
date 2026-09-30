@@ -58,6 +58,7 @@ class Viewer:
         self.ds: Optional[int] = None  # the game's data segment, once found
         self.dice: Optional[DiceLog] = None
         self.next_try = 0.0  # when to retry connecting / attaching
+        self.dosbox = None  # the game, when started from here (Start the game)
         # the game's portraits and font, from the player's own install (if it can be found)
         self.art = art.GameArt(launch.find_game_dir())
         self._images: List[tk.PhotoImage] = []  # Tk shows an image only while it's referenced
@@ -86,6 +87,9 @@ class Viewer:
         ttk.Button(top, text="Save layout", command=self.save_layout).pack(side="right")
         ttk.Button(top, text="Reload layout", command=self.reload_layout).pack(side="right", padx=4)
         ttk.Button(top, text="Reconnect", command=self.reconnect).pack(side="right")
+        # for when the Ledger was opened on its own: start the game (with the dice log) from here
+        self.start_button = ttk.Button(top, text="Start the game", command=self.start_game)
+        self.start_button.pack(side="left")
         # text size, also Ctrl + / Ctrl - / Ctrl 0
         ttk.Button(top, text="A+", width=3, command=lambda: self.zoom(1.15)).pack(side="right", padx=(4, 12))
         ttk.Button(top, text="A-", width=3, command=lambda: self.zoom(1 / 1.15)).pack(side="right")
@@ -296,9 +300,10 @@ class Viewer:
         self.boots_move = tk.BooleanVar(value=bool(settings.get("boots_move", True)))
         ttk.Checkbutton(rules, text="Boots give 1 more move in a fight", variable=self.boots_move,
                         command=self._popups_changed).pack(anchor="w", pady=(4, 0))
-        # the companion's own item: a Ring +1 on the dead prisoner in the arena (ring.py)
+        # the companion's own item: a Ring +1 on the Tied-up Prisoner in the arena (ring.py)
         self.arena_ring = tk.BooleanVar(value=bool(settings.get("arena_ring", True)))
-        ttk.Checkbutton(in_game, text="Put a Ring of Protection +1 (+1 AC, +1 on saves) on the dead prisoner in the arena",
+        ttk.Checkbutton(in_game, text="Put a Ring of Protection +1 (+1 AC, +1 on saves) on the arena's Tied-up Prisoner, "
+                        "found on his body once he's dead",
                         variable=self.arena_ring, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
 
     def _slot_box(self, parent) -> ttk.Combobox:
@@ -372,6 +377,40 @@ class Viewer:
             return
         self.status.set(f"Connected to DOSBox pid {self.guest.proc.pid}, "
                         f"guest RAM {self.guest.size // (1024 * 1024)} MB at host {self.guest.base:#x}")
+
+    def start_game(self) -> None:
+        """Start Shattered Lands with the dice log, as "Start Game with Dice Log.bat" does; the
+        Ledger attaches to it once DOSBox is up. The game folder is the remembered one, or asked
+        for (and then remembered)."""
+        if self.guest or (self.dosbox and self.dosbox.poll() is None):
+            return
+        game_dir = launch.find_game_dir()
+        if game_dir is None:
+            game_dir = filedialog.askdirectory(parent=self.root, title="Where is Dark Sun: Shattered Lands installed?")
+            if not game_dir:
+                return
+            if not launch.is_game_dir(game_dir):
+                messagebox.showerror("Start the game", f"{game_dir} has no DSUN.EXE and DOSBOX folder; "
+                                     "pick the GOG install folder of Shattered Lands.")
+                return
+            launch.save_settings(dict(launch.load_settings(), game_dir=game_dir))
+            self.art = art.GameArt(game_dir)
+        try:
+            self.dosbox, problem = launch.launch(game_dir)
+        except (launch.LaunchError, OSError) as e:
+            messagebox.showerror("Start the game", str(e))
+            return
+        if problem:
+            self.status.set(f"Starting the game without the dice log: it can't run with this copy ({problem}).")
+        else:
+            self.status.set(f"Starting Shattered Lands from {game_dir}...")
+        self.next_try = time.monotonic() + RETRY_SECONDS
+        self._start_state()
+
+    def _start_state(self) -> None:
+        """"Start the game" only while there's no game to attach to."""
+        running = self.guest is not None or (self.dosbox is not None and self.dosbox.poll() is None)
+        self.start_button.state(["disabled"] if running else ["!disabled"])
 
     def reload_layout(self) -> None:
         try:
@@ -482,6 +521,7 @@ class Viewer:
     def _tick(self) -> None:
         if not self.guest and time.monotonic() >= self.next_try:
             self.reconnect(quiet=True)
+        self._start_state()
         if self.guest:
             try:
                 self._auto_locate()

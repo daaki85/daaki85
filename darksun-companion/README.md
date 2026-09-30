@@ -44,8 +44,8 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   these additions and the Ledger's window start together.
 - **Spells:** a tab listing what every spell and psionic power really does,
   from the game's own records (see [the Spells tab](#the-spells-tab)).
-- **A Ring +1** (+1 AC, +1 on saving throws) to loot from the dead prisoner in
-  the arena, an item of the Ledger's own (see [The Ring +1](#the-ring-1)), and
+- **A Ring +1** (+1 AC, +1 on saving throws) to loot from the Tied-up
+  Prisoner's body in the arena, an item of the Ledger's own (see [The Ring +1](#the-ring-1)), and
   two optional rule changes: helms give AC 1, boots a move more in a fight (see
   [Rule changes](#rule-changes-helms-and-boots)).
 
@@ -127,8 +127,12 @@ pick Triple.
 Load your game. The party's stats fill in by themselves, and rolls appear in
 the **Dice log** tab as they happen.
 
-If you start the game the normal way instead, **`Start Templar's Ledger.bat`** still
-shows the party, but the dice log will say the game was started without it.
+**`Start Templar's Ledger.bat`** opens the Ledger on its own. If the game isn't
+running, its **Start the game** button (top left) starts it with the dice log,
+as `Start Game with Dice Log.bat` does (asking where the game is the first
+time), and the Ledger picks it up once DOSBox is up. With the game started the
+normal way instead, the Ledger still shows the party, but the dice log will
+say the game was started without it.
 
 **Just the game, with the in-game additions, no Ledger window:** double-click
 **`Play Dark Sun (in-game rolls).bat`**. The dice log runs unseen and stops
@@ -624,24 +628,29 @@ are no rings or cloaks of protection, which is why the Ledger adds
 
 A ring of protection the game never had: **+1 AC and +1 on every saving
 throw** for whoever wears it, called a Ring of Protection. With **Put a Ring of
-Protection +1 (+1 AC, +1 on saves) on the
-dead prisoner in the arena** ticked on the Options tab (it is by default),
-the Ledger puts one in the body lying just below the Tied-up Prisoner in the
-arena, the first time the party is there with the Ledger (or **Play Dark Sun
-(in-game rolls)**) running:
+Protection +1 (+1 AC, +1 on saves) on the arena's Tied-up Prisoner** ticked on
+the Options tab (it is by default), it is on the Tied-up Prisoner, the bound
+man beside the vulture in the arena: free him (he dies as he falls from his
+bonds), then look at his body (right-click until the cursor is the eye, then
+click it) to open it. The game makes him a "Dead Slave" that can't be opened;
+the Ledger (or **Play Dark Sun (in-game rolls)**) makes that body a container
+with the ring in it, and the log says so:
 
 ```
-A Ring of Protection +1 (+1 AC, +1 on saves) is on the dead prisoner in the arena, below the Tied-up Prisoner.
+The Tied-up Prisoner's body holds a Ring of Protection +1 (+1 AC, +1 on saves).
 ```
 
-Look at the body (right-click until the cursor is the eye, then click it) to
-open it, click the ring, then click a character to put it in their backpack;
-wear it on a finger from the inventory screen. The inventory screen calls it
-**RING OF PROTECTION**, and the box Look opens on it **Ring of Protection+1**:
-the game puts an item's plus straight after its name there, as for any other
-item with a plus.
-The Ledger puts one there only while there is no Ring +1 in the arena or with
-the party, so taking it doesn't make another appear.
+(Killing him where he hangs leaves the same body, ring and all.) Click the
+ring, then a character to put it in their backpack, and wear it on a finger
+from the inventory screen. The game's names are at most 15 letters long, and
+longer ones run out of the Look box, so in the game it is **RING/PROTECTION**
+on the inventory screen and **Ring/Protection+1** in the box Look opens on it
+(shortened the way the game shortens its own "Helm/Contempltn"; the game puts
+an item's plus straight after its name there, as for any item with a plus).
+The Ledger's own screens and the log call it Ring of Protection.
+It happens once: a body already opened, or a Ring +1 with the party or
+anywhere in the arena, gets no other. Games saved with an earlier version,
+where the ring was in the body lying below him, keep it there.
 
 How it works: the game has a plain "Ring" item that nothing in it has a plus
 on, and no item that betters saving throws. The Ledger adds a Ring with a plus
@@ -681,10 +690,10 @@ with **Play Dark Sun (in-game rolls)**, which uses the Options as last set):
   Characters tab shows it: `Move: 12 (13 in a fight: boots)`.
 
 The game has no descriptions of items, only their names, so while a rule is on
-the Ledger names the items for it: **Helm (AC 1)**, **Dapartea's Helm (AC 1)**,
-**Helm/Contempltn (AC 1)**, **Helm of Might (AC 1)**, **Boots (+1 Move)** and
-**Serpent Boots (+1 Move)**, as the inventory screen and the Characters tab
-show them. With the rule off they're the game's own names again. (Like the
+the Ledger names the items for it: **Helm (AC 1)** and **Boots (+1 Move)**, as
+the inventory screen and the Characters tab show them. (Dapartea's Helm,
+Helm/Contempltn, Helm of Might and Serpent Boots get the rule too, but keep
+their names: with the note they'd be too long for the game's Look box.) With the rule off they're the game's own names again. (Like the
 Ring of Protection's, the names are in the game's name table, which it reads
 afresh each time it starts; without the Ledger they're the game's own.)
 
@@ -953,7 +962,10 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    combat loop `INT F1h`, the USE screen `INT F2h`, the View Character screen
    `INT F3h`, the end of the window redraw `INT F4h`, the Look box `INT F5h`
    and `INT F6h`, the start of a monster's turn `INT F7h` (see In the
-   game), and the places where AC and a saving throw's modifiers are added up
+   game; that one is in overlay code, which the game moves or unloads to load
+   the dialogue window's, so the helper puts its way back in a stack frame the
+   game's overlay manager fixes up, rather than returning to a stale address:
+   that used to restart a fight, or stop the game with "Stack overflow!"), and the places where AC and a saving throw's modifiers are added up
    `INT F8h` and `INT F9h` (for [the Ring +1](#the-ring-1) and helms), each
    weapon's line on the inventory screen `INT FAh`, and the start of a round's
    movement `INT FBh` (for boots), and

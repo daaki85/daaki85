@@ -30,7 +30,7 @@ from .guestmem import GuestMemory
 from .textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGvD"
+HDR_SIG = b"DSCLOGvE"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
 MSG_SIZE = 900
@@ -304,7 +304,7 @@ class DiceLog:
         self.popups = False  # in-game turn summaries (set_popups)
         self.popup_detail = True  # ... with the dice log's lines, or in short
         self.monster_info = True  # monsters' defences in the game's Look box (set_monster_info)
-        self.arena_ring = True  # put the Ring +1 on the dead prisoner in the arena (ring.py)
+        self.arena_ring = True  # put the Ring +1 on the Tied-up Prisoner's body in the arena (ring.py)
         self.rules = 0  # RULE_HELMS | RULE_BOOTS: rule changes DSCLOG makes (set_rules)
         self._ring_check = 0.0
         self._look_seq = 0
