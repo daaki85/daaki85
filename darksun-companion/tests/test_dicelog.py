@@ -240,6 +240,51 @@ class AttackTests(unittest.TestCase):
                          b"Dag attacks Mountain Stalker: 18 vs 4+ HIT, 20 damage; 3 vs 4+ miss")
         self.assertEqual(log.turn_summary(0), "")  # a new turn starts afresh
 
+    def test_look_box_describes_the_monster(self):
+        log = make_game()
+        m = log.guest.mem
+        from dscompanion import monsters
+        stalker = CREATURES + STALKER * game.CREATURE_SIZE
+        struct.pack_into("<hH", m, stalker, 38, STALKER)  # 38 HP now
+        struct.pack_into("<H", m, stalker + monsters.CREATURE_KIND, 3)
+        sheet = SHEETS + STALKER * game.SHEET_SIZE
+        struct.pack_into("<h", m, sheet + game.SHEET_MAX_HP, 60)
+        m[sheet + game.SHEET_MAGIC_RESISTANCE] = 30
+        kinds = (LOAD_SEG + monsters.MONSTER_KINDS_SEG) * 16  # kind 3: resistance class 11
+        m[kinds + monsters.KIND_CLASS_OFF + 3] = 11
+        struct.pack_into("<2H", m, kinds + monsters.CLASS_MASKS_OFF + 11 * monsters.CLASS_SIZE, 0x38, 0xB200)
+        m[kinds + monsters.CLASS_PERCENTS_OFF + 11 * monsters.CLASS_SIZE + 1] = 100
+        log.last_ac[STALKER] = 4
+        struct.pack_into("<H", m, HDR + dicelog.TSR_HDR_OFF, 0)
+        struct.pack_into("<HH", m, HDR + dicelog.TSR_LOOK_OFF, 0x300, 0x500)
+        log.set_monster_info(True)
+        self.assertEqual(struct.unpack_from("<H", m, HDR + dicelog.TSR_LOOK_ON)[0], 1)
+        struct.pack_into("<HH", m, HDR + dicelog.TSR_LOOK_SEQ, 1, 0)
+        struct.pack_into("<H", m, HDR + dicelog.TSR_LOOK_WHO, 0x29)
+        lines = log._answer_look()
+        self.assertEqual(struct.unpack_from("<H", m, HDR + dicelog.TSR_LOOK_REPLY)[0], 1)
+        self.assertEqual(bytes(m[HDR + 0x300:HDR + 0x340]).split(b"\0")[0],
+                         b"HP 38/60 AC 4|THAC0 11 MR 30|NEEDS +1 WEAPON")
+        whole = bytes(m[HDR + 0x500:HDR + 0x600]).split(b"\0")[0].decode()
+        self.assertIn("magic resistance 30 pct", whole)
+        self.assertIn("Only +1 or better weapons hurt it.", whole)
+        self.assertEqual(lines[0], "Look: Mountain Stalker: HP 38/60, AC 4, THAC0 11, magic resistance 30%.")
+        self.assertEqual(log._answer_look(), [])  # asked once
+        # nothing special about it: the box's lines, but no window
+        m[kinds + monsters.KIND_CLASS_OFF + 3] = 0
+        struct.pack_into("<HH", m, HDR + dicelog.TSR_LOOK_SEQ, 5, 4)
+        struct.pack_into("<H", m, HDR + dicelog.TSR_LOOK_WHO, 0x29)
+        log._look_seq = 4
+        self.assertEqual(len(log._answer_look()), 1)
+        self.assertEqual(bytes(m[HDR + 0x300:HDR + 0x340]).split(b"\0")[0], b"HP 38/60 AC 4|THAC0 11 MR 30")
+        self.assertEqual(m[HDR + 0x500], 0)
+        # a party member: nothing to add (the game shows the View Character screen)
+        struct.pack_into("<HH", m, HDR + dicelog.TSR_LOOK_SEQ, 2, 1)
+        struct.pack_into("<H", m, HDR + dicelog.TSR_LOOK_WHO, 0)
+        self.assertEqual(log._answer_look(), [])
+        self.assertEqual(struct.unpack_from("<H", m, HDR + dicelog.TSR_LOOK_REPLY)[0], 2)
+        self.assertEqual(m[HDR + 0x300], 0)
+
     def test_spells_and_saves_in_the_game_summary(self):
         log = make_game()
         log._note_turn(["Round 2: Dag 25, Mountain Stalker 18", "    Dag 25 = 20 + 5 (0-9 roll)",

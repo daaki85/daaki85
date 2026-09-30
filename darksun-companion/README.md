@@ -36,8 +36,12 @@ parts:
   [spell slots](#in-the-game-spell-slots-on-the-use-screen)); and after each
   turn in a fight the game stops to show that turn's attack rolls, spell
   damage and saving throws, and who is still to act (see
-  [each turn's rolls](#in-the-game-each-turns-rolls)). The game, these
-  additions and the Ledger's window start together.
+  [each turn's rolls](#in-the-game-each-turns-rolls)); and Looking at a monster
+  in a fight tells you what hurts it (see
+  [the Look box](#in-the-game-what-hurts-a-monster-the-look-box)). The game,
+  these additions and the Ledger's window start together.
+- **Spells:** a tab listing what every spell and psionic power really does,
+  from the game's own records (see [the Spells tab](#the-spells-tab)).
 
 Nothing in the game folder or your save files is changed. The viewer only reads
 memory. For the dice log, the launcher runs a patched copy of the game that it
@@ -641,6 +645,70 @@ the game's dialogue window the way the game's scripts do for a narration
 box is unticked, the game doesn't wait at all. (INT 66h-6Fh can't be used: the
 game calls those itself, looking for sound drivers.)
 
+### In the game: what hurts a monster (the Look box)
+
+In a fight, Look at a monster (right-click until the cursor is the Look icon,
+then click the monster) and the game's small box, under its name and level,
+now also shows its hit points and AC, its THAC0 and magic resistance (`MR`),
+and its most important defence: `NEEDS +1 WEAPON`, `IMM FIRE COLD`,
+`NO CRUSH`, `HALF FROM WPNS` or `UNDEAD`. Its own status lines (casting,
+charmed, held...) follow in any row left. When there's more to say, closing
+the box shows everything in the game's dialogue window: the weapons it needs,
+the damage it's immune to or takes half of, spells that don't work on it, and
+what its hits do besides damage. The dice log gets the same lines (`Look:
+...`). Untick **Describe monsters when you Look at them in a fight** on the
+Dice log tab to turn this off.
+
+![The Look box on the arena's Defiler: HP, AC and THAC0 added](docs/look-box.png)
+
+(The arena's Defiler, like the other people in the early fights, has no
+special defences, so its box shows just the numbers.)
+
+How: the patched game calls the helper (`INT F5h`) where the box has drawn its
+first status rows; the helper asks the Ledger (as for each turn's rolls), and
+prints the lines with the game's text routine. `INT F6h`, at the end of the
+routine that closes the box, shows the whole description.
+
+### Monsters' defences
+
+From the game's damage code (DSUN.EXE); none of this is in the manual:
+
+- Every creature has a monster kind, and each kind a resistance class and a
+  set of properties, in a table the game fills when it starts.
+- Every hit has damage kinds: fire, cold, electricity, acid, poison, draining,
+  psionic, death, and for weapons crushing, edged or pointed, from the item's
+  type. A weapon's hit also carries its magic: one bit for +1 or better, one
+  for +2 or better and one for +3 or better (the weapon's plus, or its
+  ammunition's if that's higher). A monster's own attacks count as magical by
+  its level: (level - 2) / 2, so a 6th-level monster hits like a +2 weapon.
+- A resistance class is up to four rules: "these kinds of damage: this
+  percent of it". The largest percent that applies counts. So "crushing, edged
+  and pointed: 0%; +1 or better: 100%" is a monster only magical weapons hurt.
+  The game's 14 classes come to: only +1 (or +2) weapons hurt it, sometimes
+  with immunity to poison and draining, or to fire; half damage from
+  non-magical weapons and psionic attacks; immune to crushing weapons, or to
+  edged and pointed ones; immune to fire and cold (and half from
+  electricity); half from fire; immune to poison; immune to psionic attacks.
+- Properties: can't be charmed or held; unaffected by spells left on the
+  ground (fogs, clouds, walls, Web, Grease); not held by Grease, Web,
+  Entangle, Solid Fog or Quicksand; and hits that also cast one of the
+  monsters' powers on the target: 2d6 cold, 2d6 or 20 acid, paralysis,
+  poison of 10 or 30 damage, a deadly Poison, disease on 1 hit in 10.
+- Undead (race 9 on the character sheet) take nothing from poison and
+  draining, and mind-affecting spells, charms and holds don't work on them.
+
+### The Spells tab
+
+What each wizard and priest spell and psionic power does, read from the
+running game's records: its damage dice and kinds (and that damage stops
+growing at caster level 10), its saving throw (which of the five, any
+modifier, whether the d20 counts double, and whether saving halves or stops
+the damage), the effect it gives and what that does, how long it lasts, and
+each party member's caster level for it. **Show** picks wizard, priest or
+psionic, and **Only spells the party has a caster level for** leaves out the
+rest. **Save...** writes it to a text file. It's filled when you open the tab
+(or press **Refresh**) while the game is running.
+
 ### The Dialogue tab
 
 Everything the game shows in its dialogue window, one entry per window of
@@ -686,7 +754,8 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    the dialogue window and the start of the message box routine become
    `INT 60h` to `64h`, the inventory screen's panel calls `INT 65h`, the
    combat loop `INT F1h`, the USE screen `INT F2h`, the View Character screen
-   `INT F3h` and the end of the window redraw `INT F4h` (see In the game), and
+   `INT F3h`, the end of the window redraw `INT F4h`, and the Look box `INT F5h`
+   and `INT F6h` (see In the game), and
    the copy looks for its data files in the current
    folder rather than next to itself. DOSBox runs it from the game folder, so
    it uses your saves as usual.
@@ -742,7 +811,8 @@ WCAG 2.0 level AA:
 - **Keyboard:** Tab and Shift+Tab move between controls, and the one with the
   keyboard focus is outlined in yellow. **Ctrl+Tab** switches tabs, as do
   **Alt+L** (Dice log), **Alt+I** (Dialogue) and **Alt+M** (Memory tools),
-  and on the party side **Alt+C** (Characters) and **Alt+A** (All fields).
+  **Alt+S** (Spells), and on the party side **Alt+C** (Characters) and
+  **Alt+A** (All fields).
 - **The game's font** is only used for the title: it's a 9-pixel bitmap
   font, fine enlarged as a heading but harder to read than ordinary text,
   so everything else is in the system's fonts.

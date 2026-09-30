@@ -15,7 +15,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Dict, List, Optional, Tuple
 
-from . import art, game, launch, partyview, theme, values
+from . import art, game, launch, partyview, spellbook, theme, values
 from .dicelog import DiceLog, DiceLogError
 from .guestmem import GuestMemory
 from .layout import Layout
@@ -149,6 +149,10 @@ class Viewer:
         self.popup_detail = tk.BooleanVar(value=settings.get("turn_popups_detail", True))
         ttk.Checkbutton(dice, text="... in detail, as in the log (MORE shows the next lines)",
                         variable=self.popup_detail, command=self._popups_changed).pack(anchor="w", padx=(20, 0))
+        # the game's Look box, on a monster in a fight: what hurts it, then all of it in a window
+        self.monster_info = tk.BooleanVar(value=bool(settings.get("monster_info", True)))
+        ttk.Checkbutton(dice, text="Describe monsters when you Look at them in a fight (defences, then a window)",
+                        variable=self.monster_info, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
         self.dice_status = tk.StringVar(value="Waiting for the game...")
         ttk.Label(dice, textvariable=self.dice_status).pack(fill="x", pady=(4, 0))
         # the round's order stays here while the log scrolls on: who acts now, who is still to come
@@ -194,6 +198,36 @@ class Viewer:
         self.talk_text.tag_configure("chosen", foreground=theme.GREEN)
         self._last_portrait: Optional[int] = None
         self.talk_text.tag_bind("speaker", "<Button-3>", self._speaker_clicked)
+
+        # what each spell and psionic power really does, from the game's records
+        spells = ttk.Frame(tabs, padding=6)
+        tabs.add(spells, text="Spells", underline=0)
+        row = ttk.Frame(spells)
+        row.pack(fill="x")
+        ttk.Label(row, text="Show").pack(side="left")
+        self.spell_kind = tk.StringVar(value="All")
+        kind = ttk.Combobox(row, textvariable=self.spell_kind, state="readonly", width=10,
+                            values=("All", "Wizard", "Priest", "Psionic"))
+        kind.pack(side="left", padx=4)
+        kind.bind("<<ComboboxSelected>>", lambda _e: self.show_spells())
+        ttk.Button(row, text="Save...", command=lambda: self.save_text(self.spell_text, "spells")).pack(side="right")
+        ttk.Button(row, text="Refresh", command=self.show_spells).pack(side="right", padx=4)
+        self.spells_party = tk.BooleanVar(value=False)
+        ttk.Checkbutton(spells, text="Only spells the party has a caster level for", variable=self.spells_party,
+                        command=self.show_spells).pack(anchor="w", pady=(4, 0))
+        box = ttk.Frame(spells)
+        box.pack(fill="both", expand=True, pady=(6, 0))
+        self.spell_text = tk.Text(box, wrap="word", height=20, font="TkTextFont")
+        theme.style_text(self.spell_text)
+        scroll = ttk.Scrollbar(box, command=self.spell_text.yview)
+        self.spell_text.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        self.spell_text.pack(side="left", fill="both", expand=True)
+        self.spell_text.tag_configure("name", font=theme.fonts()[1], foreground=theme.YELLOW)
+        self.spell_text.insert("end", "Connect to the game to read its spells.")
+        tabs.bind("<<NotebookTabChanged>>", lambda _e: self.show_spells()
+                  if tabs.select() == str(spells) and not self._spells_shown else None)
+        self._spells_shown = False
 
         tools = ttk.Frame(tabs, padding=6)
         tabs.add(tools, text="Memory tools", underline=0)
@@ -476,6 +510,7 @@ class Viewer:
                 self.dice.learned_speakers = launch.learned_speakers()
                 self.dice.popups = self.popups.get()
                 self.dice.popup_detail = self.popup_detail.get()
+                self.dice.monster_info = self.monster_info.get()
             try:
                 self.dice_status.set(self.dice.attach())
             except DiceLogError as e:
@@ -545,10 +580,34 @@ class Viewer:
         settings = launch.load_settings()
         settings["turn_popups"] = on
         settings["turn_popups_detail"] = self.popup_detail.get()
+        settings["monster_info"] = self.monster_info.get()
         launch.save_settings(settings)
         if self.dice is not None:
             self.dice.set_popups(on)
             self.dice.popup_detail = self.popup_detail.get()
+            self.dice.set_monster_info(self.monster_info.get())
+
+    def show_spells(self) -> None:
+        """Fill the Spells tab from the running game's records."""
+        self.spell_text.delete("1.0", "end")
+        if not self.guest or self.ds is None:
+            self.spell_text.insert("end", "Connect to the game to read its spells.")
+            return
+        try:
+            spells = spellbook.all_spells(game.GameData(self.guest, self.ds))
+        except (struct.error, IndexError, ValueError, OSError) as e:
+            self.spell_text.insert("end", f"Couldn't read the spells: {e}")
+            return
+        kind = self.spell_kind.get()
+        shown = [s for s in spells if (kind == "All" or s.magic == kind)
+                 and (not self.spells_party.get() or s.casters)]
+        for info in shown:
+            first, *rest = info.lines()
+            self.spell_text.insert("end", first + "\n", "name")
+            self.spell_text.insert("end", "".join(line + "\n" for line in rest) + "\n")
+        if not shown:
+            self.spell_text.insert("end", "No spells to show.")
+        self._spells_shown = True
 
     def _speaker_clicked(self, event) -> None:
         tags = self.talk_text.tag_names(f"@{event.x},{event.y}")

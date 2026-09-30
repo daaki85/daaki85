@@ -31,6 +31,8 @@ VEC_TURN equ 0xF1     ; PROBE_TURN (not 66h-6Fh: the game calls those, looking f
 VEC_USE  equ 0xF2     ; PROBE_USE
 VEC_VIEW equ 0xF3     ; PROBE_VIEW
 VEC_WIN  equ 0xF4     ; PROBE_WIN
+VEC_LOOK equ 0xF5     ; PROBE_LOOK
+VEC_UNLOOK equ 0xF6   ; PROBE_UNLOOK
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -59,7 +61,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGv7'          ; +0
+sig      db 'DSCLOGv8'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -104,6 +106,14 @@ ended     dw 0                  ; +146 the combatant whose turn just ended
 slots_off dw slots_text         ; +148 offset of SLOTS_TEXT: 4 x SLOTS_SIZE bytes, one per party
                                 ;      member, lines separated by "|", NUL-terminated (the companion
                                 ;      keeps them up to date); PROBE_USE draws them
+look_seq   dw 0                 ; +150 monsters looked at in a fight (PROBE_LOOK counts them)
+look_reply dw 0                 ; +152 the companion sets this to LOOK_SEQ once LOOK_TEXT is ready
+look_who   dw 0                 ; +154 the combatant looked at
+look_off   dw look_text         ; +156 offset of LOOK_TEXT: up to 3 short lines for the Look box,
+                                ;      separated by "|", NUL-terminated
+look_full_off dw look_full      ; +158 offset of LOOK_FULL: the whole description, shown in the
+                                ;      dialogue window afterwards (empty: none)
+look_on    dw 0                 ; +160 the companion sets 1 to have monsters described
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -866,6 +876,15 @@ probe_turn:                     ; (re-entered while the window waits: all state 
         jmp .out                ; no answer: the companion isn't reading
 .ready: cmp byte [cs:msg_buf], 0
         je .out                 ; nothing to say about that turn
+        mov word [cs:show_text], msg_buf
+        call show_window
+.out:   pop es
+        popad
+        iret
+
+; the text at CS:[SHOW_TEXT] in the game's dialogue window, with "Continue" to click;
+; DS = the game's
+show_window:
         mov byte [cs:showing], 1
         mov ax, ds
         add ax, DLG_STUB
@@ -878,9 +897,9 @@ probe_turn:                     ; (re-entered while the window waits: all state 
         push word 1
         call far [cs:dlg]
         add sp, 8
-        push word 0             ; the summary
+        push word 0             ; the text
         push cs
-        push word msg_buf
+        push word [cs:show_text]
         push word 2
         call far [cs:dlg]
         add sp, 8
@@ -911,10 +930,9 @@ probe_turn:                     ; (re-entered while the window waits: all state 
         call far [cs:dlg]
         add sp, 8
         mov byte [cs:showing], 0
-.out:   pop es
-        popad
-        iret
+        ret
 
+show_text dw 0                  ; the text SHOW_WINDOW shows
 dlg     dd 0                    ; the dialogue window routine being called
 showing db 0                    ; 1 while PROBE_TURN has a summary up
 last_turn dw 0xFFFF
@@ -1050,6 +1068,128 @@ use_draw:                       ; the selected character's slots in the USE scre
         cmp dx, USE_LAST_Y
         jbe .line
 .done:  ret
+; PROBE_LOOK: INT VEC_LOOK replaces "mov si,ax / xor di,di" (4 bytes: INT + 2 NOPs) in the
+; routine that fills the Look box (right-click to Look, then a monster in a fight), where the
+; first of its four status rows have been drawn and AX says how many. Asks the companion
+; for up to three short lines about the monster (LOOK_TEXT), prints them in the rows left
+; with the game's text routine, as the box prints the monster's level, and moves the game's
+; row count past them, so its own status lines follow in any row still free. If the
+; companion also gave the whole description (LOOK_FULL), PROBE_TURN shows it in the dialogue
+; window as the box closes (PROBE_UNLOOK).
+LOOK_PATCH equ 0x5FCDA          ; DSUN.EXE offsets
+LOOK_DRAW  equ 0x5FCB8          ; "lcall 0090h:0A40h" operand: the text routine
+LOOK_ROWS  equ 4                ; the box's status rows: y = (row + 2) * 7 + 10h
+probe_look:
+        sti
+        pushad
+        push es
+        mov si, sp              ; SS:SI: ES, then EDI, ESI, EBP, ESP, EBX, EDX, ECX, EAX, IP, CS, flags
+        mov ax, [ss:si + 30]
+        mov [cs:l_row], ax      ; the rows the game has used
+        cmp word [cs:look_on], 0
+        je .done
+        mov bx, [bp + 0xA]      ; the combatant (BP: the Look routine's frame)
+        mov [cs:look_who], bx
+        mov byte [cs:look_text], 0
+        mov byte [cs:look_full], 0
+        inc word [cs:look_seq]
+        xor ax, ax
+        mov es, ax
+        mov dx, [es:0x46C]      ; the BIOS timer
+.wait:  mov ax, [cs:look_reply]
+        cmp ax, [cs:look_seq]
+        je .ready
+        mov ax, [es:0x46C]
+        sub ax, dx
+        cmp ax, TURN_WAIT
+        jb .wait
+        jmp .done               ; no answer: the companion isn't reading
+.ready: mov es, [ss:si + 36]
+        mov di, [ss:si + 34]
+        sub di, 2               ; ES:DI = the patch
+        mov eax, [es:di + LOOK_DRAW - LOOK_PATCH]
+        mov [cs:l_draw], eax
+        mov eax, [bp + 6]       ; the box's window
+        mov [cs:l_win], eax
+        mov di, look_text
+.line:  cmp word [cs:l_row], LOOK_ROWS
+        jae .full
+        cmp byte [cs:di], 0
+        je .full
+        mov bx, l_line          ; the next line, up to "|", into L_LINE
+.copy:  mov al, [cs:di]
+        cmp al, '|'
+        je .cut
+        or al, al
+        je .cut
+        cmp bx, l_line + L_LINE_SIZE - 1
+        jae .skip
+        mov [cs:bx], al
+        inc bx
+.skip:  inc di
+        jmp .copy
+.cut:   mov byte [cs:bx], 0
+        cmp byte [cs:di], '|'
+        jne .draw
+        inc di
+.draw:  push di
+        mov ax, [cs:l_row]
+        add ax, 2
+        imul ax, ax, 7
+        add ax, 0x10
+        push word 0x11          ; as the box prints LEVEL
+        push word 0x1F
+        push ax                 ; y
+        push word 6             ; x
+        push cs
+        push word l_line
+        push dword [cs:l_win]
+        call far [cs:l_draw]
+        add sp, 16
+        pop di
+        inc word [cs:l_row]
+        jmp .line
+.full:  cmp byte [cs:look_full], 0
+        je .done
+        mov byte [cs:look_pending], 1
+.done:  mov si, sp              ; the replaced code: SI = the rows used, DI = 0
+        mov ax, [cs:l_row]
+        mov [ss:si + 6], ax
+        mov dword [ss:si + 2], 0
+        pop es
+        popad
+        iret
+
+; PROBE_UNLOOK: INT VEC_UNLOOK replaces "mov word [0844h],270Fh" (6 bytes: INT + 4 NOPs) at the
+; end of the routine that closes the Look box (the game forgets whom it was looking at). Does
+; that, then shows the monster's whole description (LOOK_FULL) in the dialogue window.
+probe_unlook:
+        mov word [0x844], 0x270F  ; the replaced instruction (DS = the game's)
+        sti
+        pushad
+        push es
+        cmp byte [cs:look_pending], 0
+        je .out
+        cmp byte [cs:showing], 0
+        jne .out
+        mov byte [cs:look_pending], 0
+        mov word [cs:show_text], look_full
+        call show_window
+.out:   pop es
+        popad
+        iret
+
+L_LINE_SIZE equ 24
+LOOK_SIZE   equ 80
+LOOK_FULL_SIZE equ 700
+l_row   dw 0
+l_draw  dd 0
+l_win   dd 0
+l_line  times L_LINE_SIZE db 0
+look_pending db 0
+look_text times LOOK_SIZE db 0
+look_full times LOOK_FULL_SIZE db 0
+
 USE_X      equ 0x96             ; the panel under the spells (window coordinates): its top,
 USE_FIRST_Y equ 0x6C            ; three lines above where the icons of usable items (fruit,
 USE_STEP   equ 7                ; wands...) go, along the panel's bottom from 0x81
@@ -1089,7 +1229,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 10
+        mov cx, 12
 .check:
         lodsb
         mov ah, 35h
@@ -1135,6 +1275,12 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_WIN
         mov dx, probe_win
         int 21h
+        mov ax, 2500h + VEC_LOOK
+        mov dx, probe_look
+        int 21h
+        mov ax, 2500h + VEC_UNLOOK
+        mov dx, probe_unlook
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -1150,8 +1296,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or F1h-F4h are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN
+busy    db 'DSCLOG: interrupts 60h-65h or F1h-F6h are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK
 
         align 16, db 0
 image_len equ $ - $$

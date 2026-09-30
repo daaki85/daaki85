@@ -27,7 +27,7 @@ from typing import NamedTuple
 GOG_SIZE = 611408  # DSUN.EXE of the GOG release (1.1)
 
 VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR = range(0x60, 0x66)  # as in dsclog.asm
-VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN = 0xF1, 0xF2, 0xF3, 0xF4  # not 66h-6Fh: the game calls those itself, looking for drivers
+VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK = 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6  # not 66h-6Fh: the game calls those itself, looking for drivers
 
 
 class Patch(NamedTuple):
@@ -67,6 +67,12 @@ PATCHES = (
     # the end of the routine that brings a window to the front and redraws it: xor ax,ax /
     # pop si (for the USE screen's window, DSCLOG draws the spell slots again)
     Patch("window", 0x2BBA9, bytes.fromhex("33c05e"), _interrupt(VEC_WIN, 3)),
+    # the Look box (a creature in a fight), once its first status rows are drawn: mov si,ax /
+    # xor di,di (DSCLOG then adds the monster's defences in the rows left, and does the moves)
+    Patch("look", 0x5FCDA, bytes.fromhex("8bf033ff"), _interrupt(VEC_LOOK, 4)),
+    # the end of the routine that closes the Look box: mov word [0844h],270Fh (DSCLOG does it,
+    # then shows the monster's whole description in the dialogue window)
+    Patch("unlook", 0x5F2AA, bytes.fromhex("c70644080f27"), _interrupt(VEC_UNLOOK, 6)),
     # The data path is argv[0] cut after its last \ or :, kept at DS:4B81h. The
     # code that finds the cut becomes: path = ".\", then on to "mov byte [si],0"
     # which ends it. (Not an empty path: the save list needs a \ in it.)

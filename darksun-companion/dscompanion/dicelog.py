@@ -23,14 +23,14 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
-from . import game
+from . import game, monsters
 from .game import (CONVENTIONAL_AND_UPPER, CREATURE_ABILITIES, CREATURE_SIDE, CREATURE_THAC0, EFFECT_NAMES,
                    EFFECT_RULES, MATERIAL_TO_HIT, MATERIALS, SAVE_NAMES, STR_DAMAGE, GameData)
 from .guestmem import GuestMemory
 from .textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGv7"
+HDR_SIG = b"DSCLOGv8"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
 MSG_SIZE = 900
@@ -40,6 +40,9 @@ TO_HIT_CHANCE = re.compile(r", (?:needs \d+\+|hits on anything but a 1|only a 20
 # ... and the party's spell slots, for the game's USE screen (PROBE_USE)
 TSR_SLOTS_OFF, SLOTS_SIZE = 148, 96
 SLOTS_LINES = 3  # lines of spell slots the USE screen has room for
+# ... and what the Look box says about a monster (PROBE_LOOK)
+TSR_LOOK_SEQ, TSR_LOOK_REPLY, TSR_LOOK_WHO, TSR_LOOK_OFF, TSR_LOOK_FULL_OFF, TSR_LOOK_ON = 150, 152, 154, 156, 158, 160
+LOOK_SIZE, LOOK_FULL_SIZE = 80, 700
 SLOT_KINDS = {"Wizard": "WIZ", "Priest": "PRI"}
 RAND_PATCHED = b"\xcd\x60"  # INT 60h at the start of rand() in DSUNLOG.EXE
 RAND_IP = 0x822  # rand()'s offset in the game's first code segment
@@ -293,6 +296,8 @@ class DiceLog:
         self._talk: Optional[dict] = None  # the conversation on screen: its portraits and who it's with
         self.popups = False  # in-game turn summaries (set_popups)
         self.popup_detail = True  # ... with the dice log's lines, or in short
+        self.monster_info = True  # monsters' defences in the game's Look box (set_monster_info)
+        self._look_seq = 0
         self._turn_seq = 0
         self._turn_attacks: Dict[int, List[dict]] = {}  # creature -> this turn's attacks
         self._turn_log: List[str] = []  # this turn's rolls as the log has them (attacks, spells, saves)
@@ -349,7 +354,9 @@ class DiceLog:
         self.text = TextBuffer(self.guest.read, hdr)
         self.set_record_everything(self.record_everything)
         self.set_popups(self.popups)
+        self.set_monster_info(self.monster_info)
         self._turn_seq = struct.unpack("<H", self.guest.read(hdr + TSR_TURN_SEQ, 2))[0]
+        self._look_seq = struct.unpack("<H", self.guest.read(hdr + TSR_LOOK_SEQ, 2))[0]
         self.last_seq = struct.unpack("<H", self.guest.read(hdr + 8, 2))[0]
         self._effects = None
         return "Dice log attached."
@@ -367,6 +374,44 @@ class DiceLog:
         self.popups = on
         if self.tsr_hdr is not None:
             self.guest.write(self.tsr_hdr + TSR_POPUPS, struct.pack("<H", int(on)))
+
+    def set_monster_info(self, on: bool) -> None:
+        """Have the game's Look box (in a fight) say what hurts a monster, and then show all of it."""
+        self.monster_info = on
+        if self.tsr_hdr is not None:
+            self.guest.write(self.tsr_hdr + TSR_LOOK_ON, struct.pack("<H", int(on)))
+
+    def _answer_look(self) -> List[str]:
+        """DSCLOG asks about a creature the player looks at in a fight: give the Look box its
+        short lines and the whole description, and log it."""
+        if self.tsr_hdr is None:
+            return []
+        seq = struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_LOOK_SEQ, 2))[0]
+        if seq == self._look_seq:
+            return []
+        self._look_seq = seq
+        who = struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_LOOK_WHO, 2))[0]
+        short: List[str] = []
+        full: List[str] = []
+        index = self.game.combatant_creature(who)
+        if index is not None and index >= game.PARTY_SIZE:
+            try:
+                tables = monsters.MonsterTables(self.guest.read, self.game.load_seg)
+                short, full = monsters.monster_lines(self.game, tables, index, self.last_ac.get(index))
+            except (struct.error, IndexError, ValueError):
+                short, full = [], []
+        base = self.tsr_hdr - struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_HDR_OFF, 2))[0]
+        text = "|".join(short).encode("cp437", "replace")[:LOOK_SIZE - 1]
+        # the window only when there's more to say than the box's HP, AC and THAC0
+        whole = " ".join(full).replace("%", " pct").encode("cp437", "replace")[:LOOK_FULL_SIZE - 1] \
+            if len(full) > 1 else b""
+        if whole:
+            self._own_text.add(whole.decode("cp437"))  # not dialogue
+        self.guest.write(base + struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_LOOK_OFF, 2))[0], text + b"\0")
+        self.guest.write(base + struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_LOOK_FULL_OFF, 2))[0],
+                         whole + b"\0")
+        self.guest.write(self.tsr_hdr + TSR_LOOK_REPLY, struct.pack("<H", seq))
+        return [f"Look: {full[0]}"] + [f"    {line}" for line in full[1:]] if full else []
 
     def _note_turn(self, lines: List[str]) -> None:
         """Keep the turn's rolls for the game's summary: everything the log says about them
@@ -544,6 +589,7 @@ class DiceLog:
             # first, for the end of the summary
             out += self.initiative_lines()
         self._answer_turn()  # after the entries: they hold the turn's last attack
+        out += self._answer_look()
         changes = self.hp_changes(now) + self.psp_changes()
         if not self._party_check(now):  # not while a game is loading: its records are half-filled
             out += changes
