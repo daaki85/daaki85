@@ -497,6 +497,12 @@ class GameData:
             return None
         return name
 
+    def living_npc(self, index: int) -> bool:
+        """A creature outside the party, named and alive."""
+        rec = self.creature(index)
+        return index >= PARTY_SIZE and len(rec) >= CREATURE_SIZE and bool(rec[CREATURE_NAME]) \
+            and struct.unpack_from("<h", rec, 0)[0] > 0
+
     def talk_target_creature(self) -> Optional[int]:
         """The creature index of the person being talked to (see talk_target), or None."""
         combatant, = struct.unpack("<h", self.guest.read((self.load_seg + TALK_SEG) * 16 + TALK_TARGET, 2))

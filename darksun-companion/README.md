@@ -677,8 +677,18 @@ a saving throw's modifiers, it starts from the pluses of the rings worn. So:
 
 The game has one pocket to pick, in the Trustee's conversation (his key). With
 **P in a conversation** ticked on the Options tab (it is by default), a thief
-can try anyone's: in a conversation, with the thief as the party's leader
-(keys 1-4), press **P**. The Ledger rolls the leader's pick pockets chance as
+can try anyone's, two ways, with the thief as the party's leader (keys 1-4):
+
+- **Thieving tools.** Every thief in the party finds a set in their backpack
+  (once; the log says so): an item with a key's picture, called **pick** (the
+  game's name table has no room for a name of its own, so it borrows the
+  game's word). On the inventory screen, pick the tools up, go back to the
+  game with them on the pointer, and click someone in sight: the result comes
+  up in the game's message window, and the tools stay on the pointer for the
+  next one. (Clicking open ground drops them, as with anything carried.)
+- **P in a conversation.** In a conversation, press **P**.
+
+Either way, the Ledger rolls the leader's pick pockets chance as
 it stands now (armour and effects counted, as in the thief rows):
 
 - **Success:** one small thing goes into the thief's backpack (its first free
@@ -709,7 +719,10 @@ Daaki picks Kurzak's pocket: d100 = 71, needs 63 or less -> failed
 
 How: the patched game's conversation window sends a key it doesn't know to
 the helper (`INT FCh`), which has the Ledger roll and move the item, then adds
-the result to the window's text.
+the result to the window's text; and the routine that uses the item on the
+pointer on something on the map tells the helper what was used on what
+(`INT FDh`): for the thieving tools on someone, the Ledger does the same, and
+the helper shows the result instead of the game's "nothing happens".
 
 ### Rule changes: helms and boots
 
@@ -1009,7 +1022,8 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    `INT F8h` and `INT F9h` (for [the Ring +1](#the-ring-1) and helms), each
    weapon's line on the inventory screen `INT FAh`, and the start of a round's
    movement `INT FBh` (for boots), a key the conversation window doesn't know
-   `INT FCh` (for [picking pockets](#picking-pockets)), and
+   `INT FCh` and an item used on the map `INT FDh` (for
+   [picking pockets](#picking-pockets)), and
    the copy looks for its data files in the current
    folder rather than next to itself. DOSBox runs it from the game folder, so
    it uses your saves as usual.

@@ -105,6 +105,17 @@ def add_pickpocketed(keys: List[str]) -> None:
     save_settings(settings)
 
 
+def tools_given() -> set:
+    """The thieves given thieving tools already (tools.py)."""
+    return set(load_settings().get("tools_given", []))
+
+
+def add_tools_given(keys: List[str]) -> None:
+    settings = load_settings()
+    settings["tools_given"] = sorted(set(settings.get("tools_given", [])) | set(keys))
+    save_settings(settings)
+
+
 def add_learned_speakers(learned: Dict[int, str]) -> None:
     settings = load_settings()
     settings.setdefault("speakers_learned", {}).update({str(k): v for k, v in learned.items()})

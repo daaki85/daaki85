@@ -40,6 +40,7 @@ VEC_RING_SAVE equ 0xF9  ; PROBE_RING_SAVE
 VEC_WEAPON equ 0xFA   ; PROBE_WEAPON
 VEC_MOVE   equ 0xFB   ; PROBE_MOVE
 VEC_PICK   equ 0xFC   ; PROBE_PICK
+VEC_USE_ITEM equ 0xFD ; PROBE_USE_ITEM
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -68,7 +69,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvF'          ; +0
+sig      db 'DSCLOGvG'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -133,6 +134,12 @@ pick_reply dw 0                 ; +174 ... and set to it by the companion once P
 pick_off   dw pick_text         ; +176 offset of PICK_TEXT: what came of it, NUL-terminated (empty:
                                 ;      nothing to show)
 pick_on    dw 0                 ; +178 the companion sets 1 to take P as picking a pocket
+use_seq    dw 0                 ; +180 an item used on something on the map (PROBE_USE_ITEM counts) ...
+use_reply  dw 0                 ; +182 ... and set to it by the companion once it has had its say
+use_who    dw 0                 ; +184 the object it was used on
+use_taken  dw 0                 ; +186 the companion sets 1 when it was one of its own (the thieving
+                                ;      tools): the game then does nothing more, and PICK_TEXT is shown
+use_item   dw 0                 ; +188 the item used (FFFFh: none)
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -1011,6 +1018,82 @@ pick_show:
 PICK_SIZE equ 240
 pick_text times PICK_SIZE db 0
 
+; PROBE_USE_ITEM: INT VEC_USE_ITEM replaces "cmp si,-1 / jne +3" (5 bytes: INT + 3 NOPs) in the
+; routine that uses the item on the pointer on whatever is under it on the map (SI: that
+; object, -1 for none). When the companion wants picked pockets: count it, wait a moment for
+; the companion to see whether the item is its thieving tools and the object someone to rob
+; (USE_TAKEN), and if so show what came of it (PICK_TEXT) and skip the game's own handling (the
+; routine's end). Otherwise on as the compare and the JNE would have gone. Overlay code: the
+; way back is put in a frame the overlay manager can fix up, as for PROBE_NEXT.
+USE_NONE  equ 0x7361A - 0x73617 ; (DSUN.EXE) SI = -1: "jmp", less the address after the INT
+USE_SOME  equ 0x7361D - 0x73617 ; the JNE's target
+USE_DONE  equ 0x7371D - 0x73617 ; the routine's end
+USE_HELD_SEG equ 0x73A15 - 0x73617 ; the routine's "mov dx,<segment>" for the pointer's items,
+                                ;   whose operand the game fixes up when it loads the code
+HELD      equ 0x17A0            ; DS: the pointer's item (in that segment at HELD * 10 + 44h)
+probe_use_item:
+        sti
+        pushad
+        push es
+        mov bx, sp              ; the interrupt frame at BX+34: IP, CS, flags
+        mov dx, USE_NONE
+        cmp si, -1
+        je .go
+        mov dx, USE_SOME
+        cmp word [cs:pick_on], 0
+        je .go
+        mov [cs:use_who], si
+        mov word [cs:use_taken], 0
+        mov word [cs:use_item], 0xFFFF
+        mov di, [HELD]          ; (DS: the game's)
+        cmp di, -1
+        je .asked
+        imul di, di, 10
+        push ds
+        push si
+        lds si, [ss:bx + 34]    ; DS:SI: the code after the INT
+        mov ds, [si + USE_HELD_SEG]  ; the pointer's items' segment, as fixed up
+        mov ax, [di + 0x44]
+        pop si
+        pop ds
+        mov [cs:use_item], ax
+.asked:
+        inc word [cs:use_seq]
+        xor ax, ax
+        mov es, ax
+        mov cx, [es:0x46C]      ; the BIOS timer
+.wait:  mov ax, [cs:use_reply]
+        cmp ax, [cs:use_seq]
+        je .ready
+        mov ax, [es:0x46C]
+        sub ax, cx
+        cmp ax, PICK_WAIT
+        jb .wait
+        jmp .go                 ; no answer: the companion isn't reading
+.ready: cmp word [cs:use_taken], 0
+        je .go
+        mov dx, USE_DONE
+        add [ss:bx + 34], dx
+        cmp byte [cs:pick_text], 0
+        je .out
+        push word [ss:bx + 36]
+        push word [ss:bx + 34]
+        push bp
+        mov bp, sp
+        mov word [cs:show_text], pick_text
+        call show_window
+        pop bp
+        pop ax                  ; the way back, as the overlay manager has left it
+        pop dx
+        mov bx, sp
+        mov [ss:bx + 34], ax
+        mov [ss:bx + 36], dx
+        jmp .out
+.go:    add [ss:bx + 34], dx
+.out:   pop es
+        popad
+        iret
+
 ; whose turn it is (DS:4979h) has changed since last seen: count it, wait a moment for the
 ; companion's summary of the turn that ended (MSG_BUF) and show it; DS = the game's
 turn_check:
@@ -1731,7 +1814,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 18
+        mov cx, 19
 .check:
         lodsb
         mov ah, 35h
@@ -1801,6 +1884,9 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_PICK
         mov dx, probe_pick
         int 21h
+        mov ax, 2500h + VEC_USE_ITEM
+        mov dx, probe_use_item
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -1816,8 +1902,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or F1h-FCh are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK
+busy    db 'DSCLOG: interrupts 60h-65h or F1h-FDh are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM
 
         align 16, db 0
 image_len equ $ - $$

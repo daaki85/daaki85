@@ -33,7 +33,7 @@ GOG_SIZE = 611408  # DSUN.EXE of the GOG release (1.1)
 
 VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR = range(0x60, 0x66)  # as in dsclog.asm
 VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT = 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7  # not 66h-6Fh: the game calls those itself, looking for drivers
-VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK = 0xF8, 0xF9, 0xFA, 0xFB, 0xFC
+VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM = 0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD
 
 
 class Patch(NamedTuple):
@@ -99,6 +99,11 @@ PATCHES = (
     # the dialogue window's key handling, where a key it doesn't know goes: jmp <ignore it>
     # (DSCLOG takes P as trying to pick the pocket of the person talked to)
     Patch("pick", 0x7D9FD, bytes.fromhex("e97003"), _interrupt(VEC_PICK, 3)),
+    # the routine that uses the item on the pointer on what's under it on the map, once it has
+    # found that: cmp si,-1 / jne +3 (DSCLOG has the Ledger see to its thieving tools there)
+    Patch("use_item", 0x73615, bytes.fromhex("83feff7503"), _interrupt(VEC_USE_ITEM, 5)),
+    # (not changed: DSCLOG reads the segment this "mov dx,<segment>" loads, the pointer's items')
+    Patch("use_item_seg", 0x73A14, bytes.fromhex("ba8003"), bytes.fromhex("ba8003")),
     # The data path is argv[0] cut after its last \ or :, kept at DS:4B81h. The
     # code that finds the cut becomes: path = ".\", then on to "mov byte [si],0"
     # which ends it. (Not an empty path: the save list needs a \ in it.)

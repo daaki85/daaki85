@@ -14,10 +14,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dscompanion.dicelog import FILTERS, HDR_SIG, Entry
 from dscompanion.textlog import TextBuffer
-from dscompanion.gamepatch import VEC_AC, VEC_MSG, VEC_NEXT, VEC_RAND, VEC_RING_AC, VEC_RING_SAVE, VEC_SAVE, VEC_TEXT
+from dscompanion.gamepatch import VEC_AC, VEC_MSG, VEC_NEXT, VEC_RAND, VEC_RING_AC, VEC_USE_ITEM, VEC_RING_SAVE, VEC_SAVE, VEC_TEXT
 
 try:
-    from unicorn import Uc, UC_ARCH_X86, UC_HOOK_INTR, UC_MODE_16
+    from unicorn import Uc, UC_ARCH_X86, UC_HOOK_INTR, UC_HOOK_MEM_WRITE, UC_MODE_16
     from unicorn import x86_const as r
 except ImportError:  # optional dependency
     Uc = None
@@ -300,6 +300,62 @@ class NextTests(unittest.TestCase):
         """The summary shown, the way back is the one the overlay manager left in the frame."""
         self.run_next(3, popups=1, until=self.MOVED)
         self.assertEqual(self.mu.mem_read(self.hdr + 138, 2), struct.pack("<H", 1))  # the turn counted
+
+
+@unittest.skipIf(Uc is None, "unicorn is not installed")
+class UseItemTests(unittest.TestCase):
+    """PROBE_USE_ITEM, where the game uses the item on the pointer on what's under it: on as the
+    compare and JNE it replaces would go, or, for the Ledger's thieving tools, to the routine's
+    end (DSUN.EXE: 7361Ah, 7361Dh and 7371Dh, less the address after the INT)."""
+    NONE, SOME, DONE = 0x605, 0x608, 0x602 + 0x106
+
+    def setUp(self):
+        image = load_image()
+        self.mu = mu = Uc(UC_ARCH_X86, UC_MODE_16)
+        mu.mem_map(0, 0x100000)
+        mu.mem_write(TSR * 16, image)
+        self.hdr = TSR * 16 + image.find(HDR_SIG)
+        handler = image.find(bytes.fromhex("fb66600689e3ba0300"))  # sti, pushad, push es, mov bx,sp, mov dx,3
+        self.assertGreater(handler, 0)
+        mu.mem_write(VEC_USE_ITEM * 4, struct.pack("<HH", handler, TSR))
+        mu.hook_add(UC_HOOK_INTR, real_mode_interrupt)
+        self.taken = 0
+
+        def companion(uc, access, address, size, value, _):  # answers as soon as it's asked
+            if address == self.hdr + 180:
+                uc.mem_write(self.hdr + 182, struct.pack("<H", value))
+                uc.mem_write(self.hdr + 186, struct.pack("<H", self.taken))
+        mu.hook_add(UC_HOOK_MEM_WRITE, companion, begin=self.hdr + 180, end=self.hdr + 181)
+
+    def run_use(self, si, until, on=1):
+        mu = self.mu
+        mu.mem_write(CALLER * 16 + 0x600, bytes((0xCD, VEC_USE_ITEM, 0x90, 0x90, 0x90)))
+        mu.mem_write(self.hdr + 178, struct.pack("<H", on))
+        mu.mem_write(TSR * 16 + struct.unpack("<H", mu.mem_read(self.hdr + 176, 2))[0], b"\0")
+        for name, value in dict(cs=CALLER, ds=GAME_DS, ss=SS, esp=0x800, ebp=BP, eflags=IF | 2, esi=si).items():
+            mu.reg_write(getattr(r, "UC_X86_REG_" + name.upper()), value)
+        mu.emu_start(CALLER * 16 + 0x600, CALLER * 16 + until, count=100000)
+        self.assertEqual((mu.reg_read(r.UC_X86_REG_IP), mu.reg_read(r.UC_X86_REG_SP), mu.reg_read(r.UC_X86_REG_SI)),
+                         (until, 0x800, si))
+
+    def test_nothing_there(self):
+        self.run_use(0xFFFF, self.NONE)
+
+    def test_not_ours(self):
+        """The Ledger is told what was used on what: the pointer's item 1, item 231 in the
+        segment the routine's "mov dx,<segment>" (3FEh past the INT) loads."""
+        mu = self.mu
+        mu.mem_write(GAME_DS * 16 + 0x17A0, struct.pack("<h", 1))
+        mu.mem_write(CALLER * 16 + 0x602 + 0x3FE, struct.pack("<H", 0x9000))
+        mu.mem_write(0x9000 * 16 + 1 * 10 + 0x44, struct.pack("<H", 231))
+        self.run_use(300, self.SOME, on=0)
+        self.run_use(300, self.SOME)  # the Ledger says it's not its tools
+        self.assertEqual(struct.unpack("<HH", mu.mem_read(self.hdr + 184, 2) + mu.mem_read(self.hdr + 188, 2)),
+                         (300, 231))
+
+    def test_the_tools(self):
+        self.taken = 1
+        self.run_use(300, self.DONE)
 
 
 @unittest.skipIf(Uc is None, "unicorn is not installed")

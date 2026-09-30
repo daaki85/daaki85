@@ -67,7 +67,7 @@ def _carried(gd: GameData, it: ring.Items, creature: int) -> List[Tuple[int, int
     return out
 
 
-def _free_cell(gd: GameData, it: ring.Items, member: int) -> Optional[int]:
+def free_cell(gd: GameData, it: ring.Items, member: int) -> Optional[int]:
     used = set()
     rec = gd.creature(member)
     for offset in game.CREATURE_ITEM_LISTS:
@@ -94,7 +94,7 @@ def _take(gd: GameData, it: ring.Items, creature: int, list_no: int, item: int, 
         gd.guest.write(base + offset, struct.pack("<H", game.NO_ITEM))
 
 
-def _give(gd: GameData, it: ring.Items, member: int, item: int, cell: int) -> bool:
+def give(gd: GameData, it: ring.Items, member: int, item: int, cell: int) -> bool:
     """Put ITEM first in one of the party member's lists, in backpack cell CELL."""
     ds = gd.ds * 16
     base = game.far_pointer(gd.guest, gd.ds, game.CREATURES_PTR) + member * game.CREATURE_SIZE
@@ -128,10 +128,15 @@ COINS = (2, 5)  # ceramic pieces in a purse with nothing else worth taking
 
 
 def attempt(gd: GameData, tried: set, roll: Callable[[], int] = lambda: random.randint(1, 100),
-            coin_roll: Callable[[], int] = lambda: random.randint(*COINS)) -> Optional[Attempt]:
-    """P pressed in a conversation: the leader tries the pocket of whoever is talked to. None
-    when no one is (a narration, or someone in the party)."""
-    who = gd.talk_target_creature()
+            coin_roll: Callable[[], int] = lambda: random.randint(*COINS),
+            who: Optional[int] = None) -> Optional[Attempt]:
+    """The leader tries the pocket of creature WHO (the thieving tools used on them), or of
+    whoever is talked to (P pressed in a conversation). None when there's no one to rob (a
+    narration, someone in the party, a dead body)."""
+    if who is None:
+        who = gd.talk_target_creature()
+    elif not gd.living_npc(who):
+        return None
     if who is None:
         return None
     npc = gd.creature_name(who)
@@ -146,9 +151,9 @@ def attempt(gd: GameData, tried: set, roll: Callable[[], int] = lambda: random.r
         return Attempt(f"(Try the {npc}'s pocket with what you say to him.)", [])
     key = f"{gd.creature_name(0)}|{gd.region()}|{who}|{npc}"  # (the party's first name: another game's)
     if key in tried:
-        return Attempt(f"{npc} keeps a hand on their pockets since catching {thief}.", [])
+        return Attempt(f"{npc} keeps a close hand on their purse now: {thief} won't get another chance.", [])
     it = ring.Items(gd)
-    cell = _free_cell(gd, it, leader)
+    cell = free_cell(gd, it, leader)
     if cell is None:
         return Attempt(f"{thief}'s backpack is full.", [])
     d100 = roll()
@@ -167,7 +172,7 @@ def attempt(gd: GameData, tried: set, roll: Callable[[], int] = lambda: random.r
             data = it.item(item)
             name = gd.item_label(data, gd.item_type_record(data))
             _take(gd, it, who, list_no, item, before)
-            if not _give(gd, ring.Items(gd), leader, item, cell):
+            if not give(gd, ring.Items(gd), leader, item, cell):
                 return Attempt(f"{thief} can't take anything now.", lines)
             text = f"{thief} lifts {name} from {npc} unnoticed."
         lines.append("  " + text)

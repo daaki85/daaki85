@@ -581,6 +581,7 @@ class Viewer:
                 self.dice.arena_ring = self.arena_ring.get()
                 self.dice.pickpockets = self.pickpockets.get()
                 self.dice.picked = launch.pickpocketed()
+                self.dice.tools_given = launch.tools_given()
                 self.dice.rules = self._rules()
             try:
                 self.dice_status.set(self.dice.attach())
@@ -600,6 +601,9 @@ class Viewer:
         picked = self.dice.take_picked()
         if picked:
             launch.add_pickpocketed(picked)
+        given = self.dice.take_tools_given()
+        if given:
+            launch.add_tools_given(given)
         learned = self.dice.take_speakers()
         if learned:  # names worked out from conversations: keep them, and show them on earlier lines
             launch.add_learned_speakers(learned)

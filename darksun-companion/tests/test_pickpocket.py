@@ -8,7 +8,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dscompanion import game, pickpocket, ring
+from dscompanion import game, pickpocket, ring, tools
 from test_dicelog import CREATURES, DS, ITEM_TYPES, ITEMS, LOAD_SEG, NAMES
 from test_now import ThiefTests
 
@@ -84,7 +84,7 @@ class PickTests(unittest.TestCase):
         self.assertEqual(self.guard_items(), [CLUB, SWORD, KEY, BOOTS])
         self.assertIn("moves silently to get away: d100 = 17, needs 16 or less -> failed", result.log[1])
         self.tried.add(result.key)  # (as the dice log does)
-        self.assertEqual(self.attempt(1).text, "Guard keeps a hand on their pockets since catching Dag.")
+        self.assertEqual(self.attempt(1).text, "Guard keeps a close hand on their purse now: Dag won't get another chance.")
 
     def test_slips_away(self):
         """Unnoticed: he may try again."""
@@ -105,3 +105,27 @@ class PickTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ToolsTests(unittest.TestCase):
+    def setUp(self):
+        self.pick = PickTests()
+        self.pick.setUp()
+        self.gd = self.pick.log.game
+        struct.pack_into("<HH", self.pick.m, DS * 16 + ring.FREE_ITEMS, 90, 0)
+        struct.pack_into("<h", self.pick.m, ITEMS + 90 * game.ITEM_SIZE + game.ITEM_NEXT, 91)
+
+    def test_a_set_for_each_thief_once(self):
+        given = set()
+        lines = tools.give_tools(self.gd, given)
+        self.assertEqual(len(lines), 1)  # Dag only: the others aren't thieves
+        self.assertIn((90, 13), self.pick.dag_items())
+        self.assertTrue(tools.is_tools(ring.Items(self.gd).item(90)))
+        self.assertEqual(tools.give_tools(self.gd, given), [])
+
+    def test_tools_on_someone(self):
+        """Used on the Guard (creature 5): the same as P in a conversation with him."""
+        struct.pack_into("<h", self.pick.m, (LOAD_SEG + game.TALK_SEG) * 16 + game.TALK_TARGET, -1)
+        result = pickpocket.attempt(self.gd, set(), lambda: 11, lambda: 3, who=GUARD)
+        self.assertEqual(result.text, "Dag lifts Bag from Guard unnoticed.")
+        self.assertIsNone(pickpocket.attempt(self.gd, set(), lambda: 11, lambda: 3, who=0))  # the party
