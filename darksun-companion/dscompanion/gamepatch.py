@@ -12,7 +12,8 @@ instruction that DSCLOG.EXE answers (see dos/dsclog.asm):
     copies the text, the replies to choose from and the portrait shown;
   * the start of the message box routine ("... is broken !", level ups);
   * two places where the game adds up AC and saving throw modifiers, so that a worn
-    ring with a plus (the Ring +1 the companion can put in the arena) counts.
+    ring with a plus (the Ring +1 the companion can put in the arena) counts;
+  * the routine that lists a character's weapons, where DSCLOG adds each one's THAC0.
 
 A last change lets the copy live outside the game folder: the game looks for
 its data files in the folder its EXE is in, and the copy looks in the current
@@ -30,7 +31,7 @@ GOG_SIZE = 611408  # DSUN.EXE of the GOG release (1.1)
 
 VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR = range(0x60, 0x66)  # as in dsclog.asm
 VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT = 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7  # not 66h-6Fh: the game calls those itself, looking for drivers
-VEC_RING_AC, VEC_RING_SAVE = 0xF8, 0xF9
+VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON = 0xF8, 0xF9, 0xFA
 
 
 class Patch(NamedTuple):
@@ -86,6 +87,9 @@ PATCHES = (
     # the start of the saving throw's modifiers: xor si,si (DSCLOG starts SI, their sum, at
     # the plus of the rings the one saving wears)
     Patch("ring_save", 0x79D47, bytes.fromhex("33f6"), _interrupt(VEC_RING_SAVE, 2)),
+    # the routine that lists a creature's weapons (the inventory screen, the Look box), straight
+    # after drawing one: add sp,10h (DSCLOG does it, then adds that weapon's THAC0)
+    Patch("weapon", 0x7276E, bytes.fromhex("83c410"), _interrupt(VEC_WEAPON, 3)),
     # The data path is argv[0] cut after its last \ or :, kept at DS:4B81h. The
     # code that finds the cut becomes: path = ".\", then on to "mov byte [si],0"
     # which ends it. (Not an empty path: the save list needs a \ in it.)

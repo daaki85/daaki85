@@ -37,6 +37,7 @@ VEC_UNLOOK equ 0xF6   ; PROBE_UNLOOK
 VEC_NEXT equ 0xF7     ; PROBE_NEXT
 VEC_RING_AC equ 0xF8  ; PROBE_RING_AC
 VEC_RING_SAVE equ 0xF9  ; PROBE_RING_SAVE
+VEC_WEAPON equ 0xFA   ; PROBE_WEAPON
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -65,7 +66,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGv9'          ; +0
+sig      db 'DSCLOGvA'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -118,6 +119,10 @@ look_off   dw look_text         ; +156 offset of LOOK_TEXT: up to 3 short lines 
 look_full_off dw look_full      ; +158 offset of LOOK_FULL: the whole description, shown in the
                                 ;      dialogue window afterwards (empty: none)
 look_on    dw 0                 ; +160 the companion sets 1 to have monsters described
+stats_off  dw stats             ; +162 offset of STATS: for each party member, the THAC0 and
+                                ;      saves as they stand now (see STATS)
+stats_stamp dw 0                ; +164 the BIOS timer when the companion last wrote STATS: older
+                                ;      than STATS_FRESH, the screens show the game's own numbers
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -514,6 +519,7 @@ probe_char:
         mov eax, [0x11A4]       ; the panel's window
         mov [cs:c_winptr], eax
         mov bx, [fs:0x25B]      ; the character on show
+        mov [cs:c_who], bx
         imul ax, bx, 0x47
         les si, [0x1661]
         add si, ax              ; ES:SI = the character sheet
@@ -578,6 +584,7 @@ probe_view:
         mov bx, [fs:0x25B]      ; the character on show
         cmp bx, 3
         ja .done
+        mov [cs:c_who], bx
         imul ax, bx, 0x47
         les si, [0x1661]
         add si, ax              ; ES:SI = the character sheet
@@ -586,19 +593,21 @@ probe_view:
         imul bx, bx, 0x3A
         lfs di, [0x1665]
         mov al, [fs:di + bx + 0x1F]  ; THAC0
+        call c_load_stats       ; (or the companion's, as they stand now)
         mov di, v_thac0 + 7
-        call c_itoa
+        mov al, [cs:c_vals]
+        call c_itoa_s
         mov di, v_saves1 + 5
-        mov al, [es:si + 0x37]
+        mov al, [cs:c_vals + 1]
         call v_two
-        mov al, [es:si + 0x38]
+        mov al, [cs:c_vals + 2]
         call v_two
-        mov al, [es:si + 0x39]
+        mov al, [cs:c_vals + 3]
         call v_two
         mov di, v_saves2 + 5
-        mov al, [es:si + 0x3A]
+        mov al, [cs:c_vals + 4]
         call v_two
-        mov al, [es:si + 0x3B]
+        mov al, [cs:c_vals + 5]
         call v_two
         push word 0x3A          ; under the item icons
         push word 0xCD
@@ -644,13 +653,11 @@ v_thac0  db 'THAC0: ', 0, 0, 0, 0
 v_saves1 db 'SAVE:00 00 00 ', 0
 v_saves2 db '     00 00 ', 0
 
-; THAC0 (AL) and the saves (sheet +37h..+3Bh at ES:SI), as the cells at CS:BX say
+; THAC0 (AL) and the saves (sheet +37h..+3Bh at ES:SI), or the companion's numbers as they
+; stand now, as the cells at CS:BX say
 c_cells_saves:
-        mov [cs:c_vals], al
-        mov eax, [es:si + 0x37]
-        mov [cs:c_vals + 1], eax
-        mov al, [es:si + 0x3B]
-        mov [cs:c_vals + 5], al
+        call c_load_stats
+        mov byte [cs:c_signed], 1  ; (THAC0 can be below 0)
         mov cx, 6
         jmp c_cells
 
@@ -716,6 +723,7 @@ c_thief:
         mov [cs:c_vals + 4], al
         mov bx, c_cells_thief
         mov cx, 5
+        mov byte [cs:c_signed], 0
         ; fall through
 
 ; CX cells at CS:BX: each x, y, label offset, value's x (words); the values are C_VALS in
@@ -736,7 +744,15 @@ c_cells:
         push bx
         mov al, [cs:c_vals + si]
         mov di, c_num
+        or si, si
+        jnz .unsigned
+        cmp byte [cs:c_signed], 0
+        je .unsigned
+        call c_itoa_s           ; the first cell of THAC0 and the saves
+        jmp .number
+.unsigned:
         call c_itoa
+.number:
         push word [cs:bx + 2]
         push word [cs:bx + 6]   ; the value's x
         push cs
@@ -1214,6 +1230,136 @@ probe_unlook:
         popad
         iret
 
+; STATS: STATS_SIZE bytes for each party member, kept by the companion: +0 1 if in use, +1 THAC0
+; with the main weapon (signed), +2 the five saves as the d20 needed now, +8 three words: the
+; item numbers of the weapons ready, +14 three bytes: the THAC0 with each (signed)
+STATS_SIZE  equ 20
+STATS_FRESH equ 91              ; timer ticks (5 seconds)
+stats   times 4 * STATS_SIZE db 0
+
+; BX = a party member (0-3): CF clear and CS:BX = their STATS entry if the companion keeps it
+; current, CF set if not
+stats_for:
+        cmp bx, 3
+        ja .no
+        push ax
+        push es
+        xor ax, ax
+        mov es, ax
+        mov ax, [es:0x46C]
+        sub ax, [cs:stats_stamp]
+        cmp ax, STATS_FRESH
+        pop es
+        pop ax
+        jae .no
+        imul bx, bx, STATS_SIZE
+        add bx, stats
+        cmp byte [cs:bx], 0
+        je .no
+        clc
+        ret
+.no:    stc
+        ret
+
+; THAC0 (AL) and the saves (sheet +37h..+3Bh at ES:SI) into C_VALS, or the companion's numbers
+; for the character in C_WHO instead. Keeps ES, SI, DI.
+c_load_stats:
+        push bx
+        mov [cs:c_vals], al
+        mov eax, [es:si + 0x37]
+        mov [cs:c_vals + 1], eax
+        mov al, [es:si + 0x3B]
+        mov [cs:c_vals + 5], al
+        mov bx, [cs:c_who]
+        call stats_for
+        jc .own
+        mov al, [cs:bx + 1]
+        mov [cs:c_vals], al
+        mov eax, [cs:bx + 2]
+        mov [cs:c_vals + 1], eax
+        mov al, [cs:bx + 6]
+        mov [cs:c_vals + 5], al
+.own:   pop bx
+        ret
+
+c_itoa_s:                       ; AL (signed) -> decimal at CS:DI, with "-" below 0; keeps BX, CX
+        test al, al
+        jns c_itoa
+        mov byte [cs:di], '-'
+        inc di
+        neg al
+        jmp c_itoa
+
+; PROBE_WEAPON: INT VEC_WEAPON replaces "add sp,10h" (3 bytes: INT + NOP) straight after the
+; routine that lists a creature's weapons (on the inventory screen, and in the Look box) has
+; drawn one: its name, then its damage, AX lines from y = [BP+0Eh]. Does the add, then puts
+; the THAC0 the companion worked out for that weapon at the right of its last line.
+W_PATCH equ 0x7276E             ; DSUN.EXE offsets
+W_DRAW  equ 0x72851             ; "lcall 0090h:0A40h" operand: the routine that draws the lines
+W_X     equ 0x12A               ; (window coordinates: the lines start at 0ECh)
+probe_weapon:
+        pop word [cs:w_ip]
+        pop word [cs:w_cs]
+        pop word [cs:w_fl]
+        add sp, 0x10            ; the replaced instruction
+        sti
+        pushad
+        push es
+        or ax, ax
+        jz .done
+        mov [cs:w_lines], ax
+        mov bx, [bp + 0x0A]     ; the creature (its object number: the party's are 0-3)
+        call stats_for
+        jc .done
+        mov si, [bp - 2]        ; the entry of the item list the weapon came from
+        imul si, si, 10
+        mov dx, [bp + si - 0x330]  ; its item number
+        xor cx, cx
+.find:  mov di, cx
+        shl di, 1
+        cmp [cs:bx + di + 8], dx
+        je .found
+        inc cx
+        cmp cx, 3
+        jb .find
+        jmp .done
+.found: mov di, cx
+        mov al, [cs:bx + di + 14]
+        mov di, w_text + 1
+        call c_itoa_s
+        mov es, [cs:w_cs]
+        mov di, [cs:w_ip]
+        mov eax, [es:di + W_DRAW - W_PATCH - 2]
+        mov [cs:w_draw], eax
+        mov ax, [cs:w_lines]
+        dec ax
+        imul ax, ax, 7
+        add ax, [bp + 0x0E]     ; the weapon's last line
+        push word [bp + 0x12]   ; the colours, as the routine draws its lines
+        push word [bp + 0x10]
+        push ax
+        push word W_X
+        push cs
+        push word w_text
+        push dword [bp + 6]     ; the window
+        call far [cs:w_draw]
+        add sp, 0x10
+.done:  pop es
+        popad
+        push word [cs:w_fl]
+        push word [cs:w_cs]
+        push word [cs:w_ip]
+        iret
+
+w_ip    dw 0
+w_cs    dw 0
+w_fl    dw 0
+w_lines dw 0
+w_draw  dd 0
+w_text  db 'T', 0, 0, 0, 0
+c_who   dw 0
+c_signed db 0
+
 ; RINGS: the game has rings (item type RING_TYPE, a plain "Ring") but nothing that makes
 ; one better AC or saves. The companion can put a Ring +1 in the arena; these two make its
 ; plus count, as a ring of protection's would.
@@ -1359,7 +1505,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 15
+        mov cx, 16
 .check:
         lodsb
         mov ah, 35h
@@ -1420,6 +1566,9 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_RING_SAVE
         mov dx, probe_ring_save
         int 21h
+        mov ax, 2500h + VEC_WEAPON
+        mov dx, probe_weapon
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -1435,8 +1584,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or F1h-F9h are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE
+busy    db 'DSCLOG: interrupts 60h-65h or F1h-FAh are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON
 
         align 16, db 0
 image_len equ $ - $$

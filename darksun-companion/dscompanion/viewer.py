@@ -717,6 +717,26 @@ class Viewer:
                 columns.append([str(ac)] + [f"{v:+d}" for v in (detail.armour, detail.dex, detail.other)])
         return [(label, [c[i] for c in columns]) for i, label in enumerate(labels)]
 
+    def _now_rows(self, slots) -> List[Tuple[str, List[str]]]:
+        """THAC0 with each weapon ready, and the d20 each save needs, as they stand now."""
+        labels = ("  THAC0 now, each weapon", "  Saves now " + "/".join(game.SAVE_SHORT))
+        if self.ds is None:
+            return [(label, [""] * len(slots)) for label in labels]
+        gd = game.GameData(self.guest, self.ds)
+        table = game.far_pointer(self.guest, self.ds, game.CREATURES_PTR)
+        hits, saves = [], []
+        for s in slots:
+            addr = s[1].get("creature")
+            index = (addr - table) // game.CREATURE_SIZE if addr is not None else None
+            try:
+                known = index is not None and 0 <= index < game.PARTY_SIZE
+                hits.append(", ".join(f"{h.thac0} {h.name}" for h in gd.weapon_hits(index)) if known else "")
+                saves.append(" ".join(str(x.needs) for x in gd.saves_now(index)) if known else "")
+            except (struct.error, IndexError, ValueError):
+                hits.append("")
+                saves.append("")
+        return [(labels[0], hits), (labels[1], saves)]
+
     def _member_slots(self, slots) -> List[list]:
         """Each slot's spell slots (GameData.spell_slots), or [] when the game isn't running."""
         if self.ds is None:
@@ -772,6 +792,10 @@ class Viewer:
             rows.append((f.label, cells))
             if f.label == "Base AC":
                 rows += self._ac_rows(slots)
+            elif f.label == "THAC0":
+                rows += self._now_rows(slots)[:1]
+            elif f.label == "Save: Spell":
+                rows += self._now_rows(slots)[1:]
         rows += self._slot_rows(slots)
 
         self._refresh_cards(slots)
@@ -805,7 +829,12 @@ class Viewer:
             known = gd and addr is not None and table is not None
             thief = gd.thief_skills(index) if known else []
             equipment = gd.equipment(index) if known else []
-            card.show(name, dict(fields), status, ac, self.art, member_slots, thief, equipment)
+            try:
+                hits = gd.weapon_hits(index) if known and index < game.PARTY_SIZE else []
+                saves = gd.saves_now(index) if known and index < game.PARTY_SIZE else []
+            except (struct.error, IndexError, ValueError):
+                hits, saves = [], []
+            card.show(name, dict(fields), status, ac, self.art, member_slots, thief, equipment, hits, saves)
 
     def _hex_base(self) -> Optional[int]:
         record = self.layout.records.get(self.hex_record.get())

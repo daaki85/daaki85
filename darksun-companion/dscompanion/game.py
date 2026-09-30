@@ -296,6 +296,28 @@ DWARF, HALFLING, UNDEAD = 2, 6, 9
 EFFECT_BLESSED, EFFECT_BLIND, EFFECT_DETECT_INVIS, EFFECT_INVISIBLE, EFFECT_INVIS_UNDEAD = 7, 8, 15, 23, 24
 EFFECT_PROT_EVIL, EFFECT_PROT_COLD, EFFECT_PROT_FIRE, EFFECT_PROT_LIGHTNING = 38, 36, 40, 41
 EFFECT_SAVE_PENALTY, EFFECT_SPIRIT_ARMOR, EFFECT_BARKSKIN, EFFECT_PRAYER = 45, 56, 57, 73
+SHEET_SAVES = 0x37  # the five saves, in SAVE_NAMES order
+SAVE_SHORT = ("PPD", "RSW", "PP", "BW", "SP")  # as the game's inventory screen labels them
+# To hit, as the game's attack setup adds it: STR (melee) or DEX (missiles) from these tables,
+# the attacker's effects, the weapon's plus or its material's penalty
+STR_TO_HIT, DEX_MISSILE = 0x7C2, 0x7DC  # DS: a byte per ability score
+HIT_EFFECTS = ((7, 1), (12, -1), (47, -4), (49, 1))  # Blessed, Cursed, Slowed, Graft Weapon
+WEAPON_HANDS = (EQUIP_SLOTS.index("right hand"), EQUIP_SLOTS.index("left hand"))
+MISSILE_SLOT = EQUIP_SLOTS.index("missile")
+
+
+class WeaponHit(NamedTuple):
+    item: int  # its item number
+    slot: int
+    name: str
+    thac0: int  # with this weapon, now
+    parts: List[Tuple[str, int]]  # what is taken off the base THAC0 for it
+
+
+class SaveNow(NamedTuple):
+    base: int  # the character sheet's
+    needs: int  # the d20 needed now (2-20: a 1 always fails, a 20 always saves)
+    parts: List[Tuple[int, str]]  # the modifiers that always count (not the situational ones)
 
 
 class Effect(NamedTuple):
@@ -818,52 +840,33 @@ class GameData:
             out.append((name, sum(n for _, n in parts)))
         return out
 
+    def item_label(self, item: bytes, typ: bytes) -> str:
+        """"Metal Long Sword +1": an item's material (when it has one), name and plus."""
+        material = typ[0x08] & 0x0F if len(typ) == ITEM_TYPE_SIZE else len(MATERIALS)
+        if len(typ) == ITEM_TYPE_SIZE and typ[0x08] & NO_MATERIAL and not material:
+            material = len(MATERIALS)  # a ring, a body...: no material to name
+        plus = struct.unpack("b", item[ITEM_PLUS:ITEM_PLUS + 1])[0]
+        name = self.item_name(item[ITEM_NAME])
+        if plus and not name.endswith(f"{plus:+d}"):  # (the Ring +1's name has it)
+            name += f" {plus:+d}"
+        return (f"{MATERIALS[material]} " if material < len(MATERIALS) else "") + name
+
     def equipment(self, creature: int) -> List[Tuple[Optional[str], str]]:
         """A creature's items: [(slot it's worn in or None if only carried, "Leather Chest Armor"), ...],
         worn items first, in the game's slot order."""
+        out = [(item[ITEM_SLOT], self.item_label(item, typ)) for _, item, typ in self._worn(creature)]
+        out.sort(key=lambda x: x[0])
+        return [(EQUIP_SLOTS[slot] if slot < len(EQUIP_SLOTS) else None, name) for slot, name in out]
+
+    def _worn(self, creature: int):
+        """(item number, item record, type record) for each of a creature's items."""
         rec = self.creature(creature)
         if len(rec) < CREATURE_SIZE:
-            return []
+            return
         things = (self.load_seg + COMBATANTS_SEG) * 16 + COMBATANTS_OFF
         items = far_pointer(self.guest, self.ds, ITEMS_PTR)
         types = far_pointer(self.guest, self.ds, ITEM_TYPES_PTR)
-        out, seen = [], set()
-        for field in CREATURE_ITEM_LISTS:
-            thing, = struct.unpack_from("<h", rec, field)
-            if not 0 <= thing < 0x1000:
-                continue
-            kind, index = struct.unpack("<Bh", self.guest.read(things + thing * 3, 3))
-            if kind != THING_ITEM:
-                continue
-            while 0 <= index < 0x1000 and index not in seen and len(seen) < 100:
-                seen.add(index)
-                item = self.guest.read(items + index * ITEM_SIZE, ITEM_SIZE)
-                typ = self.guest.read(types + struct.unpack_from("<H", item, ITEM_TYPE)[0] * ITEM_TYPE_SIZE,
-                                      ITEM_TYPE_SIZE)
-                material = typ[0x08] & 0x0F if len(typ) == ITEM_TYPE_SIZE else len(MATERIALS)
-                if len(typ) == ITEM_TYPE_SIZE and typ[0x08] & NO_MATERIAL and not material:
-                    material = len(MATERIALS)  # a ring, a body...: no material to name
-                plus = struct.unpack("b", item[ITEM_PLUS:ITEM_PLUS + 1])[0]
-                name = self.item_name(item[ITEM_NAME])
-                if plus and not name.endswith(f"{plus:+d}"):  # (the Ring +1's name has it)
-                    name += f" {plus:+d}"
-                name = (f"{MATERIALS[material]} " if material < len(MATERIALS) else "") + name
-                slot = item[ITEM_SLOT]
-                out.append((EQUIP_SLOTS[slot] if slot < len(EQUIP_SLOTS) else None, name, slot))
-                index, = struct.unpack_from("<h", item, ITEM_NEXT)
-                if index == NO_ITEM:
-                    break
-        out.sort(key=lambda x: x[2])
-        return [(slot, name) for slot, name, _ in out]
-
-    def ring_plus(self, creature: int) -> int:
-        """The pluses of the rings a creature wears (see RING_TYPE)."""
-        rec = self.creature(creature)
-        if len(rec) < CREATURE_SIZE:
-            return 0
-        things = (self.load_seg + COMBATANTS_SEG) * 16 + COMBATANTS_OFF
-        items = far_pointer(self.guest, self.ds, ITEMS_PTR)
-        total = 0
+        seen = set()
         for field in CREATURE_ITEM_LISTS:
             thing, = struct.unpack_from("<H", rec, field)
             if thing >= NO_ITEM:
@@ -871,15 +874,125 @@ class GameData:
             kind, index = struct.unpack("<Bh", self.guest.read(things + thing * 3, 3))
             if kind != THING_ITEM:
                 continue
-            for _ in range(100):
-                if not 0 <= index < NO_ITEM:
-                    break
+            while 0 <= index < NO_ITEM and index not in seen and len(seen) < 100:
+                seen.add(index)
                 item = self.guest.read(items + index * ITEM_SIZE, ITEM_SIZE)
-                plus = struct.unpack("b", item[ITEM_PLUS:ITEM_PLUS + 1])[0]
-                if struct.unpack_from("<H", item, ITEM_TYPE)[0] == RING_TYPE and item[ITEM_SLOT] == FINGER \
-                        and plus > 0:
-                    total += plus
+                typ = self.guest.read(types + struct.unpack_from("<H", item, ITEM_TYPE)[0] * ITEM_TYPE_SIZE,
+                                      ITEM_TYPE_SIZE)
+                yield index, item, typ
                 index, = struct.unpack_from("<h", item, ITEM_NEXT)
+
+    def _mine(self, creature: int, effects: List[Effect]) -> List[Effect]:
+        """The effects on a creature (effects name combatants)."""
+        combatants = {c for c, i in self.combatants().items() if i == creature}
+        if creature < PARTY_SIZE:
+            combatants.add(creature)  # the party's combatant numbers are theirs
+        return [e for e in effects if e.owner in combatants]
+
+    def _prayer(self, creature: int, mine: List[Effect]) -> Optional[int]:
+        """+1 under a Prayer from its own side, -1 from the other side's, None without."""
+        prayer = next((e for e in mine if e.id == EFFECT_PRAYER), None)
+        if prayer is None:
+            return None
+        source = self.combatant_creature(prayer.caster)
+        same = source is not None and self.creature(source)[CREATURE_SIDE] == self.creature(creature)[CREATURE_SIDE]
+        return 1 if same else -1
+
+    def saves_now(self, creature: int) -> List[SaveNow]:
+        """The five saves as the d20 roll needed now: the sheet's number less the modifiers the
+        game's saving throw adds whatever the spell (rings, Blessed, Prayer, Barkskin, Spirit
+        Armor, the save penalty, and CON on paralysis/poison/death saves). The rest depend on
+        the spell or the caster (WIS against the mind, Protection from Fire...): see save_modifiers."""
+        sheet, rec = self.sheet(creature), self.creature(creature)
+        if len(sheet) < SHEET_SIZE or len(rec) < CREATURE_SIZE:
+            return []
+        mine = self._mine(creature, self.effects())
+        ids = {e.id for e in mine}
+        prayer = self._prayer(creature, mine)
+        ring = self.ring_plus(creature)
+        con = rec[CREATURE_ABILITIES + 2]
+        out = []
+        for save in range(1, 6):
+            parts: List[Tuple[int, str]] = []
+            if ring:
+                parts.append((ring, f"Ring +{ring}"))
+            if EFFECT_SAVE_PENALTY in ids:
+                parts.append((-1, EFFECT_NAMES[EFFECT_SAVE_PENALTY]))
+            if EFFECT_SPIRIT_ARMOR in ids and save != PPD_SAVE:
+                parts.append((3, EFFECT_NAMES[EFFECT_SPIRIT_ARMOR]))
+            if EFFECT_BARKSKIN in ids:
+                parts.append((1, EFFECT_NAMES[EFFECT_BARKSKIN]))
+            if EFFECT_BLESSED in ids:
+                parts.append((1, EFFECT_NAMES[EFFECT_BLESSED]))
+            if prayer is not None:
+                parts.append((prayer, "Prayer"))
+            if save == PPD_SAVE:
+                if sheet[SHEET_RACE] in (DWARF, HALFLING):
+                    parts.append((con * 2 // 7, f"{'dwarf' if sheet[SHEET_RACE] == DWARF else 'halfling'} CON {con}"))
+                adjust = struct.unpack("b", self.guest.read(self.ds * 16 + SAVE_CON + con, 1))[0] if con < 26 else 0
+                if adjust:
+                    parts.append((adjust, f"CON {con}"))
+            parts = [(n, why) for n, why in parts if n]
+            base = sheet[SHEET_SAVES + save - 1]
+            out.append(SaveNow(base, min(20, max(2, base - sum(n for n, _ in parts))), parts))
+        return out
+
+    def weapon_hits(self, creature: int) -> List[WeaponHit]:
+        """THAC0 with each weapon the creature has ready (right hand, left hand, missile), as the
+        game's attack works it out before the target is known (not from behind or backstabbing,
+        nor the target's Blur); unarmed (item -1) when it has none."""
+        rec = self.creature(creature)
+        if len(rec) < CREATURE_SIZE:
+            return []
+        base = struct.unpack("b", rec[CREATURE_THAC0:CREATURE_THAC0 + 1])[0]
+        mine = self._mine(creature, self.effects())
+        ids = {e.id for e in mine}
+        common = [(EFFECT_NAMES[eid], n) for eid, n in HIT_EFFECTS if eid in ids]
+        prayer = self._prayer(creature, mine)
+        if prayer is not None:
+            common.append(("Prayer", prayer))
+        strength, dex = rec[CREATURE_ABILITIES], rec[CREATURE_ABILITIES + 1]
+        table = lambda off, score: struct.unpack("b", self.guest.read(self.ds * 16 + off + score, 1))[0] \
+            if score < 26 else 0
+        weapons = []
+        for index, item, typ in self._worn(creature):
+            slot = item[ITEM_SLOT]
+            if slot in WEAPON_HANDS + (MISSILE_SLOT,) and typ[0x0C] and typ[0x0D]:  # it has damage dice
+                weapons.append((index, item, typ, slot))
+        hands = [w for w in weapons if w[3] in WEAPON_HANDS]
+        two = 0
+        if len(hands) >= 2:  # two weapons ready: the DEX table the game also uses for initiative
+            sheet = self.sheet(creature)
+            ranger = len(sheet) >= SHEET_FLAGS + 2 and struct.unpack_from("<H", sheet, SHEET_FLAGS)[0] & SHEET_FLAG_RANGER
+            two = 0 if ranger else max(0, -self.dex_initiative(dex))
+        out = []
+        order = {WEAPON_HANDS[0]: 0, WEAPON_HANDS[1]: 1, MISSILE_SLOT: 2}
+        for index, item, typ, slot in sorted(weapons, key=lambda w: order[w[3]]):
+            missile = slot == MISSILE_SLOT
+            parts = [("DEX", table(DEX_MISSILE, dex))] if missile else [("STR", table(STR_TO_HIT, strength))]
+            parts += common
+            plus = struct.unpack("b", item[ITEM_PLUS:ITEM_PLUS + 1])[0]
+            material = typ[0x08] & 0x0F
+            if plus:
+                parts.append(("weapon", plus))
+            elif not typ[0x08] & 0x80 and material in MATERIAL_TO_HIT:
+                parts.append((MATERIALS[material].lower(), MATERIAL_TO_HIT[material]))
+            if two and not missile:
+                parts.append((f"two weapons at DEX {dex}", two))
+            parts = [(why, n) for why, n in parts if n]
+            out.append(WeaponHit(index, slot, self.item_label(item, typ), base - sum(n for _, n in parts), parts))
+        if not out:
+            parts = [(why, n) for why, n in [("STR", table(STR_TO_HIT, strength))] + common if n]
+            out.append(WeaponHit(-1, -1, "unarmed", base - sum(n for _, n in parts), parts))
+        return out
+
+    def ring_plus(self, creature: int) -> int:
+        """The pluses of the rings a creature wears (see RING_TYPE)."""
+        total = 0
+        for _, item, _ in self._worn(creature):
+            plus = struct.unpack("b", item[ITEM_PLUS:ITEM_PLUS + 1])[0]
+            if struct.unpack_from("<H", item, ITEM_TYPE)[0] == RING_TYPE and item[ITEM_SLOT] == FINGER and plus > 0:
+                total += plus
         return total
 
     def dex_ac(self, dex: int) -> int:

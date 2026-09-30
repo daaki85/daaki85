@@ -30,7 +30,7 @@ from .guestmem import GuestMemory
 from .textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGv9"
+HDR_SIG = b"DSCLOGvA"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
 MSG_SIZE = 900
@@ -43,6 +43,9 @@ SLOTS_LINES = 3  # lines of spell slots the USE screen has room for
 # ... and what the Look box says about a monster (PROBE_LOOK)
 TSR_LOOK_SEQ, TSR_LOOK_REPLY, TSR_LOOK_WHO, TSR_LOOK_OFF, TSR_LOOK_FULL_OFF, TSR_LOOK_ON = 150, 152, 154, 156, 158, 160
 LOOK_SIZE, LOOK_FULL_SIZE = 80, 700
+# ... and the party's THAC0 and saves as they stand now, for the game's screens (see STATS)
+TSR_STATS_OFF, TSR_STATS_STAMP, STATS_SIZE = 162, 164, 20
+BIOS_TIMER = 0x46C
 SLOT_KINDS = {"Wizard": "WIZ", "Priest": "PRI"}
 RAND_PATCHED = b"\xcd\x60"  # INT 60h at the start of rand() in DSUNLOG.EXE
 RAND_IP = 0x822  # rand()'s offset in the game's first code segment
@@ -305,6 +308,7 @@ class DiceLog:
         self._turn_attacks: Dict[int, List[dict]] = {}  # creature -> this turn's attacks
         self._turn_log: List[str] = []  # this turn's rolls as the log has them (attacks, spells, saves)
         self._slots_written = b""
+        self._stats_written = b""
         self._own_text: set = set()  # summaries shown in the game's window, not to log as dialogue
         self._skip_choice = False
         self._hits: Dict[int, int] = {}  # creature -> damage of weapon hits not yet seen in its HP
@@ -340,7 +344,7 @@ class DiceLog:
         low = self.guest.read(0, CONVENTIONAL_AND_UPPER)
         hdr = next((m.start() for m in re.finditer(re.escape(HDR_SIG), low) if m.start() % 16 == 0), None)
         if hdr is None:
-            if re.search(rb"DSCLOGv\d", low):
+            if re.search(rb"DSCLOGv[0-9A-Z]", low):
                 raise DiceLogError("An older DSCLOG is loaded. Restart the game with 'Start Game with Dice Log.bat'.")
             raise DiceLogError("DSCLOG is not loaded. Start the game with 'Start Game with Dice Log.bat'.")
         ds = game.find_data_segment(self.guest, low)
@@ -493,6 +497,42 @@ class DiceLog:
             self.guest.write(table, data)
             self._slots_written = data
 
+    def stats_entry(self, member: int) -> bytes:
+        """A party member's STATS entry for DSCLOG: THAC0 with the main weapon, the five saves as
+        the d20 needed now, and THAC0 with each weapon ready."""
+        g = self.game
+        rec = g.creature(member)
+        if len(rec) < game.CREATURE_SIZE or not rec[game.CREATURE_NAME]:
+            return bytes(STATS_SIZE)
+        saves, hits = g.saves_now(member), g.weapon_hits(member)
+        if len(saves) != 5 or not hits:
+            return bytes(STATS_SIZE)
+        clamp = lambda n: max(-99, min(99, n))
+        weapons = [h for h in hits if h.item >= 0][:3]
+        out = struct.pack("<Bb5Bx", 1, clamp(hits[0].thac0), *(s.needs for s in saves))
+        out += struct.pack("<3H", *([h.item for h in weapons] + [game.NO_ITEM] * (3 - len(weapons))))
+        out += struct.pack("<3b", *([clamp(h.thac0) for h in weapons] + [0] * (3 - len(weapons))))
+        return out.ljust(STATS_SIZE, b"\0")
+
+    def _write_stats(self) -> None:
+        """Keep DSCLOG's copy of the party's THAC0 and saves current, and say it is."""
+        if self.tsr_hdr is None:
+            return
+        offset = struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_STATS_OFF, 2))[0]
+        if not offset:
+            return
+        table = self.tsr_hdr - struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_HDR_OFF, 2))[0] + offset
+        data = b""
+        for member in range(game.PARTY_SIZE):
+            try:
+                data += self.stats_entry(member)
+            except (struct.error, IndexError, ValueError):
+                data += bytes(STATS_SIZE)
+        if data != self._stats_written:
+            self.guest.write(table, data)
+            self._stats_written = data
+        self.guest.write(self.tsr_hdr + TSR_STATS_STAMP, self.guest.read(BIOS_TIMER, 2))
+
     def _not_ours(self, entries: List[DialogueEntry]) -> List[DialogueEntry]:
         """Dialogue without the turn summaries the log itself had the game show (and their
         "Continue")."""
@@ -609,6 +649,7 @@ class DiceLog:
             self._next_effect_check = now + EFFECT_INTERVAL
             out += self.effect_changes(now)
             self._write_slots()
+            self._write_stats()
             if not self._party_check(now):
                 out += self.tracker.check(now)
                 out += self._arena_ring(now)

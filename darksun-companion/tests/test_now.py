@@ -1,0 +1,91 @@
+"""THAC0 with each weapon and the saves as they stand now (the game's screens and the Ledger's)."""
+
+import os
+import struct
+import sys
+import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from dscompanion import dicelog, game
+from test_dicelog import CREATURES, DS, ITEM_TYPES, ITEMS, LOAD_SEG, SHEETS, make_game, set_effects
+
+THINGS = (LOAD_SEG + game.COMBATANTS_SEG) * 16 + game.COMBATANTS_OFF
+
+
+def dag():
+    """Dag (THAC0 16, STR 24, DEX 16, CON 21): a metal long sword +1 in his right hand (item 5)
+    and a wooden bow (item 6, type 11) ready as his missile weapon; saves 13 14 12 15 16."""
+    log = make_game()
+    m = log.guest.mem
+    rec = CREATURES
+    m[rec + game.CREATURE_ABILITIES:rec + game.CREATURE_ABILITIES + 3] = bytes((24, 16, 21))
+    struct.pack_into("<hhh", m, rec + 8, 40, game.NO_ITEM, game.NO_ITEM)
+    struct.pack_into("<Bh", m, THINGS + 40 * 3, game.THING_ITEM, 5)
+    struct.pack_into("<h", m, ITEMS + 5 * game.ITEM_SIZE + game.ITEM_NEXT, 6)
+    struct.pack_into("<h", m, ITEMS + 6 * game.ITEM_SIZE + game.ITEM_NEXT, game.NO_ITEM)
+    struct.pack_into("<H", m, ITEMS + 6 * game.ITEM_SIZE + game.ITEM_TYPE, 11)
+    m[ITEMS + 5 * game.ITEM_SIZE + game.ITEM_SLOT] = game.WEAPON_HANDS[0]
+    m[ITEMS + 6 * game.ITEM_SIZE + game.ITEM_SLOT] = game.MISSILE_SLOT
+    bow = ITEM_TYPES + 11 * game.ITEM_TYPE_SIZE
+    m[bow + 0x08], m[bow + 0x0C], m[bow + 0x0D] = 0, 6, 1  # wooden, 1d6
+    ds = DS * 16
+    m[ds + game.STR_TO_HIT + 24], m[ds + game.DEX_MISSILE + 16] = 6, 1
+    m[ds + game.SAVE_CON + 21] = 2
+    m[SHEETS + game.SHEET_SAVES:SHEETS + game.SHEET_SAVES + 5] = bytes((13, 14, 12, 15, 16))
+    return log
+
+
+class HitTests(unittest.TestCase):
+    def test_each_weapon(self):
+        g = dag().game
+        self.assertEqual([(h.item, h.thac0, h.parts) for h in g.weapon_hits(0)], [
+            (5, 9, [("STR", 6), ("weapon", 1)]),  # 16 - 6 - 1
+            (6, 18, [("DEX", 1), ("wooden", -3)])])  # 16 - 1 + 3
+
+    def test_blessed_and_cursed(self):
+        log = dag()
+        set_effects(log, [(0, 0, 7)])
+        self.assertEqual(log.game.weapon_hits(0)[0].thac0, 8)
+        set_effects(log, [(0, 0, 7), (0, 0, 12)])  # +1, -1
+        self.assertEqual(log.game.weapon_hits(0)[0].thac0, 9)
+
+    def test_unarmed(self):
+        log = dag()
+        struct.pack_into("<h", log.guest.mem, CREATURES + 8, game.NO_ITEM)
+        self.assertEqual([(h.item, h.name, h.thac0) for h in log.game.weapon_hits(0)], [(-1, "unarmed", 10)])
+
+
+class SaveTests(unittest.TestCase):
+    def test_con_on_paralysis_poison_death(self):
+        """Dag, a half-giant: CON 21 is +2 on his first save only."""
+        self.assertEqual([s.needs for s in dag().game.saves_now(0)], [11, 14, 12, 15, 16])
+
+    def test_blessed_and_spirit_armor(self):
+        log = dag()
+        set_effects(log, [(0, 0, 7), (0, 0, game.EFFECT_SPIRIT_ARMOR)])
+        saves = log.game.saves_now(0)
+        self.assertEqual([s.needs for s in saves], [10, 10, 8, 11, 12])  # Spirit Armor: not the first
+        self.assertEqual(saves[0].parts, [(1, "Blessed"), (2, "CON 21")])
+
+    def test_never_below_2(self):
+        log = dag()
+        log.guest.mem[SHEETS + game.SHEET_SAVES] = 3
+        self.assertEqual(log.game.saves_now(0)[0].needs, 2)  # a 1 always fails
+
+
+class StatsTests(unittest.TestCase):
+    def test_entry_for_dsclog(self):
+        log = dag()
+        entry = log.stats_entry(0)
+        self.assertEqual(len(entry), dicelog.STATS_SIZE)
+        self.assertEqual(struct.unpack_from("<Bb5B", entry), (1, 9, 11, 14, 12, 15, 16))
+        self.assertEqual(struct.unpack_from("<3H3b", entry, 8), (5, 6, game.NO_ITEM, 9, 18, 0))
+
+    def test_empty_slot(self):
+        self.assertEqual(dag().stats_entry(3), bytes(dicelog.STATS_SIZE))
+
+
+if __name__ == "__main__":
+    unittest.main()

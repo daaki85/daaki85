@@ -660,6 +660,8 @@ right-hand panel, drawn by the game's text routine so they look like the rest:
 - above STR, **THAC0** and the five **saving throws**, with the usual AD&D
   short labels: `PPD` paralysis/poison/death, `RSW` rod/staff/wand, `PP`
   petrification/polymorph, `BW` breath weapon, `SP` spell;
+- at the right of each weapon's damage line, the THAC0 with that weapon
+  (`T14`);
 - right of the abilities, for a character with thief levels, the five
   **thief skills** the game ever rolls: `PICK` pockets, open `LOCK`s,
   find/remove `TRAP`s, `HEAR` noise, `CLMB` walls (move silently, hide in
@@ -668,24 +670,45 @@ right-hand panel, drawn by the game's text routine so they look like the rest:
   buttons.
 
 The **View Character** screen gets THAC0 and the saves too, under the item
-icons: `THAC0: 17` and `SAVE:13 15 14` / `16 16`, the saves in the order
+icons: `THAC0: 15` and `SAVE: 8 12 11` / `15 13`, the saves in the order
 above.
 
-![The View Character screen with THAC0 and the saves added](docs/view-character.png)
+![The View Character screen with THAC0 and the saves added, as they stand under Bless](docs/view-character.png)
 
-They're read from the character when the screen is drawn, so they follow
-level-ups, and the next character's show when you pick another portrait.
-They're the character's own numbers, as on a paper character sheet: THAC0 and
-saves before the weapon, STR, magic and spells that the game adds at the
-moment of each attack or save (the dice log shows those), and thief skills
-before armour and the situation (see Thief skills).
+They're the numbers as they stand now, worked out by the Ledger the way the
+game's own attack and saving throw routines do, and they change as you
+change weapons or rings or a spell starts or ends (redraw the screen, by
+picking the portrait again, to see the change):
+
+- **THAC0**: the character's THAC0 less STR's to-hit adjustment (DEX's for a
+  missile weapon), the weapon's plus (or, for a plain wooden, bone, stone or
+  obsidian weapon, its material's penalty), Bless and Prayer (+1), Curse
+  (-1), Slow (-4) and Graft Weapon (+1). The THAC0 at the top is the main
+  weapon's: the right hand's, else the left's, else the missile weapon's.
+  What depends on the target (attacking from behind or backstabbing, a Blurred
+  target) is left out; the dice log shows it on each attack.
+- **Saves**: the d20 each needs, the character sheet's number less what the
+  game adds to every save: the [Ring +1](#the-ring-1), Bless, Prayer,
+  Barkskin, Spirit Armor (not on PPD), the Save penalty, and on PPD the CON
+  adjustment (and a dwarf's or halfling's CON bonus). What depends on the
+  spell or its caster (WIS against mind spells, Protection from Fire, a
+  doubled d20 against fire...) is left out; the dice log shows it on each
+  save. A 1 always fails and a 20 always saves, so they show between 2 and 20.
+- **Thief skills**: before armour and the situation (see Thief skills).
+
+The Characters tab shows the same THAC0 with each weapon and saves. The
+game's own numbers (the character sheet's) come back on these screens when
+the Ledger isn't running.
 
 How: the patched game calls the helper (`INT 65h`) just after the panel's
 weapon lines; the helper prints the lines with the game's own text routine,
 whose address, like the selected character, it reads from the game's code
 around the patch (overlays move, so nothing is fixed in advance). The View
 Character screen does the same through `INT F3h`, called while it draws the
-character's panel. Nothing else in the game changes.
+character's panel, and the routine that lists the weapons through `INT FAh`
+after each one. The Ledger keeps the numbers in the helper's memory, with the
+time it last did: older than 5 seconds, the helper shows the sheet's numbers
+instead. Nothing else in the game changes.
 
 ### In the game: spell slots on the USE screen
 
@@ -867,7 +890,8 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    `INT F3h`, the end of the window redraw `INT F4h`, the Look box `INT F5h`
    and `INT F6h`, the start of a monster's turn `INT F7h` (see In the
    game), and the places where AC and a saving throw's modifiers are added up
-   `INT F8h` and `INT F9h` (for [the Ring +1](#the-ring-1)), and
+   `INT F8h` and `INT F9h` (for [the Ring +1](#the-ring-1)), and each
+   weapon's line on the inventory screen `INT FAh`, and
    the copy looks for its data files in the current
    folder rather than next to itself. DOSBox runs it from the game folder, so
    it uses your saves as usual.

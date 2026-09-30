@@ -69,7 +69,8 @@ class Card(ttk.Frame):
             var = self.vars[score] = tk.StringVar()
             ttk.Label(sheet, textvariable=var, style="CardStat.TLabel").grid(row=i, column=1, sticky="w",
                                                                            padx=(4, 16))
-        right = ("who", "alignment", "classes", "xp", "ac", "thac0", "move", "attacks", "equipment", "slots", "thief")
+        right = ("who", "alignment", "classes", "xp", "ac", "thac0", "saves", "move", "attacks", "equipment", "slots",
+                 "thief")
         labels = []
         for row, key in enumerate(right):
             var = self.vars[key] = tk.StringVar()
@@ -90,9 +91,10 @@ class Card(ttk.Frame):
             label.bind("<Configure>", lambda e: label.configure(wraplength=max(e.width, 120)))
 
     def show(self, name: str, fields: Dict[str, str], status: str, current_ac: Optional[int],
-             game_art: Optional["art.GameArt"], slots=(), thief=(), equipment=()) -> None:
+             game_art: Optional["art.GameArt"], slots=(), thief=(), equipment=(), hits=(), saves=()) -> None:
         """`slots`: [(kind, [(spell level, left, most), ...]), ...], as GameData.spell_slots gives;
-        `thief`: [(skill, percent), ...], as GameData.thief_skills gives."""
+        `thief`: [(skill, percent), ...], as GameData.thief_skills gives; `hits` and `saves`,
+        THAC0 with each weapon and the saves as they stand now (GameData.weapon_hits, saves_now)."""
         get = fields.get
         self.vars["name"].set(name.upper() if name else f"SLOT {self.index + 1}")
         pair = lambda cur, top: f"{get(cur, '')}/{get(top, '')}" if get(cur) else ""
@@ -109,7 +111,14 @@ class Card(ttk.Frame):
         base = get("Base AC", "")
         self.vars["ac"].set(f"AC: {current_ac}" + (f" (base {base})" if base else "")
                             if current_ac is not None else f"AC: {base} (base; no fight yet)")
-        self.vars["thac0"].set(f"THAC0: {get('THAC0', '')}")
+        base = get("THAC0", "")
+        if hits:
+            each = ", ".join(f"{h.thac0} with {h.name}" for h in hits)
+            self.vars["thac0"].set(f"THAC0: {each}" + (f" (base {base})" if base else ""))
+        else:
+            self.vars["thac0"].set(f"THAC0: {base}")
+        self.vars["saves"].set(("Saves (d20 needed now): " + ", ".join(
+            f"{short} {s.needs}" for short, s in zip(game.SAVE_SHORT, saves))) if len(saves) == 5 else "")
         self.vars["move"].set(f"Move: {get('Move', '')}")
         self.vars["attacks"].set(f"Attacks: {get('Attacks/round', '')} a round")
         self.vars["equipment"].set("\n".join(f"{slot.capitalize() if slot else 'Carried'}: {item}"
