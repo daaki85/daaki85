@@ -681,20 +681,21 @@ can try anyone's: in a conversation, with the thief as the party's leader
 (keys 1-4), press **P**. The Ledger rolls the leader's pick pockets chance as
 it stands now (armour and effects counted, as in the thief rows):
 
-- **Success:** one thing from the other's pockets goes into the thief's
-  backpack (its first free cell). People outside the party keep all they own
-  in their pack, so pockets are the things that can't be worn: nothing
-  wielded or worn (weapons, armour, rings...), and no keys, which scripts may
-  look for. With nothing like that on them, the thief finds nothing worth
-  taking.
+- **Success:** one small thing goes into the thief's backpack (its first free
+  cell): something weighing 10 or less (a bag or arrows are 10, a helm 15, a
+  long sword 30) that isn't worn on the body (armour, a belt, boots, a helm, a
+  cloak). A dagger, a ring, an amulet, a gem or food can be lifted. Keys stay,
+  as scripts may look for them. People outside the party keep all they own in
+  their pack, so this goes by what each thing is.
 - **Failure:** a move silently roll. Made, the thief slips away unnoticed;
-  missed, they're caught. No fight follows, but either way that person keeps
-  their hand on their pockets from then on.
+  missed, they're caught.
 
-Each person gets **one try**, whatever comes of it (the Ledger remembers whose
-pockets were tried in `settings.json`, for this party). The Trustee is left to
-his own conversation. What happens is added to the conversation's text (use
-its arrow to scroll down to it if the text is long) and to the dice log:
+A thief can go on trying the same person until **caught** (both rolls failed),
+or until nothing worth taking is left on them; after that, that person keeps a
+hand on their pockets for good. The Ledger remembers who in `settings.json`,
+for this party. The Trustee is left to his own conversation. What happens is
+added to the conversation's text (use its arrow to scroll down to it if the
+text is long) and to the dice log:
 
 ```
 Daaki picks Kurzak's pocket: d100 = 71, needs 63 or less -> failed

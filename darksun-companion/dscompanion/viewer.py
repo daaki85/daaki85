@@ -307,7 +307,7 @@ class Viewer:
                         variable=self.arena_ring, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
         self.pickpockets = tk.BooleanVar(value=bool(settings.get("pickpockets", True)))
         ttk.Checkbutton(in_game, text="P in a conversation: the leader, a thief, tries the other's pockets "
-                        "(one try each)", variable=self.pickpockets,
+                        "(until caught)", variable=self.pickpockets,
                         command=self._popups_changed).pack(anchor="w", pady=(4, 0))
 
     def _slot_box(self, parent) -> ttk.Combobox:
