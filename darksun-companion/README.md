@@ -632,9 +632,9 @@ instead (and each spell's first line):
 target's AC; a natural 20 always hits, a 1 always misses), and the damage the
 hit did.
 
-A monster's turn that comes straight after a character's shows in the same
-window as that character's: the game plays the monster's whole turn before
-its combat loop comes back to where the helper is called.
+Each turn gets its own window, monsters' included. (The game plays a
+monster's whole turn inside one call, so the helper is also called there, just
+before such a turn starts: `INT F7h`.)
 
 How: the patched game calls the helper (`INT F1h`) in its combat loop, right
 after the call that may pass the turn on. When whose turn it is has changed,
@@ -754,8 +754,9 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    the dialogue window and the start of the message box routine become
    `INT 60h` to `64h`, the inventory screen's panel calls `INT 65h`, the
    combat loop `INT F1h`, the USE screen `INT F2h`, the View Character screen
-   `INT F3h`, the end of the window redraw `INT F4h`, and the Look box `INT F5h`
-   and `INT F6h` (see In the game), and
+   `INT F3h`, the end of the window redraw `INT F4h`, the Look box `INT F5h`
+   and `INT F6h`, and the start of a monster's turn `INT F7h` (see In the
+   game), and
    the copy looks for its data files in the current
    folder rather than next to itself. DOSBox runs it from the game folder, so
    it uses your saves as usual.

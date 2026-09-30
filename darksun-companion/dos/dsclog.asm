@@ -33,6 +33,7 @@ VEC_VIEW equ 0xF3     ; PROBE_VIEW
 VEC_WIN  equ 0xF4     ; PROBE_WIN
 VEC_LOOK equ 0xF5     ; PROBE_LOOK
 VEC_UNLOOK equ 0xF6   ; PROBE_UNLOOK
+VEC_NEXT equ 0xF7     ; PROBE_NEXT
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -853,6 +854,39 @@ probe_turn:                     ; (re-entered while the window waits: all state 
         sti
         pushad
         push es
+        call turn_check
+        pop es
+        popad
+        iret
+
+; PROBE_NEXT: INT VEC_NEXT replaces "cmp word [bp-2],0" (4 bytes: INT + 2 NOPs) in the combat
+; routine PROBE_TURN's call runs, once it has passed the turn on (DS:4979h) and before it
+; plays the turn of a combatant the computer runs (a monster, or someone charmed). The game
+; plays such a turn whole before its loop reaches PROBE_TURN, so without this the monster's
+; rolls would join the summary of the turn before. Checks the turn as PROBE_TURN does, then
+; sets the flags as the compare would have.
+probe_next:
+        sti
+        pushad
+        push es
+        call turn_check
+        pop es
+        popad
+        cmp word [bp - 2], 0    ; the replaced compare (BP: the combat routine's frame)
+        pushf
+        push ax
+        push bx
+        mov bx, sp
+        mov ax, [ss:bx + 4]
+        mov [ss:bx + 10], ax    ; its flags, for IRET
+        pop bx
+        pop ax
+        add sp, 2
+        iret
+
+; whose turn it is (DS:4979h) has changed since last seen: count it, wait a moment for the
+; companion's summary of the turn that ended (MSG_BUF) and show it; DS = the game's
+turn_check:
         cmp byte [cs:showing], 0
         jne .out                ; a summary is up: leave the game's loop alone meanwhile
         mov bx, [0x4979]        ; whose turn it is now
@@ -878,9 +912,7 @@ probe_turn:                     ; (re-entered while the window waits: all state 
         je .out                 ; nothing to say about that turn
         mov word [cs:show_text], msg_buf
         call show_window
-.out:   pop es
-        popad
-        iret
+.out:   ret
 
 ; the text at CS:[SHOW_TEXT] in the game's dialogue window, with "Continue" to click;
 ; DS = the game's
@@ -1229,7 +1261,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 12
+        mov cx, 13
 .check:
         lodsb
         mov ah, 35h
@@ -1281,6 +1313,9 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_UNLOOK
         mov dx, probe_unlook
         int 21h
+        mov ax, 2500h + VEC_NEXT
+        mov dx, probe_next
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -1296,8 +1331,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or F1h-F6h are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK
+busy    db 'DSCLOG: interrupts 60h-65h or F1h-F7h are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT
 
         align 16, db 0
 image_len equ $ - $$
