@@ -24,16 +24,24 @@ THING_COUNT = 0x208  # objects 0-519; 320-519 are handed out from a free list
 FREE_THINGS, THINGS_USED = 0x4D72, 0x4C48  # DS: that list's first, and how many are out
 FREE_ITEMS = 0x4D76  # DS: the first free item record (each names the next at +04h)
 ITEM_CONTENTS = 0x08
-# Its name: the game shows an item's name alone (its plus only when the name says it, as in
-# "Sling +2"), so the ring gets a name of its own, in an entry of the game's name table that
-# nothing uses (all zeros). The table is read from GPLDATA.GFF each time the game starts, so
-# the companion writes the name whenever it looks (name_ring); without it, the name is blank.
+# Its name, in an entry of the game's name table that nothing uses (all zeros): the inventory
+# screen shows the name alone, the box an item's Look opens shows it with the plus after it
+# ("%Fs%+d": "Ring of Protection+1"). The table is read from GPLDATA.GFF each time the game
+# starts, so the companion writes the name whenever it looks (name_ring); without it, the name
+# is blank.
 NAME_ENTRY = 0x95
-NAME = b"Ring +1"
+NAME = b"Ring of Protection"
+OLD_NAMES = (b"Ring +1",)  # what earlier versions called it
+# The items the rule changes make better, named for it while the rule is on (the game shows
+# no description of an item, only its name): entry, the game's own name, rule, what it gives
+RULE_NAMES = ((6, "Helm", game.RULE_HELMS, " (AC 1)"), (145, "Dapartea's Helm", game.RULE_HELMS, " (AC 1)"),
+              (107, "Helm/Contempltn", game.RULE_HELMS, " (AC 1)"), (236, "Helm of Might", game.RULE_HELMS, " (AC 1)"),
+              (43, "Boots", game.RULE_BOOTS, " (+1 Move)"), (286, "Serpent Boots", game.RULE_BOOTS, " (+1 Move)"))
 # the game's own record for a Ring (from SEGOBJEX), not worn (slot 255), with a plus of 1
 RING = bytes.fromhex("1cfa0000" "0f27" "f401" "0f27" "6600" "00000000" "06" "ff") + \
     struct.pack("<Hb", NAME_ENTRY, 1)
-MESSAGE = "A Ring +1 (+1 AC, +1 on saves) is on the dead prisoner in the arena, below the Tied-up Prisoner."
+MESSAGE = ("A Ring of Protection +1 (+1 AC, +1 on saves) is on the dead prisoner in the arena, "
+           "below the Tied-up Prisoner.")
 MAX_ITEMS = 200  # items followed before giving up (a damaged list)
 
 
@@ -85,10 +93,24 @@ def name_ring(gd: GameData) -> bool:
     want = NAME.ljust(game.ITEM_NAME_SIZE, b"\0")
     if entry == want:
         return True
-    if any(entry):
+    if any(entry) and entry.split(b"\0", 1)[0] not in OLD_NAMES:
         return False  # the game uses it after all
     gd.guest.write(at, want)
     return True
+
+
+def name_items(gd: GameData, rules: int) -> None:
+    """Name the helms and boots for what the rule changes give them ("Helm (AC 1)"), or back to
+    the game's own names with the rules off. Entries that hold anything else are left alone."""
+    table = game.far_pointer(gd.guest, gd.ds, game.ITEM_NAMES_PTR)
+    for entry, own, rule, extra in RULE_NAMES:
+        at = table + entry * game.ITEM_NAME_SIZE
+        text = gd.guest.read(at, game.ITEM_NAME_SIZE).split(b"\0", 1)[0].decode("cp437", "replace")
+        if text not in (own, own + extra):
+            continue
+        want = own + extra if rules & rule else own
+        if text != want:
+            gd.guest.write(at, want.encode("cp437").ljust(game.ITEM_NAME_SIZE, b"\0"))
 
 
 def place_ring(gd: GameData) -> Optional[str]:

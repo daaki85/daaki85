@@ -84,7 +84,26 @@ class NameTests(unittest.TestCase):
     def test_free_entry(self):
         log = arena()
         self.assertTrue(ring.name_ring(log.game))
-        self.assertEqual(log.game.item_name(ring.NAME_ENTRY), "Ring +1")
+        self.assertEqual(log.game.item_name(ring.NAME_ENTRY), "Ring of Protection")
+
+    def test_old_name(self):
+        """Saved with an earlier version: its "Ring +1" becomes the new name."""
+        log = arena()
+        at = NAMES + 3 + ring.NAME_ENTRY * game.ITEM_NAME_SIZE
+        log.guest.mem[at:at + 7] = b"Ring +1"
+        self.assertTrue(ring.name_ring(log.game))
+        self.assertEqual(log.game.item_name(ring.NAME_ENTRY), "Ring of Protection")
+
+    def test_rule_names(self):
+        """Helms and boots named for the rules while they're on, and back without them."""
+        log = arena()
+        m = log.guest.mem
+        for entry, text in ((6, b"Helm"), (43, b"Boots")):
+            m[NAMES + 3 + entry * game.ITEM_NAME_SIZE:NAMES + 3 + entry * game.ITEM_NAME_SIZE + len(text)] = text
+        ring.name_items(log.game, game.RULE_HELMS | game.RULE_BOOTS)
+        self.assertEqual((log.game.item_name(6), log.game.item_name(43)), ("Helm (AC 1)", "Boots (+1 Move)"))
+        ring.name_items(log.game, game.RULE_BOOTS)
+        self.assertEqual((log.game.item_name(6), log.game.item_name(43)), ("Helm", "Boots (+1 Move)"))
 
     def test_entry_in_use(self):
         log = arena()
@@ -107,11 +126,11 @@ class WornTests(unittest.TestCase):
         m[ITEM_TYPES + game.RING_TYPE * game.ITEM_TYPE_SIZE + 0x08] = game.NO_MATERIAL
 
     def test_named(self):
-        self.assertEqual(self.log.game.equipment(0), [("finger", "Ring +1")])
+        self.assertEqual(self.log.game.equipment(0), [("finger", "Ring of Protection +1")])
 
     def test_saves(self):
         self.assertEqual(self.log.game.ring_plus(0), 1)
-        self.assertIn((1, "Ring +1"), self.log.game.save_modifiers(0, 0x29, 27, 3))
+        self.assertIn((1, "Ring of Protection"), self.log.game.save_modifiers(0, 0x29, 27, 3))
 
     def test_carried_only(self):
         self.log.guest.mem[ITEMS + 70 * game.ITEM_SIZE + game.ITEM_SLOT] = 0xFF

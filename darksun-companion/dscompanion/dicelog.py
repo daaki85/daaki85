@@ -47,7 +47,8 @@ LOOK_SIZE, LOOK_FULL_SIZE = 80, 700
 TSR_STATS_OFF, TSR_STATS_STAMP, TSR_STATS_REQ, TSR_STATS_REPLY, STATS_SIZE = 162, 164, 166, 168, 24
 BIOS_TIMER = 0x46C
 # ... and the rule changes it makes to the game (the Options tab)
-TSR_RULES, RULE_HELMS, RULE_BOOTS = 170, 1, 2
+TSR_RULES = 170
+RULE_HELMS, RULE_BOOTS = game.RULE_HELMS, game.RULE_BOOTS
 SLOT_KINDS = {"Wizard": "WIZ", "Priest": "PRI"}
 RAND_PATCHED = b"\xcd\x60"  # INT 60h at the start of rand() in DSUNLOG.EXE
 RAND_IP = 0x822  # rand()'s offset in the game's first code segment
@@ -595,7 +596,10 @@ class DiceLog:
             return
         self._turn_seq = seq
         ended = struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_ENDED, 2))[0]
-        summary = self.turn_summary(ended, self.popup_detail) if self.popups else ""
+        # Only in the party's own fights: a fight the scripts stage without the party (the
+        # Defiler's show at the arena's start) waits on the game's dialogue window, and a summary
+        # there would let its script run on before the fight is over.
+        summary = self.turn_summary(ended, self.popup_detail) if self.popups and self._party_fighting(ended) else ""
         if summary:  # and who is still to come, so the order isn't lost deep in a round
             try:
                 still = self.still_to_act(ended, frozenset(self._turn_attacks))
@@ -615,6 +619,13 @@ class DiceLog:
         self.guest.write(self.tsr_hdr + TSR_REPLY_SEQ, struct.pack("<H", seq))
         self._turn_attacks.clear()
         self._turn_log.clear()
+
+    def _party_fighting(self, ended: int) -> bool:
+        """Whether the party is in this fight: someone of it in the round's order (or, before
+        the log has seen an order, the turn that ended was a party member's)."""
+        if self.round_order:
+            return any(c is not None and 0 <= c < game.PARTY_SIZE for c, _, _ in self.round_order)
+        return 0 <= ended < game.PARTY_SIZE
 
     @property
     def attached(self) -> bool:
@@ -703,6 +714,7 @@ class DiceLog:
         self._ring_check = now + RING_INTERVAL
         try:
             ring.name_ring(self.game)
+            ring.name_items(self.game, self.rules)
             placed = ring.place_ring(self.game) if self.arena_ring else None
         except (struct.error, IndexError, ValueError):
             return []

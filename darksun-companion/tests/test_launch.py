@@ -40,12 +40,16 @@ class LaunchTests(unittest.TestCase):
         self.assertLess(lines.index("c:"), lines.index(r"d:\dsunlog.exe"))  # run from the game folder
         self.assertEqual(lines[-2:], ["exit", ""])
 
-    def test_a_window_twice_the_game_unless_asked_otherwise(self):
+    def test_a_window_three_times_the_game_unless_asked_otherwise(self):
         self.assertEqual(launch.display_lines({}),
-                         ["[sdl]", "fullscreen=false", "[render]", "aspect=true", "scaler=normal2x", ""])
+                         ["[sdl]", "fullscreen=false", "[render]", "aspect=true", "scaler=normal3x", ""])
         self.assertIn("scaler=normal3x", launch.display_lines({"window_scale": 3}))
         self.assertIn("scaler=none", launch.display_lines({"window_scale": 1}))
-        self.assertIn("scaler=normal2x", launch.display_lines({"window_scale": 7}))
+        self.assertIn("scaler=normal3x", launch.display_lines({"window_scale": 7}))
+        self.assertIn("scaler=normal2x", launch.display_lines({"window_scale": 2}))
+        four = launch.display_lines({"window_scale": 4})
+        self.assertIn("windowresolution=1280x960", four)
+        self.assertIn("output=opengl", four)
         self.assertEqual(launch.display_lines({"fullscreen": True}), [])  # GOG's own full screen
         saved = launch.load_settings
         launch.load_settings = lambda: {}

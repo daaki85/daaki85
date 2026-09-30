@@ -70,6 +70,8 @@ FOOT = EQUIP_SLOTS.index("foot")
 # and saving throws (DSCLOG's PROBE_RING_AC and PROBE_RING_SAVE); the game has no such ring of
 # its own, and the companion can put a Ring +1 in the arena (ring.py).
 RING_TYPE = 102
+# The companion's rule changes (DSCLOG's RULES): helms count AC 1, boots add a move in a fight
+RULE_HELMS, RULE_BOOTS = 1, 2
 EFFECTS_SEG, EFFECTS_OFF = 0x3BF6, 0x106  # 10 bytes per active effect
 # The game's clock and event queue: a far pointer to the time (a dword, divided by the byte at
 # GAME_TIME_SCALE); the first queue's entries (17 bytes: due time, kind, then the event's data),
@@ -675,7 +677,7 @@ class GameData:
         out: List[Tuple[int, str]] = []
         ring = self.ring_plus(ti)
         if ring:
-            out.append((ring, f"Ring +{ring}"))
+            out.append((ring, "Ring of Protection"))
         if EFFECT_SAVE_PENALTY in mine:
             out.append((-1, EFFECT_NAMES[EFFECT_SAVE_PENALTY]))
         if EFFECT_SPIRIT_ARMOR in mine and save != PPD_SAVE:
@@ -732,7 +734,8 @@ class GameData:
 
     def item_name(self, name_index: int) -> str:
         if 0 <= name_index < 0x400:
-            rec = self.guest.read(far_pointer(self.guest, self.ds, ITEM_NAMES_PTR) + name_index * ITEM_NAME_SIZE, 22)
+            rec = self.guest.read(far_pointer(self.guest, self.ds, ITEM_NAMES_PTR) + name_index * ITEM_NAME_SIZE,
+                                  ITEM_NAME_SIZE)
             name = rec.split(b"\0", 1)[0].decode("cp437", "replace")
             if name:
                 return name
@@ -880,7 +883,7 @@ class GameData:
             material = len(MATERIALS)  # a ring, a body...: no material to name
         plus = struct.unpack("b", item[ITEM_PLUS:ITEM_PLUS + 1])[0]
         name = self.item_name(item[ITEM_NAME])
-        if plus and not name.endswith(f"{plus:+d}"):  # (the Ring +1's name has it)
+        if plus and not name.endswith(f"{plus:+d}"):  # (a name such as "Sling +2" has it)
             name += f" {plus:+d}"
         return (f"{MATERIALS[material]} " if material < len(MATERIALS) else "") + name
 
@@ -948,7 +951,7 @@ class GameData:
         for save in range(1, 6):
             parts: List[Tuple[int, str]] = []
             if ring:
-                parts.append((ring, f"Ring +{ring}"))
+                parts.append((ring, "Ring of Protection"))
             if EFFECT_SAVE_PENALTY in ids:
                 parts.append((-1, EFFECT_NAMES[EFFECT_SAVE_PENALTY]))
             if EFFECT_SPIRIT_ARMOR in ids and save != PPD_SAVE:

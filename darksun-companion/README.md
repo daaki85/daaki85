@@ -113,12 +113,16 @@ slots on the USE screen. Your saves are the same ones the game normally uses.
 The first time, it looks for the game in the usual GOG folders; if it can't
 find it, it asks you where the game is installed and remembers the answer.
 
-DOSBox opens in a window twice the game's size (640x480), not full screen. To
-change that, pick **Game window** at the top of the Ledger: **Double
-(640x480)**, **Triple (960x720)** or **Full screen**. It's remembered, and
-used from the next time you start the game. Alt+Enter switches between window
-and full screen while playing. (From a command prompt: `--window-scale 3`,
-`--fullscreen` or `--windowed` after `launch` or `play` do the same.)
+DOSBox opens in a window three times the game's size (960x720), not full
+screen. To change that, pick **Game window** at the top of the Ledger:
+**Double (640x480)**, **Triple (960x720)**, **Quadruple (1280x960)** or **Full
+screen**. It's remembered, and used from the next time you start the game.
+Alt+Enter switches between window and full screen while playing. (From a
+command prompt: `--window-scale 2` to `4`, `--fullscreen` or `--windowed` after
+`launch` or `play` do the same.) GOG's DOSBox has no four-times scaler, so
+Quadruple has DOSBox stretch its window with OpenGL (`output=opengl`,
+`windowresolution=1280x960`); if your graphics driver doesn't take to that,
+pick Triple.
 
 Load your game. The party's stats fill in by themselves, and rolls appear in
 the **Dice log** tab as they happen.
@@ -614,24 +618,28 @@ Rules in the code that never come into play: a DEX adjustment and Cloak of
 Bravery's +4 against fear both apply only to a kind of spell that no spell in
 the game is marked as. And nothing in the game gives saves from items: there
 are no rings or cloaks of protection, which is why the Ledger adds
-[one](#the-ring-1). Its +1 is in the log's saving throws as `+1 Ring +1`.
+[one](#the-ring-1). Its +1 is in the log's saving throws as `+1 Ring of Protection`.
 
 ### The Ring +1
 
 A ring of protection the game never had: **+1 AC and +1 on every saving
-throw** for whoever wears it. With **Put a Ring +1 (+1 AC, +1 on saves) on the
+throw** for whoever wears it, called a Ring of Protection. With **Put a Ring of
+Protection +1 (+1 AC, +1 on saves) on the
 dead prisoner in the arena** ticked on the Options tab (it is by default),
 the Ledger puts one in the body lying just below the Tied-up Prisoner in the
 arena, the first time the party is there with the Ledger (or **Play Dark Sun
 (in-game rolls)**) running:
 
 ```
-A Ring +1 (+1 AC, +1 on saves) is on the dead prisoner in the arena, below the Tied-up Prisoner.
+A Ring of Protection +1 (+1 AC, +1 on saves) is on the dead prisoner in the arena, below the Tied-up Prisoner.
 ```
 
 Look at the body (right-click until the cursor is the eye, then click it) to
 open it, click the ring, then click a character to put it in their backpack;
-wear it on a finger from the inventory screen. The game calls it **RING +1**.
+wear it on a finger from the inventory screen. The inventory screen calls it
+**RING OF PROTECTION**, and the box Look opens on it **Ring of Protection+1**:
+the game puts an item's plus straight after its name there, as for any other
+item with a plus.
 The Ledger puts one there only while there is no Ring +1 in the arena or with
 the party, so taking it doesn't make another appear.
 
@@ -671,6 +679,14 @@ with **Play Dark Sun (in-game rolls)**, which uses the Options as last set):
   Slow still double and halve it). The game sets each round's movement when it
   rolls initiative, so boots put on mid-fight count from the next round. The
   Characters tab shows it: `Move: 12 (13 in a fight: boots)`.
+
+The game has no descriptions of items, only their names, so while a rule is on
+the Ledger names the items for it: **Helm (AC 1)**, **Dapartea's Helm (AC 1)**,
+**Helm/Contempltn (AC 1)**, **Helm of Might (AC 1)**, **Boots (+1 Move)** and
+**Serpent Boots (+1 Move)**, as the inventory screen and the Characters tab
+show them. With the rule off they're the game's own names again. (Like the
+Ring of Protection's, the names are in the game's name table, which it reads
+afresh each time it starts; without the Ledger they're the game's own.)
 
 How: the helper sets the helm types' AC as the game's AC routine reads it
 (`INT F8h`, the Ring +1's place), and adds the move where the game sets a
@@ -810,7 +826,10 @@ hit did.
 
 Each turn gets its own window, monsters' included. (The game plays a
 monster's whole turn inside one call, so the helper is also called there, just
-before such a turn starts: `INT F7h`.)
+before such a turn starts: `INT F7h`.) Only fights the party is in get them:
+the fights the game stages without the party, such as the Defiler's show at
+the start of the arena, are run by scripts waiting on the same dialogue window,
+and a window of ours there would let the script go on before the fight ends.
 
 How: the patched game calls the helper (`INT F1h`) in its combat loop, right
 after the call that may pass the turn on. When whose turn it is has changed,

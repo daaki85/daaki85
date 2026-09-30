@@ -324,8 +324,9 @@ def main(argv=None) -> int:
     s = sub.add_parser("launch", parents=[common], help="start the game with the dice log helper, then the viewer")
     s.add_argument("--game-dir", help="the game's install folder (remembered after the first time)")
     s.add_argument("--layout", default=DEFAULT_LAYOUT, help="layout JSON file")
-    s.add_argument("--window-scale", type=int, choices=(1, 2, 3),
-                   help="DOSBox's window: 2 (the default) is twice the game's 320x200, 3 three times (remembered)")
+    s.add_argument("--window-scale", type=int, choices=(1, 2, 3, 4),
+                   help="DOSBox's window: 3 (the default) is three times the game's 320x200, 2 twice, 4 four times "
+                        "(remembered)")
     s.add_argument("--fullscreen", dest="fullscreen", action="store_true", default=None,
                    help="start DOSBox full screen, as GOG does (remembered; --windowed undoes it)")
     s.add_argument("--windowed", dest="fullscreen", action="store_false")
@@ -334,8 +335,9 @@ def main(argv=None) -> int:
     s = sub.add_parser("play", help="start the game with the in-game rolls and stats, no window of our own")
     s.add_argument("--game-dir", help="the game's install folder (remembered after the first time)")
     s.add_argument("--no-popups", action="store_true", help="without each turn's rolls in the game")
-    s.add_argument("--window-scale", type=int, choices=(1, 2, 3),
-                   help="DOSBox's window: 2 (the default) is twice the game's 320x200, 3 three times (remembered)")
+    s.add_argument("--window-scale", type=int, choices=(1, 2, 3, 4),
+                   help="DOSBox's window: 3 (the default) is three times the game's 320x200, 2 twice, 4 four times "
+                        "(remembered)")
     s.add_argument("--fullscreen", dest="fullscreen", action="store_true", default=None,
                    help="start DOSBox full screen, as GOG does (remembered; --windowed undoes it)")
     s.add_argument("--windowed", dest="fullscreen", action="store_false")

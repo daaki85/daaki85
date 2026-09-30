@@ -42,7 +42,7 @@ def _query_bytes(text: str) -> bytes:
 
 
 # the game window's sizes (DOSBox scales the game's 320x200, with the aspect corrected)
-WINDOW_CHOICES = {"Double (640x480)": 2, "Triple (960x720)": 3, "Full screen": None}
+WINDOW_CHOICES = {"Double (640x480)": 2, "Triple (960x720)": 3, "Quadruple (1280x960)": 4, "Full screen": None}
 
 class Viewer:
     def __init__(self, root: tk.Tk, layout: Layout, connect: Callable[[], GuestMemory]):
@@ -298,7 +298,7 @@ class Viewer:
                         command=self._popups_changed).pack(anchor="w", pady=(4, 0))
         # the companion's own item: a Ring +1 on the dead prisoner in the arena (ring.py)
         self.arena_ring = tk.BooleanVar(value=bool(settings.get("arena_ring", True)))
-        ttk.Checkbutton(in_game, text="Put a Ring +1 (+1 AC, +1 on saves) on the dead prisoner in the arena",
+        ttk.Checkbutton(in_game, text="Put a Ring of Protection +1 (+1 AC, +1 on saves) on the dead prisoner in the arena",
                         variable=self.arena_ring, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
 
     def _slot_box(self, parent) -> ttk.Combobox:
@@ -584,8 +584,8 @@ class Viewer:
     def _window_label(settings: dict) -> str:
         if settings.get("fullscreen"):
             return "Full screen"
-        scale = settings.get("window_scale", 2)
-        return next((label for label, v in WINDOW_CHOICES.items() if v == scale), "Double (640x480)")
+        scale = settings.get("window_scale", launch.DEFAULT_SCALE)
+        return next((label for label, v in WINDOW_CHOICES.items() if v == scale), "Triple (960x720)")
 
     def _window_chosen(self, _event=None) -> None:
         """Remember the game window's size; it applies the next time the game is started."""
