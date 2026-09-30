@@ -230,7 +230,7 @@ def cmd_launch(args) -> None:
 
 def cmd_play(args) -> None:
     """Start the game with the helper and the in-game additions, with no window of our own:
-    the dice log runs in the background (for each turn's attacks and the spell slots) until
+    the dice log runs in the background (for each turn's rolls and the spell slots) until
     DOSBox closes. Problems are shown in a message box and written to play.log."""
     import time
     import traceback
@@ -332,7 +332,7 @@ def main(argv=None) -> int:
 
     s = sub.add_parser("play", help="start the game with the in-game rolls and stats, no window of our own")
     s.add_argument("--game-dir", help="the game's install folder (remembered after the first time)")
-    s.add_argument("--no-popups", action="store_true", help="without each turn's attacks in the game")
+    s.add_argument("--no-popups", action="store_true", help="without each turn's rolls in the game")
     s.add_argument("--window-scale", type=int, choices=(1, 2, 3),
                    help="DOSBox's window: 2 (the default) is twice the game's 320x200, 3 three times (remembered)")
     s.add_argument("--fullscreen", dest="fullscreen", action="store_true", default=None,
@@ -344,7 +344,7 @@ def main(argv=None) -> int:
     s.add_argument("--all", action="store_true", help="also show rolls the log can't label")
     s.add_argument("--raw", action="store_true", help="record every rand() call, not just rolls (noisy)")
     s.add_argument("--popups", action="store_true",
-                   help="in a fight, have the game show each turn's attacks when the turn ends")
+                   help="in a fight, have the game show each turn's rolls when the turn ends")
     s.add_argument("--short-popups", action="store_true",
                    help="with --popups: one line per target instead of the log's detail")
     s.set_defaults(func=cmd_dicelog)

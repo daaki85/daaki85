@@ -141,10 +141,10 @@ class Viewer:
         ttk.Checkbutton(dice, text="Show details (the sums behind each roll)", variable=self.show_details,
                         command=lambda: self.dice_text.tag_configure("detail", elide=not self.show_details.get())
                         ).pack(anchor="w", pady=(4, 0))
-        # the game's own window, at the end of each turn in a fight: that turn's attacks
+        # the game's own window, at the end of each turn in a fight: that turn's rolls
         settings = launch.load_settings()
         self.popups = tk.BooleanVar(value=bool(settings.get("turn_popups", True)))
-        ttk.Checkbutton(dice, text="Show each turn's attacks in the game (click Continue to go on)",
+        ttk.Checkbutton(dice, text="Show each turn's rolls in the game (click Continue to go on)",
                         variable=self.popups, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
         self.popup_detail = tk.BooleanVar(value=settings.get("turn_popups_detail", True))
         ttk.Checkbutton(dice, text="... in detail, as in the log (MORE shows the next lines)",

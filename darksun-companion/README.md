@@ -28,13 +28,16 @@ parts:
   ```
 - **Dialogue:** what characters say, the replies you're offered and the one
   you picked, kept in a tab you can scroll back through.
-- **In the game itself:** the inventory screen also shows each character's
-  THAC0, saving throws and (for thieves) thief skills, in the game's own
-  lettering (see [In the game](#in-the-game-thac0-saves-and-thief-skills)),
-  the USE screen their spell slots left (see
-  [spell slots](#in-the-game-spell-slots-on-the-use-screen)),
-  and, if you like, the game stops after each turn in a fight to show that
-  turn's attack rolls (see [each turn's attacks](#in-the-game-each-turns-attacks)).
+- **In the game itself**, in the game's own lettering: the inventory screen
+  also shows each character's THAC0, saving throws and (for thieves) the thief
+  skills the game rolls, and the View Character screen their THAC0 and saves
+  (see [In the game](#in-the-game-thac0-saves-and-thief-skills)); the USE
+  screen shows their spell slots left (see
+  [spell slots](#in-the-game-spell-slots-on-the-use-screen)); and after each
+  turn in a fight the game stops to show that turn's attack rolls, spell
+  damage and saving throws, and who is still to act (see
+  [each turn's rolls](#in-the-game-each-turns-rolls)). The game, these
+  additions and the Ledger's window start together.
 
 Nothing in the game folder or your save files is changed. The viewer only reads
 memory. For the dice log, the launcher runs a patched copy of the game that it
@@ -55,9 +58,10 @@ the arena, all sampled from the game (no game artwork is copied).
 
 - **Windows** with DOSBox (plain DOSBox 0.74, DOSBox Staging, or the DOSBox
   bundled with the GOG/Steam release).
-- **64-bit Python 3.8+** from python.org. It includes tkinter and needs no extra
-  packages. Use 64-bit Python because 64-bit DOSBox can't be read from 32-bit
-  Python.
+- **64-bit Python 3.8+** from python.org, unless you use the ready-made
+  `Dark Sun with Templars Ledger.exe` (see below), which needs no Python.
+  Python includes tkinter and needs no extra packages. Use 64-bit Python
+  because 64-bit DOSBox can't be read from 32-bit Python.
 - Linux works too if you can read other processes' memory (root, or
   `kernel.yama.ptrace_scope=0`).
 
@@ -79,8 +83,8 @@ install anything into the game folder.
 Double-click **`Start Game with Dice Log.bat`** in the `darksun-companion`
 folder. It starts Shattered Lands (through GOG's own DOSBox) with the dice log
 helper loaded, and opens Templar's Ledger next to it. The game gets its
-in-game additions too: each turn's attacks shown in the game (untick **Show
-each turn's attacks in the game** on the Dice log tab to turn that off), THAC0,
+in-game additions too: each turn's rolls shown in the game (untick **Show
+each turn's rolls in the game** on the Dice log tab to turn that off), THAC0,
 saves and thief skills on the inventory and View Character screens, and spell
 slots on the USE screen. Your saves are the same ones the game normally uses.
 The first time, it looks for the game in the usual GOG folders; if it can't
@@ -137,7 +141,7 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 |---|---|
 | `Round 2: K'ratchek 32, Cermak 31, Cilla 30, Gerakis 26, Slig 26` | A new round of a fight, numbered from the fight's start, and the order everyone acts in (highest first). The order also stays in view above the log for the whole round, however far the log has scrolled: `Round 2. Now: Cilla (30). Still to act: Gerakis 26, Slig 26. Done: K'ratchek 32, Cermak 31. Down: ...`, and the in-game turn summary ends with who is still to act. The lines under it (shown with **Show details**) give each score's make-up: `    Gerakis 26 = 20 + 6 (0-9 roll), tie broken by 38 (0-199 roll)` (see Initiative below). If the log was started in the middle of a round, the list has only the rolls it saw. |
 | `Gerakis's turn` | Whose turn it is now, each time the turn passes in a fight. |
-| `X attacks Y with Long Sword +1 (1d8+1): d20 = 14, needs 12+ (45%), hits AC 1, target AC 3 -> HIT` | An attack roll, the weapon and its damage dice. `needs 12+ (45%)` is the d20 this attacker needed against this target (THAC0 − target AC) and the chance of rolling it; `hits on anything but a 1` or `only a 20 hits` when it's out of the ordinary range. `X attacks Y from behind ...` and `X attacks Y BACKSTAB ...` mark attacks from behind and backstabs (see below). "Hits AC" is the lowest AC this roll hits (THAC0 − d20); the target AC is the one the game used, with armour, DEX and spells. A natural 20 always hits and a natural 1 always misses. |
+| `X attacks Y with Long Sword +1 (1d8+1): d20 = 14, needs 12+ (45%), hits AC 1, target AC 3 -> HIT` | An attack roll, the weapon and its damage dice. `needs 12+ (45%)` is the d20 this attacker needed against this target (THAC0 − target AC) and the chance of rolling it; `hits on anything but a 1` or `only a 20 hits` when it's out of the ordinary range. `X attacks Y from behind ...` and `X attacks Y BACKSTAB ...` mark attacks from behind and backstabs (see below). "Hits AC" is the lowest AC this roll hits (THAC0 − d20); the target AC is the one the game used, with armour, DEX and spells. A natural 20 always hits and a natural 1 always misses, but a 20 does no extra damage: the game has no critical hits (see below). |
 | `    THAC0 16, +1 Blessed, +6 STR, +1 weapon = 8` | Where the attacker's THAC0 for this attack comes from: STR (melee) or DEX (missiles), spells (Bless, Prayer, Slow, Graft Weapon, the target's Blur), attacking from behind, the weapon's plus, the penalty for non-metal weapons (wooden −3, bone −1, stone and obsidian −2), the two-weapon adjustment (see below), and the difficulty setting for monsters. |
 | `  X hits Y for 14: 1d8 = [6] +8 STR 20` | The damage of that hit: the dice, the weapon's bonus, and the STR bonus the game adds for melee. Damage is at least 1. |
 | `  X hits Y for 51: (1d8 = [5] +12 STR 24) x3 backstab` | A backstab (see below) multiplies the whole damage, STR bonus included. |
@@ -348,8 +352,8 @@ the chance out as:
 - plus the situation's bonus or penalty (a hard lock, say).
 
 Only characters with thief levels have the skills; everyone else's chance is 0.
-The character's condition must
-be Okay (the status the character screen shows under HP): a thief who is
+The character's condition must be Okay (the status the character screen shows
+under HP): a thief who is
 Stunned, Out Cold, Dying and so on can't use the skills.
 
 Some effects rule out a skill:
@@ -525,6 +529,14 @@ From the game's code:
   attack of the round the damage, STR bonus included, is multiplied: x2 at
   thief levels 1-4, x3 at 5-8, x4 at 9-12, x5 from 13.
 
+### No critical hits
+
+A natural 20 on an attack always hits, and a natural 1 always misses, but
+that is all the d20 does: the game has no critical hits or fumbles. Its attack
+routine uses the d20 only for those two checks and the comparison with THAC0,
+and never passes it to the damage routine, so a hit on a 20 rolls the same
+damage as any other. A backstab is the only thing that multiplies damage.
+
 ### In the game: THAC0, saves and thief skills
 
 Started with the dice log, the game's own inventory screen (the one with the
@@ -557,8 +569,9 @@ before armour and the situation (see Thief skills).
 How: the patched game calls the helper (`INT 65h`) just after the panel's
 weapon lines; the helper prints the lines with the game's own text routine,
 whose address, like the selected character, it reads from the game's code
-around the patch (overlays move, so nothing is fixed in advance). Nothing else
-in the game changes.
+around the patch (overlays move, so nothing is fixed in advance). The View
+Character screen does the same through `INT F3h`, called while it draws the
+character's panel. Nothing else in the game changes.
 
 ### In the game: spell slots on the USE screen
 
@@ -586,18 +599,18 @@ helper prints them again when the game has finished redrawing the USE window
 (`INT F4h`, at the end of the game's window-redraw routine). So they show,
 and stay, while Templar's Ledger (or its command-line dice log) is running.
 
-### In the game: each turn's attacks
+### In the game: each turn's rolls
 
-With **Show each turn's attacks in the game** ticked on the Dice log tab (the
+With **Show each turn's rolls in the game** ticked on the Dice log tab (the
 default; or `python -m dscompanion dicelog --popups`), the game stops at the end
 of every turn in a fight in which someone attacked or cast a spell, and shows
 that turn's rolls in its own dialogue window, with **Continue** to go on. They
 are the dice log's own lines: each attack's d20, the AC it would hit and the
 target's AC, how the THAC0 was worked out, and for a hit the damage dice and
-bonuses; a spell's damage dice, and each saving throw against it. (The roll
-needed and the chance, to hit or to save, are left out: the log has them.) The
-last line says who is still to act this round. The window shows five lines at
-a time; its **MORE** arrow shows the next ones:
+bonuses; a spell's damage dice, and each saving throw against it. (The chance
+to hit or to save is left out: the log has it.) The last line says who is
+still to act this round. The window shows five lines at a time; its **MORE**
+arrow shows the next ones:
 
 ![The game's window at the end of a turn, in detail](docs/turn-detail.png)
 
@@ -690,8 +703,10 @@ Limitations:
 - Only the GOG release (`DSUN.EXE` of 611,408 bytes) is supported. With
   another version the launcher starts the game without the dice log and says
   why.
-- Rolls made outside combat (for example treasure or random encounters) show
-  up only with **Show unlabelled rolls**, as raw numbers.
+- Outside combat, the thief skill, trap and ability checks and the character
+  creation rolls are labelled; other rolls there (for example treasure or
+  random encounters) show up only with **Show unlabelled rolls**, as raw
+  numbers.
 - A save-file load from the main menu is recognised, so the spells already
   active in it aren't reported as new. Loading a save of the same party in the
   middle of play isn't, and its effects may be listed as if just cast.
