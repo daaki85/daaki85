@@ -343,6 +343,7 @@ HUMAN = 1
 # climbing, Detect Traps lets anyone find traps, Feeblemind stops reading languages.
 THIEF_SKILLS = ("pick pockets", "open locks", "find/remove traps", "move silently", "hide in shadows",
                 "hear noise", "climb walls", "read languages")
+ROLLED_SKILLS = (0, 1, 2, 5, 6)  # the ones the game ever rolls (no script asks for the other three)
 THIEF = 17  # class number
 # Tables (a byte per skill): base; then 8 per race (race 1 first); DEX below which each point
 # costs 5, above which each gives 5, above which each costs 3 again; the armour penalty
@@ -720,9 +721,11 @@ class GameData:
         return [(what, n) for what, n in parts if n or what == "base"]
 
     def thief_skills(self, creature: int) -> List[Tuple[str, int]]:
-        """[(skill, chance before armour and the situation), ...] for a thief, else []."""
+        """[(skill, chance before armour and the situation), ...] for a thief, else []: the skills
+        the game ever rolls (move silently, hide in shadows and read languages never are)."""
         out = []
-        for skill, name in enumerate(THIEF_SKILLS):
+        for skill in ROLLED_SKILLS:
+            name = THIEF_SKILLS[skill]
             parts = self.thief_skill_parts(creature, skill)
             if parts is None:
                 return []

@@ -623,7 +623,7 @@ class Viewer:
                 addr = s[1].get("creature")
                 skills = gd.thief_skills((addr - table) // game.CREATURE_SIZE) if addr is not None else []
                 cells.append(" ".join(f"{n}" for _, n in skills))
-            rows.append(("Thief skills PP/OL/FT/MS/HS/HN/CW/RL", cells))
+            rows.append(("Thief skills PP/OL/FT/HN/CW", cells))
             worn = []
             for s in slots:
                 addr = s[1].get("creature")

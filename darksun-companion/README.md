@@ -380,8 +380,10 @@ twice and STR once.
 `python -m dscompanion checks` lists them all with the script's text around
 each (spoilers).
 
-The **Characters** tab shows each thief's chances before armour and the situation.
-**All fields** has them in a row in that order.
+The **Characters** tab shows each thief's chances before equipment and the
+situation, for the five skills the game rolls (pick pockets, open locks,
+find/remove traps, hear noise, climb walls). **All fields** has them in a row
+in that order.
 
 ### Psionics
 
@@ -506,10 +508,18 @@ right-hand panel, drawn by the game's text routine so they look like the rest:
 - above STR, **THAC0** and the five **saving throws**, with the usual AD&D
   short labels: `PPD` paralysis/poison/death, `RSW` rod/staff/wand, `PP`
   petrification/polymorph, `BW` breath weapon, `SP` spell;
-- right of the abilities, for a character with thief levels, the eight
-  **thief skills**: `PICK` pockets, open `LOCK`s, find/remove `TRAP`s, `MOVE`
-  silently, `HIDE` in shadows, `HEAR` noise, `CLMB` walls, `READ` languages.
-  (Not below the weapons: three weapons fill the panel down to its buttons.)
+- right of the abilities, for a character with thief levels, the five
+  **thief skills** the game ever rolls: `PICK` pockets, open `LOCK`s,
+  find/remove `TRAP`s, `HEAR` noise, `CLMB` walls (move silently, hide in
+  shadows and read languages are never checked; see Where the game rolls
+  them). Not below the weapons: three weapons fill the panel down to its
+  buttons.
+
+The **View Character** screen gets THAC0 and the saves too, under the item
+icons: `THAC0: 17` and `SAVE:13 15 14` / `16 16`, the saves in the order
+above.
+
+![The View Character screen with THAC0 and the saves added](docs/view-character.png)
 
 They're read from the character when the screen is drawn, so they follow
 level-ups, and the next character's show when you pick another portrait.

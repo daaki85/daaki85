@@ -29,6 +29,7 @@ VEC_MSG  equ 0x64     ; PROBE_MSG
 VEC_CHAR equ 0x65     ; PROBE_CHAR
 VEC_TURN equ 0xF1     ; PROBE_TURN (not 66h-6Fh: the game calls those, looking for drivers)
 VEC_USE  equ 0xF2     ; PROBE_USE
+VEC_VIEW equ 0xF3     ; PROBE_VIEW
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -532,6 +533,102 @@ probe_char:
         push word [cs:t_ip]
         iret
 
+; PROBE_VIEW: INT VEC_VIEW replaces "push dword 000B0140h" (6 bytes: INT + 4 NOPs) near the
+; end of the View Character screen's routine for its upper panel, once the game has drawn
+; its own lines. Adds THAC0 and the saves under the item icons, then does the push.
+; The routine's code holds, at fixed distances before the patch, the (relocated) far address
+; of the text routine, the segment of the panel's window handle and the segment of the
+; selected character's number: they are read from there.
+CH_PATCH  equ 0x8A471           ; DSUN.EXE offsets
+CH_DRAW   equ 0x8A2C8           ; "lcall 0150h:016Dh" operand: the text routine
+CH_WIN    equ 0x8A2BD           ; "mov ax,0430h" operand: segment of the window's far pointer
+CH_WHO    equ 0x8A2D6           ; "mov ax,0348h" operand: segment of the character number (+25Bh)
+probe_view:
+        pop word [cs:t_ip]
+        pop word [cs:t_cs]
+        pop word [cs:t_fl]
+        sti
+        pushad
+        push es
+        push fs
+        mov es, [cs:t_cs]
+        mov di, [cs:t_ip]
+        sub di, 2               ; ES:DI = the patch
+        mov eax, [es:di + CH_DRAW - CH_PATCH]
+        mov [cs:c_draw], eax
+        mov fs, [es:di + CH_WIN - CH_PATCH]
+        mov eax, [fs:0]         ; the panel's window
+        mov [cs:c_winptr], eax
+        mov fs, [es:di + CH_WHO - CH_PATCH]
+        mov bx, [fs:0x25B]      ; the character on show
+        cmp bx, 3
+        ja .done
+        imul ax, bx, 0x47
+        les si, [0x1661]
+        add si, ax              ; ES:SI = the character sheet
+        cmp word [es:si + 0x10], 0
+        je .done                ; an empty slot
+        imul bx, bx, 0x3A
+        lfs di, [0x1665]
+        mov al, [fs:di + bx + 0x1F]  ; THAC0
+        mov di, v_thac0 + 7
+        call c_itoa
+        mov di, v_saves1 + 5
+        mov al, [es:si + 0x37]
+        call v_two
+        mov al, [es:si + 0x38]
+        call v_two
+        mov al, [es:si + 0x39]
+        call v_two
+        mov di, v_saves2 + 5
+        mov al, [es:si + 0x3A]
+        call v_two
+        mov al, [es:si + 0x3B]
+        call v_two
+        push word 0x3A          ; under the item icons
+        push word 0xCD
+        push cs
+        push word v_thac0
+        call c_draw_line
+        push word 0x41
+        push word 0xCD
+        push cs
+        push word v_saves1
+        call c_draw_line
+        push word 0x48
+        push word 0xCD
+        push cs
+        push word v_saves2
+        call c_draw_line
+.done:  pop fs
+        pop es
+        popad
+        push dword 0x000B0140   ; the replaced instruction
+        push word [cs:t_fl]
+        push word [cs:t_cs]
+        push word [cs:t_ip]
+        iret
+
+v_two:                          ; AL (0-99) -> two digits (a space for a leading 0) and a space
+        push bx                 ; at CS:DI; DI moves on
+        xor ah, ah
+        mov bl, 10
+        div bl
+        add ax, '00'
+        cmp al, '0'
+        jne .tens
+        mov al, ' '
+.tens:  mov [cs:di], al
+        mov [cs:di + 1], ah
+        mov byte [cs:di + 2], ' '
+        add di, 3
+        pop bx
+        ret
+
+v_thac0  db 'THAC0: ', 0, 0, 0, 0
+v_saves1 db 'SAVE:00 00 00 ', 0
+v_saves2 db '     00 00 ', 0
+
 ; THAC0 (AL) and the saves (sheet +37h..+3Bh at ES:SI), as the cells at CS:BX say
 c_cells_saves:
         mov [cs:c_vals], al
@@ -598,8 +695,12 @@ c_thief:
         cmp bx, 8
         jb .skill
         pop si
+        mov al, [cs:c_vals + 5] ; only the five the game ever rolls: move silently, hide in
+        mov [cs:c_vals + 3], al ; shadows and read languages are never checked (the Templar's
+        mov al, [cs:c_vals + 6] ; Ledger's script decoder found no script asking for them)
+        mov [cs:c_vals + 4], al
         mov bx, c_cells_thief
-        mov cx, 8
+        mov cx, 5
         ; fall through
 
 ; CX cells at CS:BX: each x, y, label offset, value's x (words); the values are C_VALS in
@@ -684,14 +785,11 @@ c_cells_top:
         dw 0xEC, 0x1E, l_pp, 0x103,   0x113, 0x1E, l_bw, 0x12A
         dw 0xEC, 0x25, l_sp, 0x103
 c_cells_thief:                  ; right of the abilities (whose values end by 10Eh), in the
-        dw 0x113, 0x27, l_pick, 0x12D  ; saves' second column: from beside SP down to CHR,
-        dw 0x113, 0x2E, l_lock, 0x12D  ; level with STR..CHR, clear of the PSI line
+        dw 0x113, 0x27, l_pick, 0x12D  ; saves' second column: from beside SP down,
+        dw 0x113, 0x2E, l_lock, 0x12D  ; level with STR..CON
         dw 0x113, 0x35, l_trap, 0x12D
-        dw 0x113, 0x3C, l_move, 0x12D
-        dw 0x113, 0x43, l_hide, 0x12D
-        dw 0x113, 0x4A, l_hear, 0x12D
-        dw 0x113, 0x51, l_clmb, 0x12D
-        dw 0x113, 0x58, l_read, 0x12D
+        dw 0x113, 0x3C, l_hear, 0x12D
+        dw 0x113, 0x43, l_clmb, 0x12D
 l_thac0 db 'THAC0:', 0
 l_ppd   db 'PPD', 0
 l_rsw   db 'RSW', 0
@@ -701,11 +799,8 @@ l_sp    db 'SP', 0
 l_pick  db 'PICK', 0
 l_lock  db 'LOCK', 0
 l_trap  db 'TRAP', 0
-l_move  db 'MOVE', 0
-l_hide  db 'HIDE', 0
 l_hear  db 'HEAR', 0
 l_clmb  db 'CLMB', 0
-l_read  db 'READ', 0
 c_vals  times 8 db 0
 c_num   db 0, 0, 0, 0
 c_draw  dd 0
@@ -939,7 +1034,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 8
+        mov cx, 9
 .check:
         lodsb
         mov ah, 35h
@@ -979,6 +1074,9 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_USE
         mov dx, probe_use
         int 21h
+        mov ax, 2500h + VEC_VIEW
+        mov dx, probe_view
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -994,8 +1092,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h, F1h or F2h are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE
+busy    db 'DSCLOG: interrupts 60h-65h or F1h-F3h are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW
 
         align 16, db 0
 image_len equ $ - $$
