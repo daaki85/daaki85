@@ -30,6 +30,7 @@ VEC_CHAR equ 0x65     ; PROBE_CHAR
 VEC_TURN equ 0xF1     ; PROBE_TURN (not 66h-6Fh: the game calls those, looking for drivers)
 VEC_USE  equ 0xF2     ; PROBE_USE
 VEC_VIEW equ 0xF3     ; PROBE_VIEW
+VEC_WIN  equ 0xF4     ; PROBE_WIN
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -947,6 +948,63 @@ probe_use:
         pushad
         push es
         push fs
+        mov eax, [0x11A4]       ; the USE screen is up: PROBE_WIN may redraw on this window
+        mov [cs:use_win], eax
+        call use_draw
+        pop fs
+        pop es
+        popad
+        iret
+
+; PROBE_WIN: INT VEC_WIN replaces "xor ax,ax / pop si" (3 bytes: INT + NOP) at the end of the
+; game's routine that brings a window to the front and redraws it (its window far pointer the
+; argument, at the routine's BP+6), which repaints the USE screen's panels when a character or
+; spell level is picked, after the LEVEL button's label (where PROBE_USE draws). For the USE
+; screen's window, once PROBE_USE has drawn on it (not while the screen opens), the slots are
+; drawn again. Everything is kept on the stack: drawing may run the routine again.
+WIN_USE_SEG equ 0x40BC - 0x4356 ; the USE screen's window pointer is at this segment:0
+probe_win:
+        push bp
+        mov bp, sp              ; BP+2 the interrupt frame, BP+8 the routine's saved SI
+        sti
+        pushad
+        push es
+        push fs
+        mov di, [bp]            ; the routine's BP
+        mov eax, [ss:di + 6]    ; its window
+        or eax, eax
+        jz .done
+        cmp eax, [cs:use_win]
+        jne .done               ; not a USE screen PROBE_USE has drawn on
+        cmp eax, [0x11A4]
+        jne .done               ; not the window on show
+        mov bx, ds
+        add bx, WIN_USE_SEG
+        mov es, bx
+        cmp eax, [es:0]
+        jne .done               ; not the USE screen
+        call use_draw
+.done:  pop fs
+        pop es
+        popad
+        xor ax, ax              ; the replaced "xor ax,ax"
+        mov si, [bp + 8]        ; ... and "pop si": move the interrupt frame up over it
+        push dx
+        mov dx, [bp + 6]
+        mov [bp + 8], dx
+        mov dx, [bp + 4]
+        mov [bp + 6], dx
+        mov dx, [bp + 2]
+        mov [bp + 4], dx
+        pop dx
+        mov sp, bp
+        pop bp
+        add sp, 2
+        iret
+
+use_win dd 0                    ; the USE screen's window, as PROBE_USE last saw it
+
+use_draw:                       ; the selected character's slots in the USE screen's panel
         mov ax, ds
         add ax, USE_WHO_SEG
         mov es, ax
@@ -991,10 +1049,7 @@ probe_use:
         inc si
         cmp dx, USE_LAST_Y
         jbe .line
-.done:  pop fs
-        pop es
-        popad
-        iret
+.done:  ret
 USE_X      equ 0x96             ; the panel under the spells (window coordinates): its top,
 USE_FIRST_Y equ 0x6C            ; three lines above where the icons of usable items (fruit,
 USE_STEP   equ 7                ; wands...) go, along the panel's bottom from 0x81
@@ -1034,7 +1089,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 9
+        mov cx, 10
 .check:
         lodsb
         mov ah, 35h
@@ -1077,6 +1132,9 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_VIEW
         mov dx, probe_view
         int 21h
+        mov ax, 2500h + VEC_WIN
+        mov dx, probe_win
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -1092,8 +1150,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or F1h-F3h are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW
+busy    db 'DSCLOG: interrupts 60h-65h or F1h-F4h are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN
 
         align 16, db 0
 image_len equ $ - $$

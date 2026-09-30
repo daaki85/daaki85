@@ -27,7 +27,7 @@ from typing import NamedTuple
 GOG_SIZE = 611408  # DSUN.EXE of the GOG release (1.1)
 
 VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR = range(0x60, 0x66)  # as in dsclog.asm
-VEC_TURN, VEC_USE, VEC_VIEW = 0xF1, 0xF2, 0xF3  # not 66h-6Fh: the game calls those itself, looking for drivers
+VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN = 0xF1, 0xF2, 0xF3, 0xF4  # not 66h-6Fh: the game calls those itself, looking for drivers
 
 
 class Patch(NamedTuple):
@@ -64,6 +64,9 @@ PATCHES = (
     # the View Character screen's upper panel, once drawn: push dword 000B0140h
     # (DSCLOG then adds THAC0 and the saves under the item icons, and does the push)
     Patch("view", 0x8A471, bytes.fromhex("666840010b00"), _interrupt(VEC_VIEW, 6)),
+    # the end of the routine that brings a window to the front and redraws it: xor ax,ax /
+    # pop si (for the USE screen's window, DSCLOG draws the spell slots again)
+    Patch("window", 0x2BBA9, bytes.fromhex("33c05e"), _interrupt(VEC_WIN, 3)),
     # The data path is argv[0] cut after its last \ or :, kept at DS:4B81h. The
     # code that finds the cut becomes: path = ".\", then on to "mov byte [si],0"
     # which ends it. (Not an empty path: the save list needs a \ in it.)

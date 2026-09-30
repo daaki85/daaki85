@@ -554,8 +554,11 @@ the `SPELLS LEFT BY LEVEL` heading.
 The numbers are the same as on the Characters tab (see Spell slots): the
 Ledger works them out, including the WIS bonus, and keeps a copy in the
 helper's memory, which the patched game (`INT F2h`, where the USE screen
-labels its LEVEL button) prints with the game's own text routine. So they
-show while Templar's Ledger (or its command-line dice log) is running.
+labels its LEVEL button) prints with the game's own text routine. Picking a
+character or a spell level repaints the screen's panels after that, so the
+helper prints them again when the game has finished redrawing the USE window
+(`INT F4h`, at the end of the game's window-redraw routine). So they show,
+and stay, while Templar's Ledger (or its command-line dice log) is running.
 
 ### In the game: each turn's attacks
 
@@ -634,7 +637,8 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    throw, the end of the AC calculation, the start of the routine that fills
    the dialogue window and the start of the message box routine become
    `INT 60h` to `64h`, the inventory screen's panel calls `INT 65h`, the
-   combat loop `INT F1h` and the USE screen `INT F2h` (see In the game), and
+   combat loop `INT F1h`, the USE screen `INT F2h`, the View Character screen
+   `INT F3h` and the end of the window redraw `INT F4h` (see In the game), and
    the copy looks for its data files in the current
    folder rather than next to itself. DOSBox runs it from the game folder, so
    it uses your saves as usual.
