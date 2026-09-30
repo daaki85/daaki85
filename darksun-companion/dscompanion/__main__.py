@@ -11,7 +11,7 @@ from .process import ProcessMemory, find_dosbox_processes
 from .savefile import load_party
 from .search import OPS, SearchSession
 
-DEFAULT_LAYOUT = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+DEFAULT_LAYOUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                               "layouts", "shattered_lands.json")
 SEARCH_FILE = ".dscompanion-search.json"
 

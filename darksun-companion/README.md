@@ -62,10 +62,10 @@ the arena, all sampled from the game (no game artwork is copied).
 
 - **Windows** with DOSBox (plain DOSBox 0.74, DOSBox Staging, or the DOSBox
   bundled with the GOG/Steam release).
-- **64-bit Python 3.8+** from python.org, unless you use the ready-made
-  `Dark Sun with Templars Ledger.exe` (see below), which needs no Python.
-  Python includes tkinter and needs no extra packages. Use 64-bit Python
-  because 64-bit DOSBox can't be read from 32-bit Python.
+- **64-bit Python 3.8+** from python.org. If it isn't installed, the `.bat`
+  files offer to install it for you (see below). Python includes tkinter and
+  needs no extra packages. It has to be 64-bit because 64-bit DOSBox can't be
+  read from 32-bit Python.
 - Linux works too if you can read other processes' memory (root, or
   `kernel.yama.ptrace_scope=0`).
 
@@ -76,11 +76,22 @@ install anything into the game folder.
 
 **One-time setup**
 
-1. Install Python from <https://www.python.org/downloads/>. On the first
-   installer screen, tick **"Add python.exe to PATH"**.
-2. Download this project: on GitHub open the `templars-ledger`
+1. Download this project: on GitHub open the `templars-ledger`
    branch, click **Code → Download ZIP**, and unzip it anywhere.
    The files you need are in the `darksun-companion` folder.
+2. Python: the first time you double-click one of the `.bat` files, it
+   checks for a 64-bit Python 3.8 or later. If there is none, it asks
+   whether to install it with Windows' own package manager (winget): that
+   downloads the official, signed installer from python.org, for your user
+   only, with no administrator rights. Answer **Y**, and when it's done, start
+   the `.bat` file again. (If you'd rather do it yourself, or winget isn't
+   there, install the 64-bit Python from <https://www.python.org/downloads/>
+   and tick **"Add python.exe to PATH"** on the installer's first screen.)
+
+Everything else is plain text you can read: the `.bat` files, the Python
+code in `dscompanion`, and the dice log helper's source (`dos\dsclog.asm`,
+which builds `dos\DSCLOG.EXE`, the small DOS program DOSBox loads). There is
+no packaged program to trust.
 
 **Every time you play**
 
@@ -106,16 +117,6 @@ the **Dice log** tab as they happen.
 
 If you start the game the normal way instead, **`Start Templar's Ledger.bat`** still
 shows the party, but the dice log will say the game was started without it.
-
-**Without Python: `Dark Sun with Templars Ledger.exe`.** The same thing (game,
-in-game additions and Ledger) as one Windows program. GitHub builds it each
-time this branch changes: on the repository's **Actions** tab, open the latest
-**Build Dark Sun with Templars Ledger** run and download it under
-**Artifacts** (you need to be signed in to GitHub). Put it in a folder of its
-own and double-click it: it keeps its settings, `play.log` and a `dos` folder
-(the helper and the patched copy of the game) next to itself. Started with
-`--no-ledger` (for instance from a shortcut) it runs just the game with the
-in-game additions.
 
 **Just the game, with the in-game additions, no Ledger window:** double-click
 **`Play Dark Sun (in-game rolls).bat`**. The dice log runs unseen and stops
