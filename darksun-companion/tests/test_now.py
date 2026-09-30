@@ -75,6 +75,19 @@ class SaveTests(unittest.TestCase):
         self.assertEqual(log.game.saves_now(0)[0].needs, 2)  # a 1 always fails
 
 
+class RuleTests(unittest.TestCase):
+    def test_boots(self):
+        log = dag()
+        self.assertFalse(log.game.wears_boots(0))
+        log.guest.mem[ITEMS + 6 * game.ITEM_SIZE + game.ITEM_SLOT] = game.FOOT
+        self.assertTrue(log.game.wears_boots(0))
+
+    def test_rules_for_dsclog(self):
+        log = dag()
+        log.set_rules(dicelog.RULE_HELMS | dicelog.RULE_BOOTS)
+        self.assertEqual(struct.unpack_from("<H", log.guest.mem, log.tsr_hdr + dicelog.TSR_RULES)[0], 3)
+
+
 class StatsTests(unittest.TestCase):
     def test_entry_for_dsclog(self):
         log = dag()

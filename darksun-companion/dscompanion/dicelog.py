@@ -30,7 +30,7 @@ from .guestmem import GuestMemory
 from .textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGvB"
+HDR_SIG = b"DSCLOGvC"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
 MSG_SIZE = 900
@@ -46,6 +46,8 @@ LOOK_SIZE, LOOK_FULL_SIZE = 80, 700
 # ... and the party's THAC0 and saves as they stand now, for the game's screens (see STATS)
 TSR_STATS_OFF, TSR_STATS_STAMP, TSR_STATS_REQ, TSR_STATS_REPLY, STATS_SIZE = 162, 164, 166, 168, 20
 BIOS_TIMER = 0x46C
+# ... and the rule changes it makes to the game (the Options tab)
+TSR_RULES, RULE_HELMS, RULE_BOOTS = 170, 1, 2
 SLOT_KINDS = {"Wizard": "WIZ", "Priest": "PRI"}
 RAND_PATCHED = b"\xcd\x60"  # INT 60h at the start of rand() in DSUNLOG.EXE
 RAND_IP = 0x822  # rand()'s offset in the game's first code segment
@@ -302,6 +304,7 @@ class DiceLog:
         self.popup_detail = True  # ... with the dice log's lines, or in short
         self.monster_info = True  # monsters' defences in the game's Look box (set_monster_info)
         self.arena_ring = True  # put the Ring +1 on the dead prisoner in the arena (ring.py)
+        self.rules = 0  # RULE_HELMS | RULE_BOOTS: rule changes DSCLOG makes (set_rules)
         self._ring_check = 0.0
         self._look_seq = 0
         self._turn_seq = 0
@@ -362,6 +365,7 @@ class DiceLog:
         self.set_record_everything(self.record_everything)
         self.set_popups(self.popups)
         self.set_monster_info(self.monster_info)
+        self.set_rules(self.rules)
         self._turn_seq = struct.unpack("<H", self.guest.read(hdr + TSR_TURN_SEQ, 2))[0]
         self._look_seq = struct.unpack("<H", self.guest.read(hdr + TSR_LOOK_SEQ, 2))[0]
         self.last_seq = struct.unpack("<H", self.guest.read(hdr + 8, 2))[0]
@@ -387,6 +391,12 @@ class DiceLog:
         self.monster_info = on
         if self.tsr_hdr is not None:
             self.guest.write(self.tsr_hdr + TSR_LOOK_ON, struct.pack("<H", int(on)))
+
+    def set_rules(self, rules: int) -> None:
+        """Turn the rule changes on or off: helms count AC 1, boots add a move in a fight."""
+        self.rules = rules
+        if self.tsr_hdr is not None:
+            self.guest.write(self.tsr_hdr + TSR_RULES, struct.pack("<H", rules))
 
     def _answer_look(self) -> List[str]:
         """DSCLOG asks about a creature the player looks at in a fight: give the Look box its

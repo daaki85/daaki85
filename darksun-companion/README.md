@@ -43,12 +43,15 @@ parts:
 - **Spells:** a tab listing what every spell and psionic power really does,
   from the game's own records (see [the Spells tab](#the-spells-tab)).
 - **A Ring +1** (+1 AC, +1 on saving throws) to loot from the dead prisoner in
-  the arena, an item of the Ledger's own (see [The Ring +1](#the-ring-1)).
+  the arena, an item of the Ledger's own (see [The Ring +1](#the-ring-1)), and
+  two optional rule changes: helms give AC 1, boots a move more in a fight (see
+  [Rule changes](#rule-changes-helms-and-boots)).
 
 Nothing in the game folder or your save files is changed, except that a game
 you save after the Ledger has put the Ring +1 in the arena keeps the ring (untick
-its box to go without). The viewer otherwise only reads memory. For the dice log, the launcher runs a patched copy of the game that it
-keeps in its own folder (see
+its box to go without). Apart from that ring and what it hands the dice log's
+helper, the Ledger only reads the game's memory. For the dice log, the launcher
+runs a patched copy of the game that it keeps in its own folder (see
 [How the dice log works](#how-the-dice-log-works)).
 
 The window is dressed in the game's own colours: its grey stone panels, the
@@ -644,6 +647,28 @@ a saving throw's modifiers, it starts from the pluses of the rings worn. So:
 - A ring the original game has (the plain Ring and the Serpent Ring are the
   only kind the patch looks at) has no plus, so it plays as before.
 
+### Rule changes: helms and boots
+
+Two small changes to the game's rules, both on the Options tab (on by default;
+they take effect in games started with the dice log while the Ledger runs):
+
+- **Helms give AC 1.** The game's helms count as armour but give AC 0. With
+  **Helms give AC 1** ticked they give 1: the plain leather Helm, Dapartea's
+  Helm, the metal Helm of Contemplation and the Helm of Might (item types 5,
+  89 and 109, all at AC 0 in the game's tables). It shows on the View
+  Character and inventory screens like any armour.
+- **Boots give a move.** With **Boots give 1 more move in a fight** ticked,
+  whoever wears boots (Leather Boots, Serpent Boots: anything on the feet)
+  gets 1 more move each round of a fight (13 rather than 12, say; Haste and
+  Slow still double and halve it). The game sets each round's movement when it
+  rolls initiative, so boots put on mid-fight count from the next round. The
+  Characters tab shows it: `Move: 12 (13 in a fight: boots)`.
+
+How: the helper sets the helm types' AC as the game's AC routine reads it
+(`INT F8h`, the Ring +1's place), and adds the move where the game sets a
+round's movement, Move x 10 (`INT FBh`). Untick either and the game's own
+rule is back at once.
+
 ### No critical hits
 
 A natural 20 on an attack always hits, and a natural 1 always misses, but
@@ -895,8 +920,9 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    `INT F3h`, the end of the window redraw `INT F4h`, the Look box `INT F5h`
    and `INT F6h`, the start of a monster's turn `INT F7h` (see In the
    game), and the places where AC and a saving throw's modifiers are added up
-   `INT F8h` and `INT F9h` (for [the Ring +1](#the-ring-1)), and each
-   weapon's line on the inventory screen `INT FAh`, and
+   `INT F8h` and `INT F9h` (for [the Ring +1](#the-ring-1) and helms), each
+   weapon's line on the inventory screen `INT FAh`, and the start of a round's
+   movement `INT FBh` (for boots), and
    the copy looks for its data files in the current
    folder rather than next to itself. DOSBox runs it from the game folder, so
    it uses your saves as usual.
@@ -915,7 +941,8 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    unless **Show unlabelled rolls** is ticked.
 
 Because the replacement produces identical numbers, the game plays exactly as
-it would without it.
+it would without it, apart from what you choose: the Ring +1 and the
+[rule changes](#rule-changes-helms-and-boots) on the Options tab.
 
 Limitations:
 - Only the GOG release (`DSUN.EXE` of 611,408 bytes) is supported. With
@@ -987,9 +1014,9 @@ The party pane has two tabs:
 
 The other side has the **Dice log**, **Dialogue**, **Spells** and **Memory
 tools** tabs, and **Options** (Alt+O) with the Ledger's switches: what the
-dice log shows (unlabelled rolls, details) and what it adds to the game (each
-turn's rolls, monster descriptions, the Ring +1). The switches for the game
-are remembered for next time.
+dice log shows (unlabelled rolls, details), what it adds to the game (each
+turn's rolls, monster descriptions, the Ring +1) and the rule changes (helms,
+boots). The switches for the game are remembered for next time.
 
 **Spell slots.** `Priest spells left: 1st 5/5, 2nd 3/3, 3rd 2/2, 4th 1/1`
 means five first-level priest spells can still be cast out of five, and so

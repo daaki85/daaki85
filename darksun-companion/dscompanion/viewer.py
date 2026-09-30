@@ -16,7 +16,7 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Dict, List, Optional, Tuple
 
 from . import art, game, launch, partyview, spellbook, theme, values
-from .dicelog import DiceLog, DiceLogError
+from .dicelog import RULE_BOOTS, RULE_HELMS, DiceLog, DiceLogError
 from .guestmem import GuestMemory
 from .layout import Layout
 from .process import ProcessError
@@ -288,6 +288,14 @@ class Viewer:
         self.monster_info = tk.BooleanVar(value=bool(settings.get("monster_info", True)))
         ttk.Checkbutton(in_game, text="Describe monsters when you Look at them in a fight (defences, then a window)",
                         variable=self.monster_info, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        rules = ttk.LabelFrame(options, text="Rule changes (in games started with the dice log)", padding=6)
+        rules.pack(fill="x", pady=(8, 0))
+        self.helm_ac = tk.BooleanVar(value=bool(settings.get("helm_ac", True)))
+        ttk.Checkbutton(rules, text="Helms give AC 1 (the game's helms give none)", variable=self.helm_ac,
+                        command=self._popups_changed).pack(anchor="w")
+        self.boots_move = tk.BooleanVar(value=bool(settings.get("boots_move", True)))
+        ttk.Checkbutton(rules, text="Boots give 1 more move in a fight", variable=self.boots_move,
+                        command=self._popups_changed).pack(anchor="w", pady=(4, 0))
         # the companion's own item: a Ring +1 on the dead prisoner in the arena (ring.py)
         self.arena_ring = tk.BooleanVar(value=bool(settings.get("arena_ring", True)))
         ttk.Checkbutton(in_game, text="Put a Ring +1 (+1 AC, +1 on saves) on the dead prisoner in the arena",
@@ -527,6 +535,7 @@ class Viewer:
                 self.dice.popup_detail = self.popup_detail.get()
                 self.dice.monster_info = self.monster_info.get()
                 self.dice.arena_ring = self.arena_ring.get()
+                self.dice.rules = self._rules()
             try:
                 self.dice_status.set(self.dice.attach())
             except DiceLogError as e:
@@ -598,12 +607,18 @@ class Viewer:
         settings["turn_popups_detail"] = self.popup_detail.get()
         settings["monster_info"] = self.monster_info.get()
         settings["arena_ring"] = self.arena_ring.get()
+        settings["helm_ac"] = self.helm_ac.get()
+        settings["boots_move"] = self.boots_move.get()
         launch.save_settings(settings)
         if self.dice is not None:
             self.dice.set_popups(on)
             self.dice.popup_detail = self.popup_detail.get()
             self.dice.set_monster_info(self.monster_info.get())
             self.dice.arena_ring = self.arena_ring.get()
+            self.dice.set_rules(self._rules())
+
+    def _rules(self) -> int:
+        return (RULE_HELMS if self.helm_ac.get() else 0) | (RULE_BOOTS if self.boots_move.get() else 0)
 
     def show_spells(self) -> None:
         """Fill the Spells tab from the running game's records."""
@@ -845,7 +860,8 @@ class Viewer:
                 saves = gd.saves_now(index) if known and index < game.PARTY_SIZE else []
             except (struct.error, IndexError, ValueError):
                 hits, saves = [], []
-            card.show(name, dict(fields), status, ac, self.art, member_slots, thief, equipment, hits, saves)
+            boots = bool(known and self.boots_move.get() and gd.wears_boots(index))
+            card.show(name, dict(fields), status, ac, self.art, member_slots, thief, equipment, hits, saves, boots)
 
     def _hex_base(self) -> Optional[int]:
         record = self.layout.records.get(self.hex_record.get())

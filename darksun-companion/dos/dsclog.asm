@@ -38,6 +38,7 @@ VEC_NEXT equ 0xF7     ; PROBE_NEXT
 VEC_RING_AC equ 0xF8  ; PROBE_RING_AC
 VEC_RING_SAVE equ 0xF9  ; PROBE_RING_SAVE
 VEC_WEAPON equ 0xFA   ; PROBE_WEAPON
+VEC_MOVE   equ 0xFB   ; PROBE_MOVE
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -66,7 +67,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvB'          ; +0
+sig      db 'DSCLOGvC'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -125,6 +126,7 @@ stats_stamp dw 0                ; +164 the BIOS timer when the companion last wr
                                 ;      than STATS_FRESH, the screens show the game's own numbers
 stats_req  dw 0                 ; +166 counted up when a screen is about to show STATS ...
 stats_reply dw 0                ; +168 ... and set to it by the companion once STATS are up to date
+rules      dw 0                 ; +170 rule changes the companion turns on (RULE_HELMS, RULE_BOOTS)
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -1406,6 +1408,9 @@ c_signed db 0
 ; one better AC or saves. The companion can put a Ring +1 in the arena; these two make its
 ; plus count, as a ring of protection's would.
 RING_TYPE  equ 102
+HELM_LEATHER equ 5              ; the helm item types: Helm, Dapartea's Helm; Helm of
+HELM_METAL   equ 89             ; Contemplation; and a leather one no object uses (Helm of
+HELM_OTHER   equ 109            ; Might, made by a script)
 FINGER     equ 4                ; the item's slot byte while worn on a finger
 THINGS     equ 0xC36            ; the things table (3 bytes each: kind, index) in its segment
 NO_THING   equ 0x270F
@@ -1419,9 +1424,24 @@ probe_ring_ac:
         mov al, [es:bx+0x0F]
         cbw
         cmp cx, RING_TYPE
-        jne .out
+        jne .helm
         or al, 0x80
-.out:   iret
+        iret
+.helm:  cmp cx, HELM_LEATHER    ; a helm: AC 1 with RULE_HELMS (the game's are all 0), 0 without
+        je .is
+        cmp cx, HELM_METAL
+        je .is
+        cmp cx, HELM_OTHER
+        je .is
+        iret
+.is:    push ax
+        xor al, al
+        test byte [cs:rules], RULE_HELMS
+        jz .set
+        inc al
+.set:   mov [es:bx+0x12], al    ; (the type's AC, read next)
+        pop ax
+        iret
 
 ; PROBE_RING_SAVE: INT VEC_RING_SAVE replaces "xor si,si" (2 bytes) at the start of the
 ; function that adds up a saving throw's modifiers into SI, DI being the one saving. Starts
@@ -1454,8 +1474,21 @@ ring_plus:                      ; DS = the game's, AX = the things table's segme
         cmp byte [es:bx+THINGS], 2
         jne .done               ; not a creature
         mov ax, [es:bx+THINGS+1]
+        mov word [cs:ws_slot], FINGER
+        mov word [cs:ws_type], RING_TYPE
+        call worn_scan
+        add si, [cs:ws_plus]
+.done:  ret
+
+; The items creature AX (DS = the game's, R_THINGS the things table's segment) wears in slot
+; WS_SLOT, of type WS_TYPE (0FFFFh: any): WS_COUNT of them, their positive pluses adding up to
+; WS_PLUS. Keeps SI, DI, BP.
+worn_scan:
+        push cx
         imul ax, ax, 0x3A
         mov [cs:r_creature], ax
+        mov word [cs:ws_count], 0
+        mov word [cs:ws_plus], 0
         mov cx, 8               ; its item lists, each a thing: +8, +0Ah, +0Ch
 .list:  les bx, [CREATURES]
         add bx, [cs:r_creature]
@@ -1476,26 +1509,72 @@ ring_plus:                      ; DS = the game's, AX = the things table's segme
         mov ax, dx
         imul ax, ax, 0x15
         add bx, ax
-        cmp word [es:bx+0x0A], RING_TYPE
+        mov al, [es:bx+0x11]
+        cmp al, [cs:ws_slot]
         jne .on
-        cmp byte [es:bx+0x11], FINGER
+        mov ax, [cs:ws_type]
+        cmp ax, 0xFFFF
+        je .match
+        cmp [es:bx+0x0A], ax
         jne .on
+.match: inc word [cs:ws_count]
         mov al, [es:bx+0x14]    ; the plus
         cbw
         or ax, ax
         jle .on
-        add si, ax
+        add [cs:ws_plus], ax
 .on:    mov dx, [es:bx+4]       ; the next item in the list
         dec byte [cs:r_left]
         jnz .item
 .next:  add cx, 2
         cmp cx, 0x0E
         jb .list
-.done:  ret
+        pop cx
+        ret
 
 r_things   dw 0
 r_creature dw 0
 r_left     db 0
+ws_slot    dw 0
+ws_type    dw 0
+ws_count   dw 0
+ws_plus    dw 0
+
+; RULES (set by the companion, from its Options): a helm counts AC 1, boots add 1 to movement
+; in a fight
+RULE_HELMS equ 1
+RULE_BOOTS equ 2
+FOOT       equ 12               ; the item's slot byte while worn on the feet
+THINGS_SEG equ 0x3972 - 0x4356  ; the things table's segment, relative to DS
+
+; PROBE_MOVE: INT VEC_MOVE replaces "mov es:[bx+22Bh],ax" (5 bytes: INT + 3 NOPs) where a
+; creature's turn in a fight starts: AX = its movement for the turn (its Move x 10), SI the
+; creature. Does the move, with 10 more for boots on its feet when RULE_BOOTS is on.
+probe_move:
+        test byte [cs:rules], RULE_BOOTS
+        jz .store
+        push ax
+        push bx
+        push cx
+        push dx
+        push es
+        mov ax, ds
+        add ax, THINGS_SEG
+        mov [cs:r_things], ax
+        mov ax, si
+        mov word [cs:ws_slot], FOOT
+        mov word [cs:ws_type], 0xFFFF
+        call worn_scan
+        pop es
+        pop dx
+        pop cx
+        pop bx
+        pop ax
+        cmp word [cs:ws_count], 0
+        je .store
+        add ax, 10
+.store: mov [es:bx+0x22B], ax
+        iret
 
 L_LINE_SIZE equ 24
 LOOK_SIZE   equ 80
@@ -1547,7 +1626,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 16
+        mov cx, 17
 .check:
         lodsb
         mov ah, 35h
@@ -1611,6 +1690,9 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_WEAPON
         mov dx, probe_weapon
         int 21h
+        mov ax, 2500h + VEC_MOVE
+        mov dx, probe_move
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -1626,8 +1708,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or F1h-FAh are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON
+busy    db 'DSCLOG: interrupts 60h-65h or F1h-FBh are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE
 
         align 16, db 0
 image_len equ $ - $$

@@ -65,6 +65,7 @@ NO_ITEM = 9999
 EQUIP_SLOTS = ("arm", "ammo", "missile", "right hand", "finger", "waist", "legs", "head", "neck", "chest",
                "left hand", "cloak", "foot")
 FINGER = EQUIP_SLOTS.index("finger")
+FOOT = EQUIP_SLOTS.index("foot")
 # The plain "Ring" item type. With the dice log's patched game, a worn one's plus betters AC
 # and saving throws (DSCLOG's PROBE_RING_AC and PROBE_RING_SAVE); the game has no such ring of
 # its own, and the companion can put a Ring +1 in the arena (ring.py).
@@ -985,6 +986,10 @@ class GameData:
             parts = [(why, n) for why, n in [("STR", table(STR_TO_HIT, strength))] + common if n]
             out.append(WeaponHit(-1, -1, "unarmed", base - sum(n for _, n in parts), parts))
         return out
+
+    def wears_boots(self, creature: int) -> bool:
+        """Something worn on the feet (with the Options' rule, a move more in a fight)."""
+        return any(item[ITEM_SLOT] == FOOT for _, item, _ in self._worn(creature))
 
     def ring_plus(self, creature: int) -> int:
         """The pluses of the rings a creature wears (see RING_TYPE)."""
