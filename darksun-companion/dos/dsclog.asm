@@ -66,7 +66,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvA'          ; +0
+sig      db 'DSCLOGvB'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -123,6 +123,8 @@ stats_off  dw stats             ; +162 offset of STATS: for each party member, t
                                 ;      saves as they stand now (see STATS)
 stats_stamp dw 0                ; +164 the BIOS timer when the companion last wrote STATS: older
                                 ;      than STATS_FRESH, the screens show the game's own numbers
+stats_req  dw 0                 ; +166 counted up when a screen is about to show STATS ...
+stats_reply dw 0                ; +168 ... and set to it by the companion once STATS are up to date
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -816,11 +818,11 @@ c_cells_top:
         dw 0xEC, 0x1E, l_pp, 0x103,   0x113, 0x1E, l_bw, 0x12A
         dw 0xEC, 0x25, l_sp, 0x103
 c_cells_thief:                  ; right of the abilities (whose values end by 10Eh), in the
-        dw 0x113, 0x27, l_pick, 0x12D  ; saves' second column: from beside SP down,
-        dw 0x113, 0x2E, l_lock, 0x12D  ; level with STR..CON
-        dw 0x113, 0x35, l_trap, 0x12D
-        dw 0x113, 0x3C, l_hear, 0x12D
-        dw 0x113, 0x43, l_clmb, 0x12D
+        dw 0x113, 0x35, l_pick, 0x12D  ; saves' second column, level with STR..WIS
+        dw 0x113, 0x3C, l_lock, 0x12D
+        dw 0x113, 0x43, l_trap, 0x12D
+        dw 0x113, 0x4A, l_hear, 0x12D
+        dw 0x113, 0x51, l_clmb, 0x12D
 l_thac0 db 'THAC0:', 0
 l_ppd   db 'PPD', 0
 l_rsw   db 'RSW', 0
@@ -1235,7 +1237,43 @@ probe_unlook:
 ; item numbers of the weapons ready, +14 three bytes: the THAC0 with each (signed)
 STATS_SIZE  equ 20
 STATS_FRESH equ 91              ; timer ticks (5 seconds)
+STATS_WAIT  equ 9               ; ... (half a second): the longest a screen waits for fresh STATS
 stats   times 4 * STATS_SIZE db 0
+
+; A screen is being drawn: while the companion is keeping STATS, have it bring them up to date
+; (an item just put on, say) and wait for that, once for all the screen's lines (not again
+; within 2 timer ticks). The game stands still meanwhile, so its state is what's drawn.
+stats_sync:
+        push ax
+        push dx
+        push es
+        xor ax, ax
+        mov es, ax
+        mov dx, [es:0x46C]
+        mov ax, dx
+        sub ax, [cs:sync_at]
+        cmp ax, 2
+        jb .out                 ; this screen's already
+        mov ax, dx
+        sub ax, [cs:stats_stamp]
+        cmp ax, STATS_FRESH
+        jae .out                ; the companion isn't running
+        inc word [cs:stats_req]
+.wait:  mov ax, [cs:stats_reply]
+        cmp ax, [cs:stats_req]
+        je .done
+        mov ax, [es:0x46C]
+        sub ax, dx
+        cmp ax, STATS_WAIT
+        jb .wait
+.done:  mov ax, [es:0x46C]
+        mov [cs:sync_at], ax
+.out:   pop es
+        pop dx
+        pop ax
+        ret
+
+sync_at dw 0
 
 ; BX = a party member (0-3): CF clear and CS:BX = their STATS entry if the companion keeps it
 ; current, CF set if not
@@ -1271,6 +1309,7 @@ c_load_stats:
         mov al, [es:si + 0x3B]
         mov [cs:c_vals + 5], al
         mov bx, [cs:c_who]
+        call stats_sync
         call stats_for
         jc .own
         mov al, [cs:bx + 1]
@@ -1309,6 +1348,9 @@ probe_weapon:
         jz .done
         mov [cs:w_lines], ax
         mov bx, [bp + 0x0A]     ; the creature (its object number: the party's are 0-3)
+        cmp bx, 3
+        ja .done
+        call stats_sync
         call stats_for
         jc .done
         mov si, [bp - 2]        ; the entry of the item list the weapon came from

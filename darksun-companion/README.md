@@ -102,7 +102,7 @@ Double-click **`Start Game with Dice Log.bat`** in the `darksun-companion`
 folder. It starts Shattered Lands (through GOG's own DOSBox) with the dice log
 helper loaded, and opens Templar's Ledger next to it. The game gets its
 in-game additions too: each turn's rolls shown in the game (untick **Show
-each turn's rolls in the game** on the Dice log tab to turn that off), THAC0,
+each turn's rolls in the game** on the Options tab to turn that off), THAC0,
 saves and thief skills on the inventory and View Character screens, and spell
 slots on the USE screen. Your saves are the same ones the game normally uses.
 The first time, it looks for the game in the usual GOG folders; if it can't
@@ -185,7 +185,8 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 starting, whose turn it is, attack rolls, saves, spells, kills. Lines indented
 two spaces are their results (damage, HP left); lines indented four spaces are
 the details: the sums behind a THAC0, a save's modifiers, the initiative
-scores. Untick **Show details** to hide the details and keep the rest; they
+scores. Untick **Show details** (on the Options tab, with the Ledger's other
+switches) to hide the details and keep the rest; they
 come back when it's ticked again. In the window, each kind has its colour
 (hits green, misses grey, damage amber, saves blue, turns sand, rounds
 underlined with a gap above), but the words say the same thing, so nothing
@@ -611,7 +612,7 @@ are no rings or cloaks of protection, which is why the Ledger adds
 
 A ring of protection the game never had: **+1 AC and +1 on every saving
 throw** for whoever wears it. With **Put a Ring +1 (+1 AC, +1 on saves) on the
-dead prisoner in the arena** ticked on the Dice log tab (it is by default),
+dead prisoner in the arena** ticked on the Options tab (it is by default),
 the Ledger puts one in the body lying just below the Tied-up Prisoner in the
 arena, the first time the party is there with the Ledger running:
 
@@ -662,8 +663,8 @@ right-hand panel, drawn by the game's text routine so they look like the rest:
   petrification/polymorph, `BW` breath weapon, `SP` spell;
 - at the right of each weapon's damage line, the THAC0 with that weapon
   (`T14`);
-- right of the abilities, for a character with thief levels, the five
-  **thief skills** the game ever rolls: `PICK` pockets, open `LOCK`s,
+- right of the abilities, level with STR to WIS, for a character with thief
+  levels, the five **thief skills** the game ever rolls: `PICK` pockets, open `LOCK`s,
   find/remove `TRAP`s, `HEAR` noise, `CLMB` walls (move silently, hide in
   shadows and read languages are never checked; see Where the game rolls
   them). Not below the weapons: three weapons fill the panel down to its
@@ -676,9 +677,12 @@ above.
 ![The View Character screen with THAC0 and the saves added, as they stand under Bless](docs/view-character.png)
 
 They're the numbers as they stand now, worked out by the Ledger the way the
-game's own attack and saving throw routines do, and they change as you
-change weapons or rings or a spell starts or ends (redraw the screen, by
-picking the portrait again, to see the change):
+game's own attack and saving throw routines do. Each time the game draws one
+of these screens, the helper has the Ledger bring them up to date first (the
+game waits a moment for it), so putting on a ring or readying another weapon
+shows at once. Spells start and end as time passes in the game, which it
+doesn't while these screens are open; open the screen again to see such a
+change.
 
 - **THAC0**: the character's THAC0 less STR's to-hit adjustment (DEX's for a
   missile weapon), the weapon's plus (or, for a plain wooden, bone, stone or
@@ -708,7 +712,8 @@ Character screen does the same through `INT F3h`, called while it draws the
 character's panel, and the routine that lists the weapons through `INT FAh`
 after each one. The Ledger keeps the numbers in the helper's memory, with the
 time it last did: older than 5 seconds, the helper shows the sheet's numbers
-instead. Nothing else in the game changes.
+instead. Before a screen is drawn, the helper asks the Ledger to update them
+and waits for its answer, half a second at most. Nothing else in the game changes.
 
 ### In the game: spell slots on the USE screen
 
@@ -738,7 +743,7 @@ and stay, while Templar's Ledger (or its command-line dice log) is running.
 
 ### In the game: each turn's rolls
 
-With **Show each turn's rolls in the game** ticked on the Dice log tab (the
+With **Show each turn's rolls in the game** ticked on the Options tab (the
 default; or `python -m dscompanion dicelog --popups`), the game stops at the end
 of every turn in a fight in which someone attacked or cast a spell, and shows
 that turn's rolls in its own dialogue window, with **Continue** to go on. They
@@ -790,7 +795,7 @@ the box shows everything in the game's dialogue window: the weapons it needs,
 the damage it's immune to or takes half of, spells that don't work on it, and
 what its hits do besides damage. The dice log gets the same lines (`Look:
 ...`). Untick **Describe monsters when you Look at them in a fight** on the
-Dice log tab to turn this off.
+Options tab to turn this off.
 
 ![The Look box on the arena's Defiler: HP, AC and THAC0 added](docs/look-box.png)
 
@@ -946,8 +951,8 @@ WCAG 2.0 level AA:
   **Ctrl 0** (back to normal), enlarge or shrink all text up to 2.5 times.
 - **Keyboard:** Tab and Shift+Tab move between controls, and the one with the
   keyboard focus is outlined in yellow. **Ctrl+Tab** switches tabs, as do
-  **Alt+L** (Dice log), **Alt+I** (Dialogue) and **Alt+M** (Memory tools),
-  **Alt+S** (Spells), and on the party side **Alt+C** (Characters) and
+  **Alt+L** (Dice log), **Alt+I** (Dialogue), **Alt+S** (Spells), **Alt+M**
+  (Memory tools) and **Alt+O** (Options), and on the party side **Alt+C** (Characters) and
   **Alt+A** (All fields).
 - **The game's font** is only used for the title: it's a 9-pixel bitmap
   font, fine enlarged as a heading but harder to read than ordinary text,
@@ -979,6 +984,12 @@ The party pane has two tabs:
   with the mouse wheel, or Tab to the cards and use the arrow and Page keys.
 - **All fields** (Alt+A): every field the layout maps, in a table, with the
   spell slots as its last two rows.
+
+The other side has the **Dice log**, **Dialogue**, **Spells** and **Memory
+tools** tabs, and **Options** (Alt+O) with the Ledger's switches: what the
+dice log shows (unlabelled rolls, details) and what it adds to the game (each
+turn's rolls, monster descriptions, the Ring +1). The switches for the game
+are remembered for next time.
 
 **Spell slots.** `Priest spells left: 1st 5/5, 2nd 3/3, 3rd 2/2, 4th 1/1`
 means five first-level priest spells can still be cast out of five, and so

@@ -133,32 +133,9 @@ class Viewer:
         ttk.Button(row, text="Clear", command=lambda: self.dice_text.delete("1.0", "end")).pack(side="right")
         ttk.Button(row, text="Save...", command=lambda: self.save_text(self.dice_text, "dice log")).pack(
             side="right", padx=4)
-        self.show_all = tk.BooleanVar(value=False)
-        ttk.Checkbutton(dice, text="Show unlabelled rolls", variable=self.show_all).pack(anchor="w", pady=(4, 0))
-        # the indented lines under a roll (what a THAC0 or save was made of); hiding them leaves
-        # the rolls, results, turns and HP
-        self.show_details = tk.BooleanVar(value=True)
-        ttk.Checkbutton(dice, text="Show details (the sums behind each roll)", variable=self.show_details,
-                        command=lambda: self.dice_text.tag_configure("detail", elide=not self.show_details.get())
-                        ).pack(anchor="w", pady=(4, 0))
-        # the game's own window, at the end of each turn in a fight: that turn's rolls
-        settings = launch.load_settings()
-        self.popups = tk.BooleanVar(value=bool(settings.get("turn_popups", True)))
-        ttk.Checkbutton(dice, text="Show each turn's rolls in the game (click Continue to go on)",
-                        variable=self.popups, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
-        self.popup_detail = tk.BooleanVar(value=settings.get("turn_popups_detail", True))
-        ttk.Checkbutton(dice, text="... in detail, as in the log (MORE shows the next lines)",
-                        variable=self.popup_detail, command=self._popups_changed).pack(anchor="w", padx=(20, 0))
-        # the game's Look box, on a monster in a fight: what hurts it, then all of it in a window
-        self.monster_info = tk.BooleanVar(value=bool(settings.get("monster_info", True)))
-        ttk.Checkbutton(dice, text="Describe monsters when you Look at them in a fight (defences, then a window)",
-                        variable=self.monster_info, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
-        # the companion's own item: a Ring +1 on the dead prisoner in the arena (ring.py)
-        self.arena_ring = tk.BooleanVar(value=bool(settings.get("arena_ring", True)))
-        ttk.Checkbutton(dice, text="Put a Ring +1 (+1 AC, +1 on saves) on the dead prisoner in the arena",
-                        variable=self.arena_ring, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        # (the switches are on the Options tab, leaving this one to the log)
         self.dice_status = tk.StringVar(value="Waiting for the game...")
-        ttk.Label(dice, textvariable=self.dice_status).pack(fill="x", pady=(4, 0))
+        ttk.Label(row, textvariable=self.dice_status).pack(side="left", fill="x")
         # the round's order stays here while the log scrolls on: who acts now, who is still to come
         self.round_line = tk.StringVar(value="")
         self.round_label = ttk.Label(dice, textvariable=self.round_line, style="Status.TLabel", wraplength=900,
@@ -280,7 +257,41 @@ class Viewer:
         self.hex.tag_configure("selected", background=theme.PSI_BLUE, foreground=theme.SHADOW)
         self.hex.bind("<Button-1>", self.on_hex_click)
 
+        self._build_options(tabs)
         self._apply_layout()
+
+    def _build_options(self, tabs: ttk.Notebook) -> None:
+        """The Options tab: what the dice log shows, and what the Ledger adds to the game."""
+        options = ttk.Frame(tabs, padding=6)
+        tabs.add(options, text="Options", underline=0)
+        settings = launch.load_settings()
+        log = ttk.LabelFrame(options, text="Dice log", padding=6)
+        log.pack(fill="x")
+        self.show_all = tk.BooleanVar(value=False)
+        ttk.Checkbutton(log, text="Show unlabelled rolls", variable=self.show_all).pack(anchor="w")
+        # the indented lines under a roll (what a THAC0 or save was made of); hiding them leaves
+        # the rolls, results, turns and HP
+        self.show_details = tk.BooleanVar(value=True)
+        ttk.Checkbutton(log, text="Show details (the sums behind each roll)", variable=self.show_details,
+                        command=lambda: self.dice_text.tag_configure("detail", elide=not self.show_details.get())
+                        ).pack(anchor="w", pady=(4, 0))
+        in_game = ttk.LabelFrame(options, text="In the game (when started with the dice log)", padding=6)
+        in_game.pack(fill="x", pady=(8, 0))
+        # the game's own window, at the end of each turn in a fight: that turn's rolls
+        self.popups = tk.BooleanVar(value=bool(settings.get("turn_popups", True)))
+        ttk.Checkbutton(in_game, text="Show each turn's rolls in the game (click Continue to go on)",
+                        variable=self.popups, command=self._popups_changed).pack(anchor="w")
+        self.popup_detail = tk.BooleanVar(value=settings.get("turn_popups_detail", True))
+        ttk.Checkbutton(in_game, text="... in detail, as in the log (MORE shows the next lines)",
+                        variable=self.popup_detail, command=self._popups_changed).pack(anchor="w", padx=(20, 0))
+        # the game's Look box, on a monster in a fight: what hurts it, then all of it in a window
+        self.monster_info = tk.BooleanVar(value=bool(settings.get("monster_info", True)))
+        ttk.Checkbutton(in_game, text="Describe monsters when you Look at them in a fight (defences, then a window)",
+                        variable=self.monster_info, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        # the companion's own item: a Ring +1 on the dead prisoner in the arena (ring.py)
+        self.arena_ring = tk.BooleanVar(value=bool(settings.get("arena_ring", True)))
+        ttk.Checkbutton(in_game, text="Put a Ring +1 (+1 AC, +1 on saves) on the dead prisoner in the arena",
+                        variable=self.arena_ring, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
 
     def _slot_box(self, parent) -> ttk.Combobox:
         box = ttk.Combobox(parent, width=3, state="readonly")

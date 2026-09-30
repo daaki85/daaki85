@@ -30,7 +30,7 @@ from .guestmem import GuestMemory
 from .textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGvA"
+HDR_SIG = b"DSCLOGvB"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
 MSG_SIZE = 900
@@ -44,7 +44,7 @@ SLOTS_LINES = 3  # lines of spell slots the USE screen has room for
 TSR_LOOK_SEQ, TSR_LOOK_REPLY, TSR_LOOK_WHO, TSR_LOOK_OFF, TSR_LOOK_FULL_OFF, TSR_LOOK_ON = 150, 152, 154, 156, 158, 160
 LOOK_SIZE, LOOK_FULL_SIZE = 80, 700
 # ... and the party's THAC0 and saves as they stand now, for the game's screens (see STATS)
-TSR_STATS_OFF, TSR_STATS_STAMP, STATS_SIZE = 162, 164, 20
+TSR_STATS_OFF, TSR_STATS_STAMP, TSR_STATS_REQ, TSR_STATS_REPLY, STATS_SIZE = 162, 164, 166, 168, 20
 BIOS_TIMER = 0x46C
 SLOT_KINDS = {"Wizard": "WIZ", "Priest": "PRI"}
 RAND_PATCHED = b"\xcd\x60"  # INT 60h at the start of rand() in DSUNLOG.EXE
@@ -514,6 +514,16 @@ class DiceLog:
         out += struct.pack("<3b", *([clamp(h.thac0) for h in weapons] + [0] * (3 - len(weapons))))
         return out.ljust(STATS_SIZE, b"\0")
 
+    def _answer_stats(self) -> None:
+        """A game screen is about to show THAC0 and the saves: bring them up to date first (the
+        game waits for this, so an item just put on counts)."""
+        if self.tsr_hdr is None:
+            return
+        req = self.guest.read(self.tsr_hdr + TSR_STATS_REQ, 2)
+        if req != self.guest.read(self.tsr_hdr + TSR_STATS_REPLY, 2):
+            self._write_stats()
+            self.guest.write(self.tsr_hdr + TSR_STATS_REPLY, req)
+
     def _write_stats(self) -> None:
         """Keep DSCLOG's copy of the party's THAC0 and saves current, and say it is."""
         if self.tsr_hdr is None:
@@ -632,6 +642,7 @@ class DiceLog:
             # first, for the end of the summary
             out += self.initiative_lines()
         self._answer_turn()  # after the entries: they hold the turn's last attack
+        self._answer_stats()
         out += self._answer_look()
         changes = self.hp_changes(now) + self.psp_changes()
         if not self._party_check(now):  # not while a game is loading: its records are half-filled
