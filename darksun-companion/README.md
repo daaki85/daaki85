@@ -679,8 +679,9 @@ The game has one pocket to pick, in the Trustee's conversation (his key). With
 **P in a conversation** ticked on the Options tab (it is by default), a thief
 can try anyone's, two ways, with the thief as the party's leader (keys 1-4):
 
-- **Thieving tools.** Every thief in the party finds a set in their backpack
-  (once; the log says so): an item with a key's picture, called **pick** (the
+- **Thieving tools.** Every thief starts a new game with a set in their
+  backpack (the log says so); a thief who joins later, or one in a game
+  started before this version, gets a set once too: an item with a key's picture, called **pick** (the
   game's name table has no room for a name of its own, so it borrows the
   game's word). On the inventory screen, pick the tools up, go back to the
   game with them on the pointer, and click someone in sight: the result comes

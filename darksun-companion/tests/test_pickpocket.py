@@ -123,6 +123,25 @@ class ToolsTests(unittest.TestCase):
         self.assertTrue(tools.is_tools(ring.Items(self.gd).item(90)))
         self.assertEqual(tools.give_tools(self.gd, given), [])
 
+    def clock(self, seconds, region=tools.ARENA):
+        m, clock = self.pick.m, 0x7F000
+        m[DS * 16 + game.GAME_TIME_PTR:DS * 16 + game.GAME_TIME_PTR + 4] = struct.pack("<HH", clock & 0xF, clock >> 4)
+        m[DS * 16 + game.GAME_TIME_SCALE] = 1
+        struct.pack_into("<i", m, clock, seconds)
+        struct.pack_into("<H", m, DS * 16 + game.REGION, region)
+
+    def test_new_game(self):
+        """A new game (its first hour, in the arena): the thief gets a set even though one of
+        the same name had one before, and not a second while carrying it."""
+        self.clock(70)
+        given = {"Dag|Dag"}
+        self.assertEqual(len(tools.give_tools(self.gd, given)), 1)
+        self.assertEqual(tools.give_tools(self.gd, given), [])
+
+    def test_later_once(self):
+        self.clock(90000)
+        self.assertEqual(tools.give_tools(self.gd, {"Dag|Dag"}), [])
+
     def test_tools_on_someone(self):
         """Used on the Guard (creature 5): the same as P in a conversation with him."""
         struct.pack_into("<h", self.pick.m, (LOAD_SEG + game.TALK_SEG) * 16 + game.TALK_TARGET, -1)

@@ -1,6 +1,9 @@
 """Thieving tools: an item of the companion's own that picks pockets.
 
-Every thief in the party gets a set, once (in the backpack's first free cell). Picked up on
+Every thief starts a new game with a set (in the backpack's first free cell): while the game
+is new (its first hour, in the arena where every game starts), any thief in the party without
+one gets one. Later on, a thief the Ledger hasn't seen before (an older game, someone who
+joins) gets a set once. Picked up on
 the inventory screen and taken back to the game, the pointer carries them; clicked on someone,
 the patched game's routine for using an item on something (DSCLOG's PROBE_USE_ITEM) has the
 Ledger try that person's pockets with the leader's hand (pickpocket.py), and shows what came
@@ -17,6 +20,8 @@ from . import game, pickpocket, ring
 from .game import GameData
 
 NAME_ENTRY = 0xAD  # "pick"
+NEW_GAME = 3600  # game seconds: a game this young, in the arena, has just started
+ARENA = 0x2A  # the region every game starts in
 PICTURE, TYPE = 0x8AB0, 60  # a Slavepen key's picture; small things carried (weight 1, worn nowhere)
 # a Slavepen key's record, as the game has it, with that name, not in a slot
 ITEM = struct.pack("<HH", PICTURE, 0) + bytes.fromhex("0f27" "0100" "0f27") + struct.pack("<H", TYPE) + \
@@ -28,8 +33,24 @@ def is_tools(rec: bytes) -> bool:
         and struct.unpack_from("<H", rec, 0)[0] == PICTURE and struct.unpack_from("<H", rec, game.ITEM_TYPE)[0] == TYPE
 
 
+def new_game(gd: GameData) -> bool:
+    now = gd.game_time()
+    return gd.region() == ARENA and now is not None and now < NEW_GAME
+
+
+def carries_tools(gd: GameData, it: ring.Items, member: int) -> bool:
+    rec = gd.creature(member)
+    for offset in game.CREATURE_ITEM_LISTS:
+        thing, = struct.unpack_from("<h", rec, offset)
+        if any(is_tools(data) for _, data in it.chain(thing)):
+            return True
+    return False
+
+
 def give_tools(gd: GameData, given: set) -> List[str]:
-    """A set of tools for each thief in the party that hasn't had one (GIVEN: whom, updated)."""
+    """A set of tools for each thief in the party that should have one: in a new game, each
+    without a set; later, each not given one before (GIVEN: whom, updated)."""
+    fresh = new_game(gd)
     out = []
     it = ring.Items(gd)
     for member in range(game.PARTY_SIZE):
@@ -37,7 +58,10 @@ def give_tools(gd: GameData, given: set) -> List[str]:
         if len(rec) < game.CREATURE_SIZE or not rec[game.CREATURE_NAME]:
             continue
         key = f"{gd.creature_name(0)}|{gd.creature_name(member)}"
-        if key in given or gd.thief_skill_parts(member, pickpocket.PICK_POCKETS) is None:
+        if gd.thief_skill_parts(member, pickpocket.PICK_POCKETS) is None:
+            continue
+        if carries_tools(gd, it, member) or (key in given and not fresh):
+            given.add(key)
             continue
         cell = pickpocket.free_cell(gd, it, member)
         item = it.word(ring.FREE_ITEMS)
