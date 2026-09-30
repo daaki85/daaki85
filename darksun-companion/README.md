@@ -2,12 +2,13 @@
 
 A companion for **Dark Sun: Shattered Lands** (the GOG release) running in
 DOSBox, in the spirit of the Gold Box Companion. In Draj the templars keep the
-records; this ledger keeps the ones the game doesn't show you. It has three
-parts:
+records; this ledger keeps the ones the game doesn't show you. What it does:
 
 - **Party viewer:** every party member's stats, live, including numbers the
-  game doesn't show (THAC0, saving throws, attacks per round, the AC the game
-  uses in a fight and what it's made of, class ids).
+  game doesn't show: THAC0 with each weapon and the saving throws as they
+  stand now (with Bless, rings and the like counted), attacks per round, the
+  AC the game uses in a fight and what it's made of, spell slots, thief
+  skills, and everything they carry.
 - **Dice log:** the rolls the game makes behind the scenes, with what they were
   compared against and where every bonus comes from. For example:
 
@@ -29,8 +30,9 @@ parts:
 - **Dialogue:** what characters say, the replies you're offered and the one
   you picked, kept in a tab you can scroll back through.
 - **In the game itself**, in the game's own lettering: the inventory screen
-  also shows each character's THAC0, saving throws and (for thieves) the thief
-  skills the game rolls, and the View Character screen their THAC0 and saves
+  also shows each character's THAC0 (for each weapon too), saving throws as
+  they stand now and (for thieves) the thief skills the game rolls, and the
+  View Character screen their THAC0 and saves
   (see [In the game](#in-the-game-thac0-saves-and-thief-skills)); the USE
   screen shows their spell slots left (see
   [spell slots](#in-the-game-spell-slots-on-the-use-screen)); and after each
@@ -126,7 +128,9 @@ shows the party, but the dice log will say the game was started without it.
 
 **Just the game, with the in-game additions, no Ledger window:** double-click
 **`Play Dark Sun (in-game rolls).bat`**. The dice log runs unseen and stops
-when you close DOSBox. If anything goes wrong it says so in a message box and
+when you close DOSBox. It uses the switches on the Ledger's Options tab as you
+last set them (each turn's rolls, monster descriptions, the Ring +1, the rule
+changes). If anything goes wrong it says so in a message box and
 writes the details to `play.log`.
 
 **Checking a save file (no game needed):** drag a `SAVEnn.SAV` file from the
@@ -617,7 +621,8 @@ A ring of protection the game never had: **+1 AC and +1 on every saving
 throw** for whoever wears it. With **Put a Ring +1 (+1 AC, +1 on saves) on the
 dead prisoner in the arena** ticked on the Options tab (it is by default),
 the Ledger puts one in the body lying just below the Tied-up Prisoner in the
-arena, the first time the party is there with the Ledger running:
+arena, the first time the party is there with the Ledger (or **Play Dark Sun
+(in-game rolls)**) running:
 
 ```
 A Ring +1 (+1 AC, +1 on saves) is on the dead prisoner in the arena, below the Tied-up Prisoner.
@@ -643,14 +648,16 @@ a saving throw's modifiers, it starts from the pluses of the rings worn. So:
   game reads the name table afresh each time it starts, and the Ledger writes
   the name back within a few seconds).
 - The AC it gives shows on the View Character and inventory screens and in the
-  Ledger's **AC: spells, rings, other** row; the saves in the log.
+  Ledger's **AC: spells, rings, other** row; the +1 on saves in the saves those
+  screens and the Characters tab show, and in the log.
 - A ring the original game has (the plain Ring and the Serpent Ring are the
   only kind the patch looks at) has no plus, so it plays as before.
 
 ### Rule changes: helms and boots
 
 Two small changes to the game's rules, both on the Options tab (on by default;
-they take effect in games started with the dice log while the Ledger runs):
+they take effect in games started with the dice log, while the Ledger runs or
+with **Play Dark Sun (in-game rolls)**, which uses the Options as last set):
 
 - **Helms give AC 1.** The game's helms count as armour but give AC 0. With
   **Helms give AC 1** ticked they give 1: the plain leather Helm, Dapartea's
@@ -930,9 +937,10 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    into upper memory before the game, so the game loses no memory. It answers
    those interrupts. Its `rand()` returns exactly the numbers the original
    would and also records each call, what code called it, and that code's
-   arguments (dice count and sides, THAC0, AC...) in a ring buffer. The others
+   arguments (dice count and sides, THAC0, AC...) in a ring buffer. Others
    record the final saving throw total, the AC the game uses, and the text
-   of dialogues and messages (in a second buffer).
+   of dialogues and messages (in a second buffer); the rest draw the in-game
+   additions and make the Ring +1 and the rule changes count.
 3. Templar's Ledger finds the buffer in DOSBox's memory and reads it every 50 ms.
    It works out what each roll was for from the code that asked for it, and
    reads the rest (names, weapons, spells, effects) from the game's own data.
@@ -1002,15 +1010,21 @@ The party pane has two tabs:
   each has left: `Blur (22 rounds)`, `Stoneskin (5 charges)`; from the game's own
   clock and timers). Then the character
   sheet: scores, sex, race and alignment, classes and levels, experience,
-  AC, THAC0, movement and attacks. AC is the one the game last used in a
-  fight, with the base AC beside it; before the first fight only the base AC
-  is known. Then what they wear and hold, by the game's own slot names ("Right
-  hand: Bone Long Sword", "Chest: Leather Chest Armor"; "Carried" for anything
-  not worn), with each item's material and plus. Last, for spellcasters, their
-  spell slots (see below), and for thieves their skills. Scroll
+  AC, THAC0 with each weapon ready (`THAC0: 15 with Wooden Club, 14 with
+  Wooden Bow (base 19)`), the saves as the d20 needed now (see
+  [In the game](#in-the-game-thac0-saves-and-thief-skills)), movement (and a
+  fight's, with boots: `Move: 12 (13 in a fight: boots)`) and attacks. AC is
+  the one the game last used in a fight, with the base AC beside it; before the
+  first fight only the base AC is known. Then what they wear and hold, by the
+  game's own slot names ("Right hand: Bone Long Sword", "Chest: Leather Chest
+  Armor"; "Carried" for anything in the backpack), with each item's material
+  and plus. Last, for spellcasters, their spell slots (see below), and for
+  thieves their skills. Scroll
   with the mouse wheel, or Tab to the cards and use the arrow and Page keys.
-- **All fields** (Alt+A): every field the layout maps, in a table, with the
-  spell slots as its last two rows.
+- **All fields** (Alt+A): every field the layout maps, in a table, with rows
+  of its own for the AC in a fight and what it's made of, THAC0 with each
+  weapon and the saves now, and at the end the spell slots, thief skills and
+  equipment.
 
 The other side has the **Dice log**, **Dialogue**, **Spells** and **Memory
 tools** tabs, and **Options** (Alt+O) with the Ledger's switches: what the
@@ -1086,7 +1100,7 @@ parties, plus the in-game View Character screens.
 | creature | `+0x02` | s16 | Current PSP | ≤ max PSP everywhere |
 | creature | `+0x06` | u16 | Entity ID (`0x80nn` for the party) | same value in the sheet at `+0x10` |
 | creature | `+0x1a` | s8 | Base AC, before armour and DEX | 10 for humanoids, 5 for the thri-kreen; the AC the game shows is worked out from this |
-| creature | `+0x1b` | u8 | Movement | 12, 15 for the thri-kreen |
+| creature | `+0x1b` | u8 | Movement | 12, 15 for the thri-kreen; each round of a fight gives Move × 10 movement points |
 | creature | `+0x1f` | u8 | THAC0 | matches the AD&D warrior table at levels 3, 4, 7 and 8 |
 | creature | `+0x22` | u8 ×6 | STR DEX CON INT WIS CHA | same as the sheet |
 | creature | `+0x28` | str 18 | Name | |
@@ -1113,6 +1127,30 @@ segment: `DS:0x1665` points to the creature table and `DS:0x1661` to the
 sheets (a creature's sheet number is its word at `+0x04`). The data segment
 starts with Borland's copyright string at `DS:0x0004`, which is how the viewer
 finds the party by itself (`dscompanion/game.py`).
+
+**Items.** A creature's items hang off its record at `+0x08`, `+0x0a` and
+`+0x0c`: each is an object number (the object table has a kind, 1 for an item
+and 2 for a creature, and an index), the first item of a list, whose own
+records then name the next. Items are 21-byte records (`DS:0x165D`), item
+types 20-byte ones (`DS:0x1669`, 115 of them, from GPLDATA.GFF):
+
+| Record | Offset | Field |
+|---|---|---|
+| item | `+0x04` | the next item in the list (9999: the end) |
+| item | `+0x08` | a container's contents (an object number), as in a Dead Body |
+| item | `+0x0a` | its type |
+| item | `+0x11` | where it's worn: 0-12 the game's slots (arm, ammo, missile, right hand, finger, waist, legs, head, neck, chest, left hand, cloak, foot), 13 and up a backpack cell |
+| item | `+0x12` | its name (an entry of the game's name table, 25 bytes each) |
+| item | `+0x14` | its plus |
+| type | `+0x04` | weight, in tenths of a pound |
+| type | `+0x08` | material in the low four bits (wood, bone, stone, obsidian, metal, leather); `0x80` spares a weapon the material's to-hit penalty |
+| type | `+0x0c`, `+0x0d`, `+0x0e` | damage dice: sides, count, bonus |
+| type | `+0x0f` | `0x80`: counts for AC |
+| type | `+0x12` | its AC (on top of the item's plus) |
+
+Free item records and free objects are kept in lists (`DS:0x4D76`,
+`DS:0x4D72`), which is how the Ledger adds [the Ring +1](#the-ring-1) as the
+game would.
 
 Also seen: per-region `RGnn` chunks hold a combined creature record, sheet and
 inventory for each character. Region *nn* uses `SAVE` chunks *nn*×60+1 and up
@@ -1148,3 +1186,16 @@ block's host address with `--host-base`.
 ```
 python -m unittest discover -s tests
 ```
+
+`tests/test_dsclog.py` runs the helper's interrupt handlers in a CPU emulator
+when `unicorn` is installed (`pip install unicorn`), and is skipped otherwise.
+After changing `dos/dsclog.asm`, rebuild the helper with
+[NASM](https://www.nasm.us/):
+
+```
+nasm -f bin -o dos/DSCLOG.EXE dos/dsclog.asm
+```
+
+The header's signature (`DSCLOGvC` now) goes up whenever the helper and the
+Ledger must change together (`HDR_SIG` in `dscompanion/dicelog.py`), so a
+Ledger never talks to an older helper.

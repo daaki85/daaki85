@@ -392,6 +392,15 @@ class DiceLog:
         if self.tsr_hdr is not None:
             self.guest.write(self.tsr_hdr + TSR_LOOK_ON, struct.pack("<H", int(on)))
 
+    def use_settings(self, settings: dict) -> None:
+        """The Options tab's switches for the game, as saved (for the logs without a window)."""
+        self.popups = bool(settings.get("turn_popups", True))
+        self.popup_detail = bool(settings.get("turn_popups_detail", True))
+        self.monster_info = bool(settings.get("monster_info", True))
+        self.arena_ring = bool(settings.get("arena_ring", True))
+        self.rules = (RULE_HELMS if settings.get("helm_ac", True) else 0) | \
+            (RULE_BOOTS if settings.get("boots_move", True) else 0)
+
     def set_rules(self, rules: int) -> None:
         """Turn the rule changes on or off: helms count AC 1, boots add a move in a fight."""
         self.rules = rules

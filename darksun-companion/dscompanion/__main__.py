@@ -136,7 +136,7 @@ def cmd_dicelog(args) -> None:
     from .dicelog import DiceLog
     from .dicelog import DiceLogError
     from .guestmem import GuestMemoryError
-    from .launch import add_learned_speakers, learned_speakers, speaker_names
+    from .launch import add_learned_speakers, learned_speakers, load_settings, speaker_names
     while True:  # DOSBox may still be starting
         try:
             guest = connect(args)
@@ -145,6 +145,7 @@ def cmd_dicelog(args) -> None:
             print(f"{e} Waiting...", flush=True)
             time.sleep(2)
     log = DiceLog(guest, record_everything=args.raw)
+    log.use_settings(load_settings())  # the Ring +1, the rule changes, monster descriptions
     log.popups = args.popups
     log.popup_detail = not args.short_popups
     log.speaker_names = speaker_names()
@@ -273,8 +274,8 @@ def cmd_play(args) -> None:
         if guest is None:
             return
         log = DiceLog(guest)
-        log.popups = not args.no_popups
-        log.popup_detail = settings.get("turn_popups_detail", True)
+        log.use_settings(settings)  # as last set on the Ledger's Options tab
+        log.popups = log.popups and not args.no_popups
         log.speaker_names = launch.speaker_names()
         log.learned_speakers = launch.learned_speakers()
         attached = False

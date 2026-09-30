@@ -88,6 +88,13 @@ class RuleTests(unittest.TestCase):
         self.assertEqual(struct.unpack_from("<H", log.guest.mem, log.tsr_hdr + dicelog.TSR_RULES)[0], 3)
 
 
+class SettingsTests(unittest.TestCase):
+    def test_saved_options(self):
+        log = dag()
+        log.use_settings({"helm_ac": False, "arena_ring": False})
+        self.assertEqual((log.rules, log.arena_ring, log.monster_info), (dicelog.RULE_BOOTS, False, True))
+
+
 class StatsTests(unittest.TestCase):
     def test_entry_for_dsclog(self):
         log = dag()
