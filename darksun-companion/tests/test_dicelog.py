@@ -730,6 +730,21 @@ class NewLinesTests(unittest.TestCase):
         self.assertEqual(status["done"], [("Dag", 25)])
         self.assertEqual(status["down"], [("Jellybelly", 20)])
         self.assertEqual(log.still_to_act(), "Still to act this round: Daaki, Mountain Stalker")
+        self.assertEqual(log.still_to_act(ended=0), "Still to act this round: Daaki, Mountain Stalker")
+        # the turn that ended was the last of round 2: round 3's order has been rolled since
+        self.assertEqual(log.still_to_act(ended=0x29), "Round 3: Daaki, Mountain Stalker")
+        # the game ran Daaki's turn before the helper could ask: the summary shows Daaki's attacks
+        daaki = frozenset({log.game.combatant_creature(1)})
+        self.assertEqual(log.still_to_act(ended=0, acted_creatures=daaki), "Still to act this round: Mountain Stalker")
+        both = daaki | {log.game.combatant_creature(0x29)}
+        self.assertEqual(log.still_to_act(ended=0, acted_creatures=both), "End of round 3.")
+        # a new round rolled since: the rolls shown were the old round's
+        self.assertEqual(log.still_to_act(ended=0x29, acted_creatures=both), "Round 3: Daaki, Mountain Stalker")
+        table = log.game.combatant_creature  # killed: the creature has left the fight's table
+        log.game.combatant_creature = lambda c: None if c == 0x29 else table(c)
+        self.assertEqual(log.round_status()["down"], [("Jellybelly", 20), ("Mountain Stalker", 18)])
+        self.assertEqual(log.still_to_act(), "Still to act this round: Daaki")
+        log.game.combatant_creature = table
         log.game.game_time = lambda: 600 + dicelog.FIGHT_GAP + 1  # the fight is over
         self.assertIsNone(log.round_status())
 

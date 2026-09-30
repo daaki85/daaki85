@@ -461,6 +461,12 @@ class DiceLog:
                 out.append(entry)
         return out
 
+    def _turn_waiting(self) -> bool:
+        """DSCLOG has counted a turn's end the log hasn't answered yet."""
+        if self.tsr_hdr is None:
+            return False
+        return struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_TURN_SEQ, 2))[0] != self._turn_seq
+
     def _answer_turn(self) -> None:
         """DSCLOG counts a turn's end and waits a moment for the summary: give it."""
         if self.tsr_hdr is None:
@@ -473,7 +479,7 @@ class DiceLog:
         summary = self.turn_summary(ended, self.popup_detail) if self.popups else ""
         if summary:  # and who is still to come, so the order isn't lost deep in a round
             try:
-                still = self.still_to_act()
+                still = self.still_to_act(ended, frozenset(self._turn_attacks))
             except (struct.error, IndexError, ValueError):
                 still = ""
             if still:
@@ -533,6 +539,10 @@ class DiceLog:
         out: List[str] = []
         for e in self.poll():
             out += self.describe(e, show_all, now)
+        if self._initiative and self._initiative_roll is None and self._turn_waiting():
+            # the round's last turn has ended and the new round's rolls are all in: its order
+            # first, for the end of the summary
+            out += self.initiative_lines()
         self._answer_turn()  # after the entries: they hold the turn's last attack
         changes = self.hp_changes(now) + self.psp_changes()
         if not self._party_check(now):  # not while a game is loading: its records are half-filled
@@ -775,10 +785,11 @@ class DiceLog:
         name = self.game.combatant_name(turn)
         return [f"{name}'s turn"] if name != "?" else []
 
-    def round_status(self) -> Optional[dict]:
+    def round_status(self, acted_creatures: frozenset = frozenset()) -> Optional[dict]:
         """The round in progress, for keeping its order in view: {"round", "now": (name, score),
         "next": [(name, score)...], "done": [...], "down": [...]}, in initiative order; None
-        outside a fight."""
+        outside a fight. Creatures (indexes) in `acted_creatures` count as done: their rolls
+        are in, though the game hasn't passed the turn on yet."""
         now = self.game.game_time()
         if not self.round_order or self._round_time is None or now is None or now - self._round_time > FIGHT_GAP:
             return None
@@ -787,11 +798,16 @@ class DiceLog:
         for combatant, name, score in self.round_order:
             index = self.game.combatant_creature(combatant) if combatant is not None else None
             try:
-                hp = struct.unpack_from("<h", self.game.creature(index), 0)[0] if index is not None else 1
+                if index is not None:
+                    hp = struct.unpack_from("<h", self.game.creature(index), 0)[0]
+                else:  # a killed creature leaves the fight's table
+                    hp = 0 if combatant is not None else 1
             except (struct.error, IndexError, ValueError):
                 hp = 1
             if hp <= 0:
                 out["down"].append((name, score))
+            elif index is not None and index in acted_creatures:
+                out["done"].append((name, score))
             elif combatant == acting:
                 out["now"] = (name, score)
             elif combatant in self._acted:
@@ -800,13 +816,23 @@ class DiceLog:
                 out["next"].append((name, score))
         return out
 
-    def still_to_act(self) -> str:
-        """'Still to act this round: Mlemlem, Guard' (for the game's turn summary), or ""."""
-        status = self.round_status()
+    def still_to_act(self, ended: Optional[int] = None, acted_creatures: frozenset = frozenset()) -> str:
+        """For the end of the game's turn summary: 'Still to act this round: Mlemlem, Guard';
+        when the turn that ended (combatant `ended`) was the last of its round and the new
+        round's order is in, 'Round 3: Dreamwalker, Jellybelly'; when everyone has acted but
+        the new round isn't rolled yet, 'End of round 2.'; or "". The creatures whose rolls the
+        summary shows (`acted_creatures`) have had their turn, whoever the game says is acting:
+        it runs a monster's whole turn before the helper can ask."""
+        new_round = ended is not None and ended not in self._acted  # its rolls were the last round's
+        status = self.round_status(frozenset() if new_round else acted_creatures)
         if not status:
             return ""
         names = ([status["now"][0]] if status["now"] else []) + [n for n, _ in status["next"]]
-        return "Still to act this round: " + ", ".join(names) if names else ""
+        if new_round and status["round"] and names:
+            return f"Round {status['round']}: " + ", ".join(names)
+        if not names:
+            return f"End of round {status['round']}." if status["round"] else ""
+        return "Still to act this round: " + ", ".join(names)
 
     def _round_number(self) -> int:
         """The round of this fight: the game's clock moves 60 seconds a round, and a longer gap

@@ -48,7 +48,7 @@ The window is dressed in the game's own colours: its grey stone panels, the
 amber of its dialogue, the yellow of its character screen and the red rock of
 the arena, all sampled from the game (no game artwork is copied).
 
-![Templar's Ledger after a fight in the arena: the Characters tab and the dice log](docs/dicelog.png)
+![Templar's Ledger during a fight in the arena: the Characters tab, and the dice log with the round's order kept above it](docs/dicelog.png)
 
 ![The Dialogue tab](docs/dialogue.png)
 
@@ -139,7 +139,7 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 
 | Line | Meaning |
 |---|---|
-| `Round 2: K'ratchek 32, Cermak 31, Cilla 30, Gerakis 26, Slig 26` | A new round of a fight, numbered from the fight's start, and the order everyone acts in (highest first). The order also stays in view above the log for the whole round, however far the log has scrolled: `Round 2. Now: Cilla (30). Still to act: Gerakis 26, Slig 26. Done: K'ratchek 32, Cermak 31. Down: ...`, and the in-game turn summary ends with who is still to act. The lines under it (shown with **Show details**) give each score's make-up: `    Gerakis 26 = 20 + 6 (0-9 roll), tie broken by 38 (0-199 roll)` (see Initiative below). If the log was started in the middle of a round, the list has only the rolls it saw. |
+| `Round 2: K'ratchek 32, Cermak 31, Cilla 30, Gerakis 26, Slig 26` | A new round of a fight, numbered from the fight's start, and the order everyone acts in (highest first). The order also stays in view above the log for the whole round, however far the log has scrolled: `Round 2. Now: Cilla (30). Still to act: Gerakis 26, Slig 26. Done: K'ratchek 32, Cermak 31. Down: ...`, and the in-game turn summary ends with who is still to act (or the next round's order). The lines under it (shown with **Show details**) give each score's make-up: `    Gerakis 26 = 20 + 6 (0-9 roll), tie broken by 38 (0-199 roll)` (see Initiative below). If the log was started in the middle of a round, the list has only the rolls it saw. |
 | `Gerakis's turn` | Whose turn it is now, each time the turn passes in a fight. |
 | `X attacks Y with Long Sword +1 (1d8+1): d20 = 14, needs 12+ (45%), hits AC 1, target AC 3 -> HIT` | An attack roll, the weapon and its damage dice. `needs 12+ (45%)` is the d20 this attacker needed against this target (THAC0 − target AC) and the chance of rolling it; `hits on anything but a 1` or `only a 20 hits` when it's out of the ordinary range. `X attacks Y from behind ...` and `X attacks Y BACKSTAB ...` mark attacks from behind and backstabs (see below). "Hits AC" is the lowest AC this roll hits (THAC0 − d20); the target AC is the one the game used, with armour, DEX and spells. A natural 20 always hits and a natural 1 always misses, but a 20 does no extra damage: the game has no critical hits (see below). |
 | `    THAC0 16, +1 Blessed, +6 STR, +1 weapon = 8` | Where the attacker's THAC0 for this attack comes from: STR (melee) or DEX (missiles), spells (Bless, Prayer, Slow, Graft Weapon, the target's Blur), attacking from behind, the weapon's plus, the penalty for non-metal weapons (wooden −3, bone −1, stone and obsidian −2), the two-weapon adjustment (see below), and the difficulty setting for monsters. |
@@ -609,8 +609,11 @@ are the dice log's own lines: each attack's d20, the AC it would hit and the
 target's AC, how the THAC0 was worked out, and for a hit the damage dice and
 bonuses; a spell's damage dice, and each saving throw against it. (The chance
 to hit or to save is left out: the log has it.) The last line says who is
-still to act this round. The window shows five lines at a time; its **MORE**
-arrow shows the next ones:
+still to act this round (`Still to act this round: Jellybelly, Mountain
+Stalker`), `End of round 2.` when everyone has, or, when the new round's
+order is already in, that order (`Round 3: Dreamwalker, Jellybelly, Mlemlem,
+Daaki`). The window shows five lines at a time; its **MORE** arrow shows the
+next ones:
 
 ![The game's window at the end of a turn, in detail](docs/turn-detail.png)
 
@@ -619,10 +622,15 @@ arrow shows the next ones:
 Untick **... in detail** (or add `--short-popups`) for one line per target
 instead (and each spell's first line):
 
-![The game's window at the end of a Mountain Stalker's turn](docs/turn-summary.png)
+![The game's window at the end of Mlemlem's turn, in short](docs/turn-summary.png)
 
-`12 vs 8+ HIT, 9 damage` is the d20, the roll it needed (THAC0 − the target's
-AC; a natural 20 always hits, a 1 always misses), and the damage the hit did.
+`20 vs 11+ HIT, 12 damage` is the d20, the roll it needed (THAC0 − the
+target's AC; a natural 20 always hits, a 1 always misses), and the damage the
+hit did.
+
+A monster's turn that comes straight after a character's shows in the same
+window as that character's: the game plays the monster's whole turn before
+its combat loop comes back to where the helper is called.
 
 How: the patched game calls the helper (`INT F1h`) in its combat loop, right
 after the call that may pass the turn on. When whose turn it is has changed,
