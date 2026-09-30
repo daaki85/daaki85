@@ -690,9 +690,13 @@ it stands now (armour and effects counted, as in the thief rows):
 - **Failure:** a move silently roll. Made, the thief slips away unnoticed;
   missed, they're caught.
 
-A thief can go on trying the same person until **caught** (both rolls failed),
-or until nothing worth taking is left on them; after that, that person keeps a
-hand on their pockets for good. The Ledger remembers who in `settings.json`,
+With nothing like that left on them, the thief takes what's in their purse
+instead: a few ceramic pieces (2 to 5), added to the party's money. That is
+the last try on that person.
+
+A thief can go on trying the same person until **caught** (both rolls failed)
+or until they take the coins; after that, that person keeps a hand on their
+pockets for good. The Ledger remembers who in `settings.json`,
 for this party. The Trustee is left to his own conversation. What happens is
 added to the conversation's text (use its arrow to scroll down to it if the
 text is long) and to the dice log:

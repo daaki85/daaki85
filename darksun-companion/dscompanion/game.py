@@ -79,6 +79,9 @@ EFFECTS_SEG, EFFECTS_OFF = 0x3BF6, 0x106  # 10 bytes per active effect
 GAME_TIME_PTR, GAME_TIME_SCALE = 0x9B72, 0x9B70
 WHOSE_TURN = 0x4979  # DS word: the combatant whose turn it is (outside a fight: the leader)
 REGION = 0x117C  # DS word: the region the party is in
+# The party's money, in ceramic pieces (the inventory screen's bottom bar): a dword the game's
+# script command for giving money (0Ch) adds to
+MONEY_SEG, MONEY = 0x3781, 0x357
 # Speakers the game names in its own text (the dialogue window shows only a portrait):
 # 119 is asked about as "Yell something back at the Announcer?"
 SPEAKERS = {119: "The Announcer"}
@@ -506,6 +509,13 @@ class GameData:
         if not rec[CREATURE_NAME] or struct.unpack_from("<h", rec, 0)[0] <= 0:
             return None
         return index
+
+    def money(self) -> int:
+        return struct.unpack("<I", self.guest.read((self.load_seg + MONEY_SEG) * 16 + MONEY, 4))[0]
+
+    def add_money(self, amount: int) -> None:
+        self.guest.write((self.load_seg + MONEY_SEG) * 16 + MONEY,
+                         struct.pack("<I", max(0, self.money() + amount) & 0xFFFFFFFF))
 
     def region(self) -> int:
         """The region the party is in (its RGNxx.GFF)."""

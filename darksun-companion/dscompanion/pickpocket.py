@@ -5,8 +5,9 @@ With the dice log's patched game, P in any conversation (DSCLOG's PROBE_PICK) ha
 roll the leader's pick pockets chance as it stands now (thief_skills_now). On a success the
 thief lifts one small thing (weight 10 or less, and nothing worn on the body) from the
 person into the backpack. On a failure, a move silently roll decides whether they got away
-unnoticed. A thief can go on trying the same person until caught (both rolls failed) or
-until they have nothing left worth taking; after that, their pockets are out of reach.
+unnoticed. With nothing else on them, the thief takes a few coins (party money), and that is
+the last try on them. A thief can go on trying the same person until caught (both rolls
+failed) or until they take the coins; after that, their pockets are out of reach.
 """
 
 import random
@@ -123,7 +124,11 @@ def _give(gd: GameData, it: ring.Items, member: int, item: int, cell: int) -> bo
     return False
 
 
-def attempt(gd: GameData, tried: set, roll: Callable[[], int] = lambda: random.randint(1, 100)) -> Optional[Attempt]:
+COINS = (2, 5)  # ceramic pieces in a purse with nothing else worth taking
+
+
+def attempt(gd: GameData, tried: set, roll: Callable[[], int] = lambda: random.randint(1, 100),
+            coin_roll: Callable[[], int] = lambda: random.randint(*COINS)) -> Optional[Attempt]:
     """P pressed in a conversation: the leader tries the pocket of whoever is talked to. None
     when no one is (a narration, or someone in the party)."""
     who = gd.talk_target_creature()
@@ -151,8 +156,10 @@ def attempt(gd: GameData, tried: set, roll: Callable[[], int] = lambda: random.r
              + ("success" if d100 <= chance else "failed")]
     if d100 <= chance:
         loot = _carried(gd, it, who)
-        if not loot:  # nothing to lift: this was the last try on them
-            text = f"{thief} deftly searches {npc}'s pockets, but finds nothing worth taking."
+        if not loot:  # nothing else: a few coins, and that was the last try on them
+            coins = coin_roll()
+            gd.add_money(coins)
+            text = f"{thief} lifts {coins} ceramic pieces from {npc}'s purse, all there was to take."
             lines.append("  " + text)
             return Attempt(text, lines, key)
         else:

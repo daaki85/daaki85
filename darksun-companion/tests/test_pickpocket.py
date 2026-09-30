@@ -54,7 +54,7 @@ class PickTests(unittest.TestCase):
 
     def attempt(self, *rolls):
         rolls = list(rolls)
-        return pickpocket.attempt(self.log.game, self.tried, lambda: rolls.pop(0))
+        return pickpocket.attempt(self.log.game, self.tried, lambda: rolls.pop(0), lambda: 3)
 
     def guard_items(self):
         return [i for i, _ in ring.Items(self.log.game).chain(450, inside=False)]
@@ -72,8 +72,10 @@ class PickTests(unittest.TestCase):
         self.assertEqual(self.dag_items()[0], (CLUB, 13))
         self.assertIn("d100 = 11, needs 11 or less -> success", result.log[0])
         self.assertIsNone(result.key)
+        money = self.log.game.money()
         again = self.attempt(1)
-        self.assertEqual(again.text, "Dag deftly searches Guard's pockets, but finds nothing worth taking.")
+        self.assertEqual(again.text, "Dag lifts 3 ceramic pieces from Guard's purse, all there was to take.")
+        self.assertEqual(self.log.game.money(), money + 3)
         self.assertIsNotNone(again.key)
 
     def test_caught(self):
