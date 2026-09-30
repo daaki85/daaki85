@@ -41,6 +41,9 @@ def _query_bytes(text: str) -> bytes:
     return text.encode("cp437", errors="replace")
 
 
+# the game window's sizes (DOSBox scales the game's 320x200, with the aspect corrected)
+WINDOW_CHOICES = {"Double (640x480)": 2, "Triple (960x720)": 3, "Full screen": None}
+
 class Viewer:
     def __init__(self, root: tk.Tk, layout: Layout, connect: Callable[[], GuestMemory]):
         self.root = root
@@ -87,6 +90,13 @@ class Viewer:
         ttk.Button(top, text="A+", width=3, command=lambda: self.zoom(1.15)).pack(side="right", padx=(4, 12))
         ttk.Button(top, text="A-", width=3, command=lambda: self.zoom(1 / 1.15)).pack(side="right")
         ttk.Label(top, text="Text size").pack(side="right", padx=4)
+        # the size of DOSBox's window, for the next time the game is started from here
+        self.window_choice = tk.StringVar(value=self._window_label(launch.load_settings()))
+        box = ttk.Combobox(top, textvariable=self.window_choice, values=list(WINDOW_CHOICES), state="readonly",
+                           width=24)
+        box.pack(side="right", padx=(4, 12))
+        box.bind("<<ComboboxSelected>>", self._window_chosen)
+        ttk.Label(top, text="Game window").pack(side="right", padx=4)
         for key, factor in (("<Control-plus>", 1.15), ("<Control-equal>", 1.15), ("<Control-KP_Add>", 1.15),
                             ("<Control-minus>", 1 / 1.15), ("<Control-KP_Subtract>", 1 / 1.15),
                             ("<Control-0>", None)):
@@ -509,6 +519,26 @@ class Viewer:
         if status["down"]:
             parts.append(f"Down: {names(status['down'])}.")
         return " ".join(parts)
+
+    @staticmethod
+    def _window_label(settings: dict) -> str:
+        if settings.get("fullscreen"):
+            return "Full screen"
+        scale = settings.get("window_scale", 2)
+        return next((label for label, v in WINDOW_CHOICES.items() if v == scale), "Double (640x480)")
+
+    def _window_chosen(self, _event=None) -> None:
+        """Remember the game window's size; it applies the next time the game is started."""
+        scale = WINDOW_CHOICES[self.window_choice.get()]
+        settings = launch.load_settings()
+        if scale is None:
+            settings["fullscreen"] = True
+        else:
+            settings["fullscreen"] = False
+            settings["window_scale"] = scale
+        launch.save_settings(settings)
+        self.status.set(f"Game window: {self.window_choice.get()}, from the next time you start the game "
+                        "(Alt+Enter switches full screen while playing).")
 
     def _popups_changed(self) -> None:
         on = self.popups.get()

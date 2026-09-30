@@ -86,11 +86,12 @@ slots on the USE screen. Your saves are the same ones the game normally uses.
 The first time, it looks for the game in the usual GOG folders; if it can't
 find it, it asks you where the game is installed and remembers the answer.
 
-DOSBox opens in a window twice the game's size (640x480), not full screen.
-For a window three times the size (960x720) start it once with
-`python -m dscompanion launch --window-scale 3`; `--fullscreen` goes back to
-GOG's full screen, `--windowed` back to a window. The choice is remembered.
-Alt+Enter switches between window and full screen while playing.
+DOSBox opens in a window twice the game's size (640x480), not full screen. To
+change that, pick **Game window** at the top of the Ledger: **Double
+(640x480)**, **Triple (960x720)** or **Full screen**. It's remembered, and
+used from the next time you start the game. Alt+Enter switches between window
+and full screen while playing. (From a command prompt: `--window-scale 3`,
+`--fullscreen` or `--windowed` after `launch` or `play` do the same.)
 
 Load your game. The party's stats fill in by themselves, and rolls appear in
 the **Dice log** tab as they happen.
