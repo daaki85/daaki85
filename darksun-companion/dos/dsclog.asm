@@ -67,7 +67,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvC'          ; +0
+sig      db 'DSCLOGvD'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -666,8 +666,8 @@ c_cells_saves:
         jmp c_cells
 
 ; the eight thief skills of the character (sheet ES:SI, creature FS:DI, thief level AL):
-; base + 4 a level + the race's adjustment + DEX, from the game's tables (before armour,
-; as the Templar's Ledger shows them)
+; base + 4 a level + the race's adjustment + DEX, from the game's tables (before equipment and
+; effects); the companion's numbers instead, which count those too, while it keeps STATS
 c_thief:
         push si
         mov dl, al
@@ -725,7 +725,16 @@ c_thief:
         mov [cs:c_vals + 3], al ; shadows and read languages are never checked (the Templar's
         mov al, [cs:c_vals + 6] ; Ledger's script decoder found no script asking for them)
         mov [cs:c_vals + 4], al
-        mov bx, c_cells_thief
+        mov bx, [cs:c_who]      ; the companion's, with equipment and effects, if it keeps them
+        call stats_for
+        jc .ours
+        cmp byte [cs:bx + 17], 0
+        je .ours
+        mov eax, [cs:bx + 18]
+        mov [cs:c_vals], eax
+        mov al, [cs:bx + 22]
+        mov [cs:c_vals + 4], al
+.ours:  mov bx, c_cells_thief
         mov cx, 5
         mov byte [cs:c_signed], 0
         ; fall through
@@ -1236,8 +1245,9 @@ probe_unlook:
 
 ; STATS: STATS_SIZE bytes for each party member, kept by the companion: +0 1 if in use, +1 THAC0
 ; with the main weapon (signed), +2 the five saves as the d20 needed now, +8 three words: the
-; item numbers of the weapons ready, +14 three bytes: the THAC0 with each (signed)
-STATS_SIZE  equ 20
+; item numbers of the weapons ready, +14 three bytes: the THAC0 with each (signed), +17 1 for a
+; thief, +18 the five thief skills the game rolls, as they stand (equipment and effects too)
+STATS_SIZE  equ 24
 STATS_FRESH equ 91              ; timer ticks (5 seconds)
 STATS_WAIT  equ 9               ; ... (half a second): the longest a screen waits for fresh STATS
 stats   times 4 * STATS_SIZE db 0

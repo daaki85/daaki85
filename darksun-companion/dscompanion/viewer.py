@@ -784,13 +784,13 @@ class Viewer:
         per_member = [dict(m) for m in self._member_slots(slots)]
         rows = [(f"{kind} spells left", [game.slots_text(m.get(kind, [])) for m in per_member])
                 for kind, _ in game.MAGIC_KINDS]
-        if self.ds is not None:  # each thief's skills, before armour and the situation
+        if self.ds is not None:  # each thief's skills as they stand (equipment and effects)
             gd = game.GameData(self.guest, self.ds)
             table = game.far_pointer(self.guest, self.ds, game.CREATURES_PTR)
             cells = []
             for s in slots:
                 addr = s[1].get("creature")
-                skills = gd.thief_skills((addr - table) // game.CREATURE_SIZE) if addr is not None else []
+                skills = gd.thief_skills_now((addr - table) // game.CREATURE_SIZE) if addr is not None else []
                 cells.append(" ".join(f"{n}" for _, n in skills))
             rows.append(("Thief skills PP/OL/FT/HN/CW", cells))
             worn = []
@@ -853,7 +853,7 @@ class Viewer:
                     status += (", " if status else "") + ", ".join(names)
                 ac = self.dice.last_ac.get(index) if self.dice and self.dice.attached else None
             known = gd and addr is not None and table is not None
-            thief = gd.thief_skills(index) if known else []
+            thief = gd.thief_skills_now(index) if known else []
             equipment = gd.equipment(index) if known else []
             try:
                 hits = gd.weapon_hits(index) if known and index < game.PARTY_SIZE else []

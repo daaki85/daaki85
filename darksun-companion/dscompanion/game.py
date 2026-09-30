@@ -393,6 +393,13 @@ THIEF = 17  # class number
 THIEF_TABLE_SEG = 0x3FAA
 THIEF_BASE, THIEF_RACE, THIEF_DEX_LOW, THIEF_DEX_HIGH, THIEF_DEX_TOP, THIEF_ARMOUR = 0, 8, 0x90, 0x98, 0xA0, 0xA8
 THIEF_PER_LEVEL = 4
+# The equipment the thief routine checks for its penalty (anything at all in these slots)
+THIEF_PENALTY_SLOTS = tuple(EQUIP_SLOTS.index(s) for s in ("legs", "ammo", "right hand", "left hand"))
+# Effects that rule skills out (the chance can't come up), and ones that make a skill certain
+THIEF_BLOCKED = {8: (0, 1, 2, 3, 4, 6, 7), 17: tuple(range(8)), 11: tuple(range(8)), 3: tuple(range(8)),
+                 34: tuple(range(8)), 47: (1, 2, 3, 4, 5, 6, 7), 20: (0, 4), 25: (4,), 49: (0, 1, 6), 19: (7,)}
+THIEF_CERTAIN = {14: (2,), 23: (4,)}  # Detect Traps, Invisible
+STATUS_OKAY = 1
 
 
 # The spell's damage kinds (its flags word): the saving throw doubles the d20 against fire,
@@ -839,6 +846,31 @@ class GameData:
             if parts is None:
                 return []
             out.append((name, sum(n for _, n in parts)))
+        return out
+
+    def thief_skills_now(self, creature: int) -> List[Tuple[str, int]]:
+        """[(skill, chance), ...] for the skills the game rolls, as they stand now: with the
+        equipment penalty, 0 for a skill an effect rules out (or when the thief isn't Okay), 100
+        for one an effect makes certain. Not the situation's bonus (a hard lock...). [] for
+        someone without thief levels."""
+        rec = self.creature(creature)
+        if len(rec) < CREATURE_SIZE:
+            return []
+        table = self.guest.read((self.load_seg + THIEF_TABLE_SEG) * 16 + THIEF_ARMOUR, 8)
+        penalty = any(item[ITEM_SLOT] in THIEF_PENALTY_SLOTS for _, item, _ in self._worn(creature))
+        ids = {e.id for e in self._mine(creature, self.effects())}
+        okay = rec[CREATURE_STATUS] == STATUS_OKAY
+        out = []
+        for skill in ROLLED_SKILLS:
+            parts = self.thief_skill_parts(creature, skill)
+            if parts is None:
+                return []
+            chance = sum(n for _, n in parts) - (table[skill] if penalty and len(table) == 8 else 0)
+            if any(skill in THIEF_CERTAIN.get(e, ()) for e in ids):
+                chance = 100
+            elif not okay or any(skill in THIEF_BLOCKED.get(e, ()) for e in ids):
+                chance = 0
+            out.append((THIEF_SKILLS[skill], max(0, min(255, chance))))
         return out
 
     def item_label(self, item: bytes, typ: bytes) -> str:

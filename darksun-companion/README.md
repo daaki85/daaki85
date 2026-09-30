@@ -30,8 +30,8 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
 - **Dialogue:** what characters say, the replies you're offered and the one
   you picked, kept in a tab you can scroll back through.
 - **In the game itself**, in the game's own lettering: the inventory screen
-  also shows each character's THAC0 (for each weapon too), saving throws as
-  they stand now and (for thieves) the thief skills the game rolls, and the
+  also shows each character's THAC0 (for each weapon too), saving throws and
+  (for thieves) the thief skills the game rolls, all as they stand now, and the
   View Character screen their THAC0 and saves
   (see [In the game](#in-the-game-thac0-saves-and-thief-skills)); the USE
   screen shows their spell slots left (see
@@ -426,10 +426,11 @@ twice and STR once.
 `python -m dscompanion checks` lists them all with the script's text around
 each (spoilers).
 
-The **Characters** tab shows each thief's chances before equipment and the
-situation, for the five skills the game rolls (pick pockets, open locks,
-find/remove traps, hear noise, climb walls). **All fields** has them in a row
-in that order.
+The **Characters** tab shows each thief's chances as they stand, with the
+equipment penalty and effects (but not the situation's bonus or penalty), for
+the five skills the game rolls (pick pockets, open locks, find/remove traps,
+hear noise, climb walls), as the game's inventory screen does. **All fields**
+has them in a row in that order.
 
 ### Psionics
 
@@ -730,7 +731,12 @@ change.
   spell or its caster (WIS against mind spells, Protection from Fire, a
   doubled d20 against fire...) is left out; the dice log shows it on each
   save. A 1 always fails and a 20 always saves, so they show between 2 and 20.
-- **Thief skills**: before armour and the situation (see Thief skills).
+- **Thief skills**: as they stand, with the equipment penalty (anything in
+  the legs slot, the quiver or either hand: 5 off picking pockets, 10 off
+  climbing), 0 for a skill an effect rules out or when the thief isn't Okay,
+  and 100 for one an effect makes certain (Detect Traps). Only the situation's
+  bonus or penalty (a hard lock) is left out: the dice log shows it on each
+  roll (see Thief skills).
 
 The Characters tab shows the same THAC0 with each weapon and saves. The
 game's own numbers (the character sheet's) come back on these screens when

@@ -88,6 +88,41 @@ class RuleTests(unittest.TestCase):
         self.assertEqual(struct.unpack_from("<H", log.guest.mem, log.tsr_hdr + dicelog.TSR_RULES)[0], 3)
 
 
+class ThiefTests(unittest.TestCase):
+    def setUp(self):
+        """Dag as a 4th level thief (DEX 16), his long sword in his right hand; the game's tables
+        made simple: open locks 18 and +5 for DEX 16, the other skills 0; an equipment penalty
+        of 5 on picking pockets and 10 on climbing."""
+        self.log = log = dag()
+        m = log.guest.mem
+        table = (LOAD_SEG + game.THIEF_TABLE_SEG) * 16
+        for skill in range(8):
+            m[table + game.THIEF_DEX_HIGH + skill] = m[table + game.THIEF_DEX_TOP + skill] = 25
+        m[table + game.THIEF_BASE + 1] = 18
+        m[table + game.THIEF_DEX_LOW + 1], m[table + game.THIEF_DEX_HIGH + 1], m[table + game.THIEF_DEX_TOP + 1] = 11, 15, 20
+        m[table + game.THIEF_ARMOUR + 0], m[table + game.THIEF_ARMOUR + 6] = 5, 10
+        m[SHEETS + game.SHEET_CLASSES + 1], m[SHEETS + game.SHEET_LEVELS + 1] = game.THIEF, 4
+        m[CREATURES + game.CREATURE_STATUS] = game.STATUS_OKAY
+
+    def now(self):
+        return [n for _, n in self.log.game.thief_skills_now(0)]
+
+    def test_equipment(self):
+        self.assertEqual(self.now(), [11, 39, 16, 16, 6])
+        self.log.guest.mem[ITEMS + 5 * game.ITEM_SIZE + game.ITEM_SLOT] = 0xFF  # put away
+        self.log.guest.mem[ITEMS + 6 * game.ITEM_SIZE + game.ITEM_SLOT] = 0xFF
+        self.assertEqual(self.now(), [16, 39, 16, 16, 16])
+
+    def test_effects(self):
+        set_effects(self.log, [(0, 0, 47)])  # Slowed: all but picking pockets
+        self.assertEqual(self.now(), [11, 0, 0, 0, 0])
+        set_effects(self.log, [(0, 0, 14)])  # Detect Traps
+        self.assertEqual(self.now()[2], 100)
+
+    def test_in_stats(self):
+        self.assertEqual(struct.unpack_from("<B5B", self.log.stats_entry(0), 17), (1, 11, 39, 16, 16, 6))
+
+
 class SettingsTests(unittest.TestCase):
     def test_saved_options(self):
         log = dag()
