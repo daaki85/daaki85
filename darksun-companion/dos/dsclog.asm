@@ -41,6 +41,8 @@ VEC_WEAPON equ 0xFA   ; PROBE_WEAPON
 VEC_MOVE   equ 0xFB   ; PROBE_MOVE
 VEC_PICK   equ 0xFC   ; PROBE_PICK
 VEC_USE_ITEM equ 0xFD ; PROBE_USE_ITEM
+VEC_TWO    equ 0xFE   ; PROBE_TWO
+VEC_DOUBLE equ 0xF0   ; PROBE_DOUBLE
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -69,7 +71,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvH'          ; +0
+sig      db 'DSCLOGvI'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -1770,6 +1772,9 @@ ws_plus    dw 0
 ; in a fight
 RULE_HELMS equ 1
 RULE_BOOTS equ 2
+RULE_TWO_WEAPONS equ 4
+RULE_SPELL_SAVE equ 8           ; (the companion writes the game's save table for this one)
+RULE_NO_DOUBLE equ 16
 FOOT       equ 13               ; the item's slot byte while worn on the feet
 THINGS_SEG equ 0x3972 - 0x4356  ; the things table's segment, relative to DS
 
@@ -1801,6 +1806,52 @@ probe_move:
         add ax, 10
 .store: mov [es:bx+0x22B], ax
         iret
+
+; PROBE_TWO: INT VEC_TWO replaces "neg ax / mov dx,ax / or dx,dx / jge +2 / xor dx,dx" (10
+; bytes: INT + 8 NOPs) in the routine that gives an attack's to-hit adjustment for two weapons
+; ready, after the call that reads the attacker's DEX in the game's initiative table (AX), for
+; a non-ranger; [BP+0Ah] is the attack's item. Leaves the adjustment in DX: the game's,
+; -AX and no less than 0; with RULE_TWO_WEAPONS, AD&D's: -2 (main hand) or -4 (the item in the
+; left hand, slot 10) plus AX (the same numbers as the reaction adjustment), no more than 0.
+LEFT_HAND  equ 10
+probe_two:
+        test byte [cs:rules], RULE_TWO_WEAPONS
+        jnz .rule
+        neg ax
+        mov dx, ax
+        or dx, dx
+        jge .done
+        xor dx, dx
+.done:  iret
+.rule:  push bx
+        push es
+        mov dx, -2
+        mov bx, [bp+0x0A]
+        cmp bx, NO_THING
+        jae .add
+        imul bx, bx, 0x15
+        push ax
+        mov ax, bx
+        les bx, [ITEMS]
+        add bx, ax
+        pop ax
+        cmp byte [es:bx+0x11], LEFT_HAND
+        jne .add
+        mov dx, -4
+.add:   add dx, ax
+        jle .out
+        xor dx, dx
+.out:   pop es
+        pop bx
+        iret
+
+; PROBE_DOUBLE: INT VEC_DOUBLE replaces "shl al,1" (2 bytes), where the saving throw doubles
+; its d20 against fire, cold and electricity spells; not with RULE_NO_DOUBLE.
+probe_double:
+        test byte [cs:rules], RULE_NO_DOUBLE
+        jnz .done
+        shl al, 1
+.done:  iret
 
 L_LINE_SIZE equ 24
 LOOK_SIZE   equ 80
@@ -1852,7 +1903,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 19
+        mov cx, 21
 .check:
         lodsb
         mov ah, 35h
@@ -1925,6 +1976,12 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_USE_ITEM
         mov dx, probe_use_item
         int 21h
+        mov ax, 2500h + VEC_TWO
+        mov dx, probe_two
+        int 21h
+        mov ax, 2500h + VEC_DOUBLE
+        mov dx, probe_double
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -1940,8 +1997,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or F1h-FDh are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM
+busy    db 'DSCLOG: interrupts 60h-65h or F0h-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE
 
         align 16, db 0
 image_len equ $ - $$

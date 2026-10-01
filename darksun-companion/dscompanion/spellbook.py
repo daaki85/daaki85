@@ -4,13 +4,14 @@
 import struct
 from typing import List, NamedTuple, Optional
 
-from .game import (EFFECT_NAMES, EFFECT_RULES, PARTY_SIZE, PERMANENT, PSIONIC_COUNT, PSIONIC_FIRST, SAVE_NAMES,
-                   SPELL_COUNT, SPELL_INFO_OFF, SPELL_INFO_SIZE, SPELL_LEVEL_CAP, SPELL_SIZE, GameData, ordinal)
+from .game import (KIND_TO_SAVE, EFFECT_NAMES, EFFECT_RULES, PARTY_SIZE, PERMANENT, PSIONIC_COUNT, PSIONIC_FIRST, SAVE_NAMES,
+                   SPELL_COUNT, SPELL_INFO_OFF, SPELL_INFO_SIZE, SPELL_LEVEL_CAP, SPELL_SIZE, GameData, kind_to_save,
+                   ordinal)
 
 WIZARD_LAST = 68  # spells 1-68 are wizard spells, 69-137 priest spells
 # a spell record's save byte (+1Fh): bit 0 a save is allowed, bits 5-7 its kind; the game's
-# table at DS:1E75h turns the kind into one of the sheet's five saves (kind 6: none)
-KIND_TO_SAVE = (1, 1, 1, 2, 3, 3, 4, 5, 5, 5)
+# table at DS:1E75h turns the kind into one of the sheet's five saves (kind 6: none;
+# game.kind_to_save, with the companion's spell save rule)
 NO_SAVE_KIND = 6
 DAMAGE_KINDS = ((0x02, "fire"), (0x04, "cold"), (0x80, "electricity"), (0x40, "acid"), (0x01, "poison"),
                 (0x08, "crushing"), (0x10, "edged"), (0x20, "pointed"), (0x100, "draining"),
@@ -73,7 +74,7 @@ def save_text(gd: GameData, spell: int, rec: bytes, damages: bool) -> str:
     kind = byte >> 5
     if not byte & 1 or kind == NO_SAVE_KIND or kind >= len(KIND_TO_SAVE):
         return "none"
-    text = SAVE_NAMES.get(KIND_TO_SAVE[kind], f"kind {kind}")
+    text = SAVE_NAMES.get(kind_to_save(kind, gd.rules), f"kind {kind}")
     rules = gd.spell_rules(spell)
     if rules and rules.save_modifier:
         text += f" {rules.save_modifier:+d}"

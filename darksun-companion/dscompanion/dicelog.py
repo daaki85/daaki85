@@ -30,7 +30,7 @@ from .guestmem import GuestMemory
 from .textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGvH"
+HDR_SIG = b"DSCLOGvI"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
 MSG_SIZE = 900
@@ -501,14 +501,23 @@ class DiceLog:
         self.pickpockets = bool(settings.get("pickpockets", True))
         self.picked = set(settings.get("pickpocketed", []))
         self.tools_given = set(settings.get("tools_given", []))
-        self.rules = (RULE_HELMS if settings.get("helm_ac", True) else 0) | \
-            (RULE_BOOTS if settings.get("boots_move", True) else 0)
+        self.rules = game.rules_from_settings(settings)
 
     def set_rules(self, rules: int) -> None:
-        """Turn the rule changes on or off: helms count AC 1, boots add a move in a fight."""
+        """Turn the rule changes on or off (game.RULE_*). DSCLOG makes most of them; the spell
+        save is the game's own table, written here."""
         self.rules = rules
+        game.RULES_IN_FORCE = rules
+        if self.game is not None:
+            self.game.rules = rules
         if self.tsr_hdr is not None:
             self.guest.write(self.tsr_hdr + TSR_RULES, struct.pack("<H", rules))
+            table = self.game.ds * 16 + game.SAVE_KINDS if self.game is not None else None
+            # (only over the game's own table: kind 5 is petrification/polymorph or, so far, the spell save)
+            if table is not None and struct.unpack("<5H", self.guest.read(table, 10)) == game.KIND_TO_SAVE[:5] \
+                    and struct.unpack("<H", self.guest.read(table + 2 * game.SPELL_KIND, 2))[0] in (3, 5):
+                save = game.kind_to_save(game.SPELL_KIND, rules)
+                self.guest.write(table + 2 * game.SPELL_KIND, struct.pack("<H", save))
 
     def _answer_look(self) -> List[str]:
         """DSCLOG asks about a creature the player looks at in a fight: give the Look box its
@@ -1302,16 +1311,18 @@ class DiceLog:
                 rest -= penalty
         # With two weapons ready the game adjusts every melee attack by the DEX table it
         # also uses for initiative, sign flipped and never below 0 (rangers excepted): a
-        # bonus at DEX 5 or less, nothing otherwise. The manual's off-hand penalty isn't there.
+        # bonus at DEX 5 or less, nothing otherwise. The manual's off-hand penalty isn't there,
+        # unless the companion's rule puts AD&D's in (GameData.two_weapons).
         weapons_ready = e.parent_local(-0x16)
         if mode <= 1 and weapons_ready is not None and weapons_ready >= 2:
-            sheet = g.sheet(attacker)
-            ranger = len(sheet) >= game.SHEET_FLAGS + 2 and \
-                struct.unpack_from("<H", sheet, game.SHEET_FLAGS)[0] & game.SHEET_FLAG_RANGER
-            dex = g.creature(attacker)[CREATURE_ABILITIES + 1]
-            two_weapons = 0 if ranger else max(0, -g.dex_initiative(dex))
+            item = e.arg(0x12)
+            slot = None
+            if item is not None and 0 <= item < game.NO_ITEM:
+                at = game.far_pointer(g.guest, g.ds, game.ITEMS_PTR) + item * game.ITEM_SIZE
+                slot = g.guest.read(at + game.ITEM_SLOT, 1)[0]
+            why, two_weapons = g.two_weapons(attacker, slot)
             if two_weapons:
-                parts.append((f"two weapons at DEX {dex}", two_weapons))
+                parts.append((why, two_weapons))
                 rest -= two_weapons
         if attacker_combatant is not None and attacker_combatant >= 4:
             difficulty = g.difficulty() - 1

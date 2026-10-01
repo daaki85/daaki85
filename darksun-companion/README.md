@@ -46,8 +46,10 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   from the game's own records (see [the Spells tab](#the-spells-tab)).
 - **A Ring +1** (+1 AC, +1 on saving throws) found by searching the Tied-up
   Prisoner's body in the arena, an item of the Ledger's own (see [The Ring +1](#the-ring-1)), and
-  two optional rule changes: helms give AC 1, boots a move more in a fight (see
-  [Rule changes](#rule-changes-helms-and-boots)).
+  optional rule changes: helms give AC 1, boots a move more in a fight, AD&D's
+  two-weapon penalties, spells saved against with the spell save, and no
+  doubled d20 on saves against fire, cold and electricity (see
+  [Rule changes](#rule-changes)).
 - **Picking pockets:** a thief can try anyone's pockets, with the Thieves'
   Tools every thief now carries or with P in a conversation, a move silently
   roll deciding whether a fumble is noticed (see
@@ -263,6 +265,8 @@ became 5 and 6), and nothing at DEX 15 or 25; a character with one weapon
 logged hit and none for the misses (46 attacks), including a d20 of 4 that
 only hit because of the +6. It looks like a sign slip in the game: AD&D uses
 the same DEX adjustment to make two-weapon fighting *harder* at low DEX.
+The [rule changes](#rule-changes) can put AD&D's rule in instead: -2 and -4,
+with the DEX adjustment.
 
 ### Spells and effects
 
@@ -301,7 +305,8 @@ paralysis/poison/death, used by the clouds, Poison, Slay Living and the psionic
 attacks). The spell save, the one AD&D uses for spells, is never used. That
 was checked against the AD&D tables: a 3rd-level warrior needs 13 against
 Psychic Crush (paralysis) and 14 against Fireball (petrification), where the
-spell save would be 16.
+spell save would be 16. The [rule changes](#rule-changes) can put the spell
+save back, and take the doubled d20 away.
 
 **How long.** A duration is (caster level × so much + dice) × a unit of time.
 A round is 60 game seconds. Some effects last a number of uses instead
@@ -744,11 +749,13 @@ pointer on something on the map tells the helper what was used on what
 (`INT FDh`): for the thieving tools on someone, the Ledger does the same, and
 the helper shows the result instead of the game's "nothing happens".
 
-### Rule changes: helms and boots
+### Rule changes
 
-Two small changes to the game's rules, both on the Options tab (on by default;
-they take effect in games started with the dice log, while the Ledger runs or
-with **Play Dark Sun (in-game rolls)**, which uses the Options as last set):
+Five changes to the game's rules, each with its own box under **Rule changes**
+on the Options tab (all on by default; they take effect in games started with
+the dice log, while the Ledger runs or with **Play Dark Sun (in-game rolls)**,
+which uses the Options as last set). Untick one and the game's own rule is back
+at once.
 
 - **Helms give AC 1.** The game's helms count as armour but give AC 0. With
   **Helms give AC 1** ticked they give 1: the plain leather Helm, Dapartea's
@@ -772,8 +779,41 @@ afresh each time it starts; without the Ledger they're the game's own.)
 
 How: the helper sets the helm types' AC as the game's AC routine reads it
 (`INT F8h`, the Ring +1's place), and adds the move where the game sets a
-round's movement, Move x 10 (`INT FBh`). Untick either and the game's own
-rule is back at once.
+round's movement, Move x 10 (`INT FBh`).
+
+Three more put back AD&D's rules where the game parts from them (see
+[Two weapons](#two-weapons) and [Spells and effects](#spells-and-effects)):
+
+- **Two weapons: AD&D's penalties.** With two melee weapons ready, a
+  character who isn't a ranger attacks at -2 with the main (right) hand and
+  -4 with the off (left) hand, and the DEX reaction adjustment is added:
+  -6 at DEX 1, -4 at 2, -3 at 3, -2 at 4, -1 at 5, none for 6-15, +1 at 16,
+  +2 at 17-18, +3 at 19-20, +4 at 21-23 and +5 at 24-25. It can lessen the
+  penalty to 0 but never make it a bonus, and low DEX makes it worse: DEX 17
+  is 0 and -2, DEX 21 0 and 0, DEX 3 -5 and -7. Rangers have no penalty
+  (in any armour). The game's own rule, a small bonus at DEX 5 or less, is
+  gone. The dice log names it (`-4 two weapons, off hand at DEX 15`), as do
+  the THAC0 lines on the Characters tab and the inventory screen.
+- **Spells are saved against with the spell save.** Almost every spell is
+  marked for the game's "kind 5" save, which it treats as
+  petrification/polymorph; with this rule it is the spell save. The spells
+  marked for paralysis/poison/death (the poison clouds, Poison, Slay Living,
+  the psionic attacks) keep it, as AD&D has them, and so do three monsters'
+  powers marked for petrification/polymorph. The dice log and the Spells tab
+  name the save used.
+- **No doubled d20 on saves against fire, cold and electricity.** The game
+  doubles the save's d20 against those spells (Fireball, Lightning Bolt, Cone
+  of Cold...); with this rule it doesn't. Fireball and the rest become far more
+  dangerous, for the party as for its enemies: needing 14, the chance to save
+  drops from 70% to 35%.
+
+How: the game reads the attacker's DEX adjustment when it works out the
+two-weapon adjustment; the helper takes over from there (`INT FEh`) and gives
+AD&D's for the hand the attack's weapon is in. For the spell save, the Ledger
+writes the game's own table that turns a spell's kind of save into one of the
+five (a table of words at DS:1E75h, read afresh for every save), and puts it
+back when the rule is unticked. And the helper does the save's doubling
+(`INT F0h`) only while that rule is off.
 
 ### No critical hits
 
@@ -1043,7 +1083,8 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    weapon's line on the inventory screen `INT FAh`, and the start of a round's
    movement `INT FBh` (for boots), a key the conversation window doesn't know
    `INT FCh` and an item used on the map `INT FDh` (for
-   [picking pockets](#picking-pockets)), and
+   [picking pockets](#picking-pockets)), the two-weapon adjustment `INT FEh`
+   and the doubling of a save's d20 `INT F0h` (for [rule changes](#rule-changes)), and
    the copy looks for its data files in the current
    folder rather than next to itself. DOSBox runs it from the game folder, so
    it uses your saves as usual.
@@ -1064,7 +1105,7 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
 
 Because the replacement produces identical numbers, the game plays exactly as
 it would without it, apart from what you choose: the Ring +1 and the
-[rule changes](#rule-changes-helms-and-boots) on the Options tab.
+[rule changes](#rule-changes) on the Options tab.
 
 Limitations:
 - Only the GOG release (`DSUN.EXE` of 611,408 bytes) is supported. With
@@ -1146,7 +1187,8 @@ tools** tabs, and **Options** (Alt+O) with the Ledger's switches: what the
 dice log shows (unlabelled rolls, details), what it adds to the game (each
 turn's rolls, monster descriptions, the Ring +1, picking pockets, and a button
 that gives each thief a set of Thieves' Tools now) and the rule changes (helms,
-boots). The switches for the game are remembered for next time.
+boots, two weapons, the spell save, doubled saves). The switches for the game
+are remembered for next time.
 
 ![The Options tab](docs/options.png)
 
@@ -1314,6 +1356,6 @@ After changing `dos/dsclog.asm`, rebuild the helper with
 nasm -f bin -o dos/DSCLOG.EXE dos/dsclog.asm
 ```
 
-The header's signature (`DSCLOGvC` now) goes up whenever the helper and the
+The header's signature (`DSCLOGvI` now) goes up whenever the helper and the
 Ledger must change together (`HDR_SIG` in `dscompanion/dicelog.py`), so a
 Ledger never talks to an older helper.

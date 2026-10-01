@@ -189,6 +189,25 @@ class AttackTests(unittest.TestCase):
         lines = log.describe(self.attack(18, 9, 4, 5, 9, after_f1=10, hit_bonus=1, m16=2))
         self.assertEqual(lines[1], "    THAC0 16, +6 STR, +1 weapon = 9")
 
+    def test_two_weapons_adnd(self):
+        """With the companion's rule: -2 main hand, -4 off hand, the DEX reaction adjustment
+        (the game's initiative table) added, never above 0."""
+        log = make_game()
+        log.set_rules(game.RULE_TWO_WEAPONS)
+        self.addCleanup(setattr, game, "RULES_IN_FORCE", 0)
+        m = log.guest.mem
+        dex = CREATURES + game.CREATURE_ABILITIES + 1
+        m[dex], m[DS * 16 + game.DEX_INITIATIVE + 17] = 17, 2
+        m[ITEMS + 5 * game.ITEM_SIZE + game.ITEM_SLOT] = 3  # the right hand: no penalty at DEX 17
+        lines = log.describe(self.attack(18, 9, 4, 5, 9, after_f1=10, hit_bonus=1, m16=2))
+        self.assertEqual(lines[1], "    THAC0 16, +6 STR, +1 weapon = 9")
+        m[ITEMS + 5 * game.ITEM_SIZE + game.ITEM_SLOT] = 10  # the left hand: -4 + 2
+        lines = log.describe(self.attack(18, 11, 4, 5, 9, after_f1=10, hit_bonus=-1, m16=2))
+        self.assertEqual(lines[1], "    THAC0 16, +6 STR, +1 weapon, -2 two weapons, off hand at DEX 17 = 11")
+        m[dex], m[DS * 16 + game.DEX_INITIATIVE + 4] = 4, 0xFE  # DEX 4: -2 makes it worse
+        lines = log.describe(self.attack(18, 15, 4, 5, 9, after_f1=10, hit_bonus=-5, m16=2))
+        self.assertEqual(lines[1], "    THAC0 16, +6 STR, +1 weapon, -6 two weapons, off hand at DEX 4 = 15")
+
     def test_monster_natural_attack(self):
         log = make_game()
         lines = log.describe(self.attack(20, 11, 1, -1, -1, after_f1=11, hit_bonus=0, attacker=STALKER,
@@ -385,6 +404,20 @@ class SaveTests(unittest.TestCase):
         self.assertEqual(log.describe(self.probe(18, needed=14, spell=FIREBALL)),
                          ["Mountain Stalker saves vs Fireball from Dag (spell): d20 = 9, doubled against fire = 18, "
                           "needs 14 (70% to save) -> saved: half damage, 7 of 15"])
+
+    def test_save_not_doubled_with_the_rule(self):
+        """With the companion's rule the game doesn't double the d20, and neither does the log."""
+        log = make_game()
+        log.set_rules(game.RULE_NO_DOUBLE)
+        self.addCleanup(setattr, game, "RULES_IN_FORCE", 0)
+        self.damage_formula(log, FIREBALL, 0x20, 0x01, 0x06)
+        for f in (6, 5, 4):
+            log.describe(entry(raw_for(f, 6), dicelog.DICE_SITE, words(0, 0, 3, 6), words(0, 0, FIREBALL, 3),
+                               parent_code=dicelog.SPELL_DAMAGE_RETURN), now=1.0)
+        log.describe(self.save_roll(log, 9, spell=FIREBALL), now=1.1)
+        self.assertEqual(log.describe(self.probe(9, needed=14, spell=FIREBALL)),
+                         ["Mountain Stalker saves vs Fireball from Dag (spell): d20 = 9, "
+                          "needs 14 (35% to save) -> failed: full damage, 15"])
 
     def damage_formula(self, log, spell, b0, b1, b2):
         rules = (LOAD_SEG + game.SPELLS_SEG) * 16 + game.SPELLS_OFF + spell * game.SPELL_SIZE

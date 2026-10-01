@@ -72,8 +72,39 @@ FOOT = EQUIP_SLOTS.index("foot")
 # and saving throws (DSCLOG's PROBE_RING_AC and PROBE_RING_SAVE); the game has no such ring of
 # its own, and the companion can put a Ring +1 in the arena (ring.py).
 RING_TYPE = 102
-# The companion's rule changes (DSCLOG's RULES): helms count AC 1, boots add a move in a fight
-RULE_HELMS, RULE_BOOTS = 1, 2
+# The companion's rule changes (DSCLOG's RULES): helms count AC 1, boots add a move in a fight;
+# AD&D's two-weapon penalties; spells saved against with the spell save; no doubled d20
+RULE_HELMS, RULE_BOOTS, RULE_TWO_WEAPONS, RULE_SPELL_SAVE, RULE_NO_DOUBLE = 1, 2, 4, 8, 16
+# the Options' setting for each, all on unless unticked
+RULE_SETTINGS = (("helm_ac", RULE_HELMS), ("boots_move", RULE_BOOTS), ("two_weapons", RULE_TWO_WEAPONS),
+                 ("spell_save", RULE_SPELL_SAVE), ("no_doubled_save", RULE_NO_DOUBLE))
+# The game turns a spell's kind of save (bits 5-7 of its +0Fh) into one of the sheet's five
+# saves (1-5: paralysis/poison/death ... spell) with a table of words at DS:1E75h, read afresh
+# for each save. Kind 5, what almost every spell is marked with, is petrification/polymorph
+# (3); RULE_SPELL_SAVE makes it the spell save (5). Kind 1 (paralysis/poison/death: the
+# clouds, Poison, Slay Living, the psionic attacks) and kind 4 (petrification/polymorph:
+# three monsters' powers) stay as they are.
+SAVE_KINDS = 0x1E75
+KIND_TO_SAVE = (1, 1, 1, 2, 3, 3, 4, 5, 5, 5)
+SPELL_KIND, SPELL_SAVE = 5, 5
+# AD&D's two weapons: -2 with the main (right) hand, -4 with the off (left) hand, the DEX
+# reaction adjustment (the game's initiative table, the same numbers) added and no better than
+# 0; rangers have none
+TWO_WEAPON_PENALTY = {3: -2, 10: -4}
+
+
+def rules_from_settings(settings: dict) -> int:
+    return sum(bit for key, bit in RULE_SETTINGS if settings.get(key, True))
+
+
+def kind_to_save(kind: int, rules: int) -> int:
+    if kind == SPELL_KIND and rules & RULE_SPELL_SAVE:
+        return SPELL_SAVE
+    return KIND_TO_SAVE[kind]
+
+
+# The rules in force (DiceLog.set_rules): GameData objects made without rules of their own use these
+RULES_IN_FORCE = 0
 EFFECTS_SEG, EFFECTS_OFF = 0x3BF6, 0x106  # 10 bytes per active effect
 # The game's clock and event queue: a far pointer to the time (a dword, divided by the byte at
 # GAME_TIME_SCALE); the first queue's entries (17 bytes: due time, kind, then the event's data),
@@ -440,10 +471,11 @@ class Weapon(NamedTuple):
 class GameData:
     """Lookups into the running game's memory for one session."""
 
-    def __init__(self, guest: GuestMemory, ds: int):
+    def __init__(self, guest: GuestMemory, ds: int, rules: Optional[int] = None):
         self.guest = guest
         self.ds = ds
         self.load_seg = ds - DGROUP
+        self.rules = RULES_IN_FORCE if rules is None else rules
 
     def _word(self, offset: int) -> int:
         return struct.unpack("<h", self.guest.read(self.ds * 16 + offset, 2))[0]
@@ -633,7 +665,8 @@ class GameData:
         nibble = (rec[0x0F] >> 1) & 0x0F
         flags = struct.unpack_from("<H", rec, 0x0A)[0]
         kinds = " and ".join(name for bit, name in DOUBLED_KINDS.items() if flags & bit)
-        return SpellRules(bool(kinds), nibble - 16 if nibble & 8 else nibble, kinds)
+        doubled = bool(kinds) and not self.rules & RULE_NO_DOUBLE
+        return SpellRules(doubled, nibble - 16 if nibble & 8 else nibble, kinds if doubled else "")
 
     def spell_record(self, spell: int) -> bytes:
         """The spell's whole 32-byte record (it starts 10h before the fields SPELLS_OFF names)."""
@@ -1038,11 +1071,7 @@ class GameData:
             if slot in WEAPON_HANDS + (MISSILE_SLOT,) and typ[0x0C] and typ[0x0D]:  # it has damage dice
                 weapons.append((index, item, typ, slot))
         hands = [w for w in weapons if w[3] in WEAPON_HANDS]
-        two = 0
-        if len(hands) >= 2:  # two weapons ready: the DEX table the game also uses for initiative
-            sheet = self.sheet(creature)
-            ranger = len(sheet) >= SHEET_FLAGS + 2 and struct.unpack_from("<H", sheet, SHEET_FLAGS)[0] & SHEET_FLAG_RANGER
-            two = 0 if ranger else max(0, -self.dex_initiative(dex))
+        two_weapons = len(hands) >= 2
         out = []
         order = {WEAPON_HANDS[0]: 0, WEAPON_HANDS[1]: 1, MISSILE_SLOT: 2}
         for index, item, typ, slot in sorted(weapons, key=lambda w: order[w[3]]):
@@ -1055,14 +1084,30 @@ class GameData:
                 parts.append(("weapon", plus))
             elif not typ[0x08] & 0x80 and material in MATERIAL_TO_HIT:
                 parts.append((MATERIALS[material].lower(), MATERIAL_TO_HIT[material]))
-            if two and not missile:
-                parts.append((f"two weapons at DEX {dex}", two))
+            if two_weapons and not missile:
+                parts.append(self.two_weapons(creature, slot))
             parts = [(why, n) for why, n in parts if n]
             out.append(WeaponHit(index, slot, self.item_label(item, typ), base - sum(n for _, n in parts), parts))
         if not out:
             parts = [(why, n) for why, n in [("STR", table(STR_TO_HIT, strength))] + common if n]
             out.append(WeaponHit(-1, -1, "unarmed", base - sum(n for _, n in parts), parts))
         return out
+
+    def two_weapons(self, creature: int, slot: int) -> Tuple[str, int]:
+        """The to-hit adjustment for an attack with the weapon in SLOT while two are ready (in
+        melee), and what it's called. The game's: its DEX table for initiative, sign flipped and
+        never below 0 (a bonus at DEX 5 or less). With RULE_TWO_WEAPONS, AD&D's: -2 main hand,
+        -4 off hand, plus the DEX reaction adjustment, never above 0. Rangers: none either way."""
+        dex = self.creature(creature)[CREATURE_ABILITIES + 1]
+        sheet = self.sheet(creature)
+        ranger = len(sheet) >= SHEET_FLAGS + 2 and struct.unpack_from("<H", sheet, SHEET_FLAGS)[0] & SHEET_FLAG_RANGER
+        if not self.rules & RULE_TWO_WEAPONS:
+            return f"two weapons at DEX {dex}", 0 if ranger else max(0, -self.dex_initiative(dex))
+        hand = "off hand" if slot == WEAPON_HANDS[1] else "main hand"
+        if ranger:
+            return f"two weapons, {hand} (ranger)", 0
+        return (f"two weapons, {hand} at DEX {dex}",
+                min(0, TWO_WEAPON_PENALTY.get(slot, -2) + self.dex_initiative(dex)))
 
     def wears_boots(self, creature: int) -> bool:
         """Something worn on the feet (with the Options' rule, a move more in a fight)."""

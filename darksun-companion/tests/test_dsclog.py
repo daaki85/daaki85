@@ -14,7 +14,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dscompanion.dicelog import FILTERS, HDR_SIG, Entry
 from dscompanion.textlog import TextBuffer
-from dscompanion.gamepatch import VEC_AC, VEC_MSG, VEC_NEXT, VEC_RAND, VEC_RING_AC, VEC_USE_ITEM, VEC_RING_SAVE, VEC_SAVE, VEC_TEXT
+from dscompanion.gamepatch import (VEC_AC, VEC_DOUBLE, VEC_MSG, VEC_NEXT, VEC_RAND, VEC_RING_AC, VEC_USE_ITEM,
+                                  VEC_RING_SAVE, VEC_SAVE, VEC_TEXT, VEC_TWO)
 
 try:
     from unicorn import Uc, UC_ARCH_X86, UC_HOOK_INTR, UC_HOOK_MEM_WRITE, UC_MODE_16
@@ -425,6 +426,52 @@ class RingTests(unittest.TestCase):
             self.run_at(bytes((0xCD, VEC_RING_AC)), es=self.TYPES, ebx=0, ecx=typ, eax=0x1234)
             self.assertEqual(mu.reg_read(r.UC_X86_REG_AX), want)
             self.assertEqual((mu.reg_read(r.UC_X86_REG_CX), mu.reg_read(r.UC_X86_REG_BX)), (typ, 0))
+
+
+
+@unittest.skipIf(Uc is None, "unicorn not installed")
+class RuleTests(RingTests):
+    """The companion's rule changes: two weapons' to-hit, and the doubled save d20."""
+    RULES = 170  # the header's RULES word
+
+    def setUp(self):
+        super().setUp()
+        image = load_image()
+        two = image.find(bytes.fromhex("2ef606") + struct.pack("<H", self.RULES) + bytes([4]))
+        double = image.find(bytes.fromhex("2ef606") + struct.pack("<H", self.RULES) + bytes([16]))
+        self.assertGreater(min(two, double), 0)
+        self.mu.mem_write(VEC_TWO * 4, struct.pack("<HH", two, TSR))
+        self.mu.mem_write(VEC_DOUBLE * 4, struct.pack("<HH", double, TSR))
+
+    def rules(self, value):
+        self.mu.mem_write(TSR * 16 + self.RULES, struct.pack("<H", value))
+
+    def two(self, dex_adjust, item):
+        """INT VEC_TWO with AX the DEX's initiative adjustment and [BP+0Ah] the attack's item:
+        the adjustment in DX."""
+        self.mu.mem_write(SS * 16 + BP + 0x0A, struct.pack("<H", item))
+        self.run_at(bytes((0xCD, VEC_TWO)), eax=dex_adjust & 0xFFFF, ebx=0x2222, es=0x6666)
+        self.assertEqual((self.mu.reg_read(r.UC_X86_REG_BX), self.mu.reg_read(r.UC_X86_REG_ES)), (0x2222, 0x6666))
+        return struct.unpack("<h", struct.pack("<H", self.mu.reg_read(r.UC_X86_REG_DX)))[0]
+
+    def test_two_weapons_the_games(self):
+        self.rules(0)
+        self.assertEqual([self.two(adj, 4) for adj in (-6, -1, 0, 3)], [6, 1, 0, 0])
+
+    def test_two_weapons_adnd(self):
+        """Item 4 is worn in slot 4 (not the left hand): the main hand; item 9, in slot 10, the off hand."""
+        self.rules(4)
+        rec = bytearray(21)
+        rec[0x11] = 10
+        self.mu.mem_write(self.ITEMS * 16 + 9 * 21, bytes(rec))
+        self.assertEqual([self.two(adj, 4) for adj in (-3, 0, 1, 2, 5)], [-5, -2, -1, 0, 0])
+        self.assertEqual([self.two(adj, 9) for adj in (-3, 0, 2, 3, 4, 5)], [-7, -4, -2, -1, 0, 0])
+
+    def test_doubled_save(self):
+        for rules, want in ((0, 14), (16, 7)):
+            self.rules(rules)
+            self.run_at(bytes((0xCD, VEC_DOUBLE)), eax=7)
+            self.assertEqual(self.mu.reg_read(r.UC_X86_REG_AL), want)
 
 
 if __name__ == "__main__":
