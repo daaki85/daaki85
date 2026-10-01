@@ -71,7 +71,7 @@ the arena, all sampled from the game (no game artwork is copied).
 
 ![The Dialogue tab](docs/dialogue.png)
 
-![The inventory screen's panel in the game, with THAC0, saves and Cilla's thief skills added, move silently among them](docs/inventory.png)
+![The inventory screen's panel in the game, with THAC0, saves, Cilla's thief skills (move silently among them) and her DEX reaction adjustment added](docs/inventory.png)
 
 ## Requirements
 
@@ -838,7 +838,7 @@ damage as any other. A backstab is the only thing that multiplies damage.
 ### In the game: THAC0, saves and thief skills
 
 Started with the dice log, the game's own inventory screen (the one with the
-character's figure and their equipment) shows three more things in its
+character's figure and their equipment) shows four more things in its
 right-hand panel, drawn by the game's text routine so they look like the rest:
 
 - above STR, **THAC0** and the five **saving throws**, with the usual AD&D
@@ -851,7 +851,13 @@ right-hand panel, drawn by the game's text routine so they look like the rest:
   `PICK` pockets, open `LOCK`s, find/remove `TRAP`s, `MOVE` silently, `HEAR`
   noise, `CLMB` walls (hide in shadows and read languages are never checked;
   see Where the game rolls them). Not below the weapons: three weapons fill the panel down to its
-  buttons.
+  buttons;
+- right of the AC line, the DEX **reaction adjustment** (`REAC +4`): -6 at DEX 1
+  to +5 at DEX 24-25, the number the [two-weapon rule](#rule-changes) adds to
+  its penalties. It is worked out from the character's DEX each time the panel
+  is drawn, so it follows any change. (Nothing in the game changes DEX once a
+  character is made: no spell, effect or item touches it; only STR has
+  effects of its own.)
 
 The **View Character** screen gets THAC0 and the saves too, under the item
 icons: `THAC0: 15` and `SAVE: 8 12 11` / `15 13`, the saves in the order

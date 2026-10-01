@@ -582,6 +582,15 @@ probe_char:
         mov al, [fs:di + 0x1F]
         mov bx, c_cells_top
         call c_cells_saves
+        ; the DEX reaction adjustment (the game's table for initiative holds the same numbers),
+        ; worked out now, so a change of DEX shows the next time the panel is drawn
+        mov byte [cs:c_react], NO_REACT
+        movzx bx, byte [fs:di + 0x23]
+        cmp bx, 26
+        jae .thieves
+        mov al, [bx + DEX_REACTION]
+        mov [cs:c_react], al
+.thieves:
         ; thief skills, for a character with thief levels
         xor cx, cx
         mov bx, 0x21
@@ -591,9 +600,28 @@ probe_char:
         inc cx
         cmp cx, 3
         jb .cls
-        jmp .done
+        jmp .react
 .thief: mov al, [es:si + bx + 3]  ; the thief level (levels follow the classes)
         call c_thief
+.react: mov al, [cs:c_react]      ; right of the AC line: "REAC +4"
+        cmp al, NO_REACT
+        je .done
+        mov di, c_num
+        test al, al
+        jle .sign
+        mov byte [cs:di], '+'
+        inc di
+.sign:  call c_itoa_s
+        push word REACT_Y
+        push word 0x113
+        push cs
+        push word l_react
+        call c_draw_line
+        push word REACT_Y
+        push word REACT_VALUE_X
+        push cs
+        push word c_num
+        call c_draw_line
 .done:
         pop gs
         pop fs
@@ -893,6 +921,12 @@ l_trap  db 'TRAP', 0
 l_move  db 'MOVE', 0
 l_hear  db 'HEAR', 0
 l_clmb  db 'CLMB', 0
+l_react db 'REAC', 0
+c_react db 0
+NO_REACT equ 0x80
+DEX_REACTION equ 0x07DC         ; DS: the DEX reaction adjustment (bytes, by score)
+REACT_Y equ 0x72                ; the AC line's y
+REACT_VALUE_X equ 0x12D          ; (under the thief skills' values)
 c_vals  times 8 db 0
 c_num   db 0, 0, 0, 0
 c_draw  dd 0
