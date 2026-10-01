@@ -47,13 +47,30 @@ def carries_tools(gd: GameData, it: ring.Items, member: int) -> bool:
     return False
 
 
-def give_tools(gd: GameData, given: set, now: bool = False) -> List[str]:
+HELD, HELD_TABLE, HELD_SIZE, HELD_ITEM = 0x17A0, 0x9962, 10, 0x44  # DS: on the inventory
+# screen, the item on the pointer (HELD: its number in that table, -1 for none)
+
+
+def held_tools(gd: GameData, it: ring.Items) -> bool:
+    """Tools on the pointer (being moved on the inventory screen: in no one's lists meanwhile)."""
+    held, = struct.unpack("<h", gd.guest.read(gd.ds * 16 + HELD, 2))
+    if held < 0:
+        return False
+    item, = struct.unpack("<H", gd.guest.read(gd.ds * 16 + HELD_TABLE + held * HELD_SIZE + HELD_ITEM, 2))
+    return item < game.NO_ITEM and is_tools(it.item(item))
+
+
+def give_tools(gd: GameData, given: set, now: bool = False, session: Optional[set] = None) -> List[str]:
     """A set of tools for each thief in the party that should have one: in a new game (or
-    NOW, the Ledger's button), each without a set; later, each not given one before (GIVEN:
-    whom, updated)."""
+    NOW, the Ledger's button), each without a set, but in a new game only once while the
+    Ledger runs (SESSION: whom); later, each not given one before (GIVEN: whom). Both are
+    updated."""
     fresh = now or new_game(gd)
+    session = set() if session is None else session
     out = []
     it = ring.Items(gd)
+    if held_tools(gd, it) and not now:
+        return []  # someone's being moved: whose isn't known
     for member in range(game.PARTY_SIZE):
         rec = gd.creature(member)
         if len(rec) < game.CREATURE_SIZE or not rec[game.CREATURE_NAME]:
@@ -61,7 +78,7 @@ def give_tools(gd: GameData, given: set, now: bool = False) -> List[str]:
         key = f"{gd.creature_name(0)}|{gd.creature_name(member)}"
         if gd.thief_skill_parts(member, pickpocket.PICK_POCKETS) is None:
             continue
-        if carries_tools(gd, it, member) or (key in given and not fresh):
+        if carries_tools(gd, it, member) or (key in given and not fresh) or (key in session and not now):
             given.add(key)
             continue
         cell = pickpocket.free_cell(gd, it, member)
@@ -73,6 +90,7 @@ def give_tools(gd: GameData, given: set, now: bool = False) -> List[str]:
         if not pickpocket.give(gd, ring.Items(gd), member, item, cell):
             continue
         given.add(key)
+        session.add(key)
         out.append(f"{gd.creature_name(member)} has thieving tools in the backpack (a 'pick' with a key's picture): "
                    "pick them up, take them back to the game and click someone to try their pockets.")
         it = ring.Items(gd)

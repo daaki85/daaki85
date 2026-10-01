@@ -633,31 +633,33 @@ throw** for whoever wears it, called a Ring of Protection. With **Put a Ring of
 Protection +1 (+1 AC, +1 on saves) on the arena's Tied-up Prisoner** ticked on
 the Options tab (it is by default), it is on the Tied-up Prisoner, the bound
 man beside the vulture in the arena: free him (he dies as he falls from his
-bonds), then look at his body (right-click until the cursor is the eye, then
-click it) to open it. The game makes him a "Dead Slave" that can't be opened;
-the Ledger (or **Play Dark Sun (in-game rolls)**) makes that body a container
-with the ring in it, and the log says so:
+bonds; killing him where he hangs does too), then look at his body
+(right-click until the cursor is the eye, then click it). The arena's script
+says there is nothing on it; while the ring is still to be found, the Ledger
+(or **Play Dark Sun (in-game rolls)**) has the game say instead:
 
 ```
-The Tied-up Prisoner's body holds a Ring of Protection +1 (+1 AC, +1 on saves).
+Searching the body, you find a ring sewn into his loincloth: a Ring of Protection +1 (+1 AC, +1 on saves).
 ```
 
-(Killing him where he hangs leaves the same body, ring and all.) Click the
-ring, then a character to put it in their backpack, and wear it on a finger
-from the inventory screen. The game's names are at most 15 letters long, and
+and puts the ring in the leader's backpack (or, if that's full, the first
+backpack with room); the log says whose. Wear it on a finger from the
+inventory screen. The game's names are at most 15 letters long, and
 longer ones run out of the Look box, so in the game it is **RING/PROTECTION**
 on the inventory screen and **Ring/Protection+1** in the box Look opens on it
 (shortened the way the game shortens its own "Helm/Contempltn"; the game puts
 an item's plus straight after its name there, as for any item with a plus).
 The Ledger's own screens and the log call it Ring of Protection.
-It happens once: a body already opened, or a Ring +1 with the party or
-anywhere in the arena, gets no other. Games saved with an earlier version,
-where the ring was in the body lying below him, keep it there.
+It happens once: with a Ring +1 with the party or anywhere in the arena,
+there is no other. Games saved with an earlier version, where the ring was in
+the body lying below him, keep it there.
 
 How it works: the game has a plain "Ring" item that nothing in it has a plus
 on, and no item that betters saving throws. The Ledger adds a Ring with a plus
-of 1 the way the game fills a container (an item record from its free list,
-and the ring's name in an unused entry of the game's name table). The dice
+of 1 to a backpack (an item record from the game's free list, and the ring's
+name in an unused entry of the game's name table); the patched game's routine
+that feeds the dialogue window (`INT 63h`) shows the search's line in place of
+the script's when the Ledger asks it to. The dice
 log's patched game does the rest (see
 [How the dice log works](#how-the-dice-log-works)): where it adds up AC, a
 ring counts like armour does (its plus, on top of AC 0), and where it adds up

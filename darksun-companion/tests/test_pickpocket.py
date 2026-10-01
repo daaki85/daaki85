@@ -69,7 +69,7 @@ class PickTests(unittest.TestCase):
         result = self.attempt(11)
         self.assertEqual(result.text, "Dag lifts Bag from Guard unnoticed.")
         self.assertEqual(self.guard_items(), [SWORD, KEY, BOOTS])
-        self.assertEqual(self.dag_items()[0], (CLUB, 13))
+        self.assertEqual(self.dag_items()[0], (CLUB, 14))
         self.assertIn("d100 = 11, needs 11 or less -> success", result.log[0])
         self.assertIsNone(result.key)
         money = self.log.game.money()
@@ -80,7 +80,7 @@ class PickTests(unittest.TestCase):
 
     def test_caught(self):
         result = self.attempt(12, 17)  # pick pockets 11, move silently 16
-        self.assertEqual(result.text, "Guard catches Dag's hand! Guard won't let Dag near again.")
+        self.assertEqual(result.text, "Guard catches Dag's hand! Guard will be too wary for Dag to try again.")
         self.assertEqual(self.guard_items(), [CLUB, SWORD, KEY, BOOTS])
         self.assertIn("moves silently to get away: d100 = 17, needs 16 or less -> failed", result.log[1])
         self.tried.add(result.key)  # (as the dice log does)
@@ -119,7 +119,7 @@ class ToolsTests(unittest.TestCase):
         given = set()
         lines = tools.give_tools(self.gd, given)
         self.assertEqual(len(lines), 1)  # Dag only: the others aren't thieves
-        self.assertIn((90, 13), self.pick.dag_items())
+        self.assertIn((90, 14), self.pick.dag_items())
         self.assertTrue(tools.is_tools(ring.Items(self.gd).item(90)))
         self.assertEqual(tools.give_tools(self.gd, given), [])
 
@@ -144,6 +144,22 @@ class ToolsTests(unittest.TestCase):
         given = {"Dag|Dag"}
         self.assertEqual(len(tools.give_tools(self.gd, given, now=True)), 1)
         self.assertEqual(tools.give_tools(self.gd, given, now=True), [])  # carrying them now
+
+    def test_new_game_once_a_session(self):
+        """Moved on the inventory screen, the tools are on the pointer, in no one's lists: no
+        second set for that, nor later in the same session (the button still gives one)."""
+        self.clock(70)
+        given, session = set(), set()
+        self.assertEqual(len(tools.give_tools(self.gd, given, session=session)), 1)
+        m = self.pick.m
+        thing, = struct.unpack_from("<h", m, CREATURES + 8)  # take the set out of Dag's list
+        struct.pack_into("<Bh", m, THINGS + thing * 3, game.THING_ITEM, 5)
+        struct.pack_into("<h", m, DS * 16 + tools.HELD, 0)
+        struct.pack_into("<H", m, DS * 16 + tools.HELD_TABLE + tools.HELD_ITEM, 90)
+        self.assertEqual(tools.give_tools(self.gd, given, session=session), [])  # on the pointer
+        struct.pack_into("<h", m, DS * 16 + tools.HELD, -1)
+        self.assertEqual(tools.give_tools(self.gd, given, session=session), [])  # given this session
+        self.assertEqual(len(tools.give_tools(self.gd, given, now=True, session=session)), 1)
 
     def test_later_once(self):
         self.clock(90000)
