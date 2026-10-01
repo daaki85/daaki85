@@ -465,8 +465,15 @@ THIEF = 17  # class number
 THIEF_TABLE_SEG = 0x3FAA
 THIEF_BASE, THIEF_RACE, THIEF_DEX_LOW, THIEF_DEX_HIGH, THIEF_DEX_TOP, THIEF_ARMOUR = 0, 8, 0x90, 0x98, 0xA0, 0xA8
 THIEF_PER_LEVEL = 4
-# The equipment the thief routine checks for its penalty (anything at all in these slots)
-THIEF_PENALTY_SLOTS = tuple(EQUIP_SLOTS.index(s) for s in ("legs", "ammo", "right hand", "left hand"))
+# The equipment the thief routine checks for its penalty (anything at all in these slots): a
+# list of words at the thief table's +D0h, ended by 13. The game's has the legs and the quiver
+# too; the dice log's copy of the game leaves those out (gamepatch.py), so the Ledger reads it
+THIEF_PENALTY_LIST, PENALTY_LIST_END = 0xD0, 13
+THIEF_PENALTY_SLOTS = tuple(EQUIP_SLOTS.index(s) for s in ("legs", "ammo", "left hand", "right hand"))
+# AD&D's ranger: hide in shadows and move silently by ranger level (1-10), the Ledger's own
+# (the game gives rangers no thief skills); race and DEX adjust them as a thief's
+RANGER_HIDE = (10, 15, 20, 25, 31, 37, 43, 49, 56, 63)
+RANGER_MOVE = (15, 21, 27, 33, 40, 47, 55, 62, 70, 78)
 # Effects that rule skills out (the chance can't come up), and ones that make a skill certain
 THIEF_BLOCKED = {8: (0, 1, 2, 3, 4, 6, 7), 17: tuple(range(8)), 11: tuple(range(8)), 3: tuple(range(8)),
                  34: tuple(range(8)), 47: (1, 2, 3, 4, 5, 6, 7), 20: (0, 4), 25: (4,), 49: (0, 1, 6), 19: (7,)}
@@ -999,6 +1006,56 @@ class GameData:
             out.append((name, sum(n for _, n in parts)))
         return out
 
+    def thief_penalty_slots(self) -> Tuple[int, ...]:
+        """The slots where anything at all brings the thief skills' equipment penalty: the game's
+        list, as it is in memory (THIEF_PENALTY_SLOTS if it can't be read)."""
+        data = self.guest.read((self.load_seg + THIEF_TABLE_SEG) * 16 + THIEF_PENALTY_LIST, 16)
+        slots = []
+        for (slot,) in struct.iter_unpack("<H", data):
+            if slot >= PENALTY_LIST_END:  # (as the game's loop: 13 and up end it)
+                return tuple(slots)
+            slots.append(slot)
+        return THIEF_PENALTY_SLOTS  # (no end: not the game's list)
+
+    def ranger_level(self, creature: int) -> int:
+        return max((self.class_level(creature, cls) for cls in RANGER_CLASSES), default=0)
+
+    def ranger_skill_parts(self, creature: int, skill: int) -> Optional[List[Tuple[str, int]]]:
+        """A ranger's hide in shadows (4) or move silently (3), as thief_skill_parts: AD&D's
+        chance for the ranger level, the race's and DEX's adjustments. None without ranger levels."""
+        sheet, rec = self.sheet(creature), self.creature(creature)
+        level = self.ranger_level(creature) if len(sheet) >= SHEET_SIZE else 0
+        if not level or len(rec) < CREATURE_SIZE or skill not in (3, 4):
+            return None
+        table = self.guest.read((self.load_seg + THIEF_TABLE_SEG) * 16, THIEF_ARMOUR + 8)
+        signed_byte = lambda offset: struct.unpack_from("b", table, offset)[0]
+        race, dex = sheet[SHEET_RACE], rec[CREATURE_ABILITIES + 1]
+        parts = [(f"ranger level {level}", (RANGER_HIDE if skill == 4 else RANGER_MOVE)[min(level, 10) - 1])]
+        if 1 <= race <= 8:
+            parts.append((RACE_NAMES[race], signed_byte(THIEF_RACE + race * 8 + skill)))
+        low, high, top = (table[o + skill] for o in (THIEF_DEX_LOW, THIEF_DEX_HIGH, THIEF_DEX_TOP))
+        parts.append((f"DEX {dex}", -5 * max(low - dex, 0) + 5 * max(dex - high, 0) - 3 * max(dex - top, 0)))
+        return [(what, n) for what, n in parts if n or what.startswith("ranger")]
+
+    def ranger_skill_now(self, creature: int, skill: int) -> Optional[int]:
+        """A ranger's chance as it stands: effects that rule hiding out or make it certain count
+        as for a thief (no equipment penalty). None without ranger levels."""
+        parts = self.ranger_skill_parts(creature, skill)
+        if parts is None:
+            return None
+        ids = {e.id for e in self._mine(creature, self.effects())}
+        if any(skill in THIEF_CERTAIN.get(e, ()) for e in ids):
+            return 100
+        if self.creature(creature)[CREATURE_STATUS] != STATUS_OKAY or any(skill in THIEF_BLOCKED.get(e, ()) for e in ids):
+            return 0
+        return max(0, min(255, sum(n for _, n in parts)))
+
+    def ranger_skills_now(self, creature: int) -> List[Tuple[str, int]]:
+        """[(skill, chance), ...]: a ranger's move silently and hide in shadows as they stand
+        (the stealth rule's), or [] without ranger levels."""
+        out = [(THIEF_SKILLS[skill], self.ranger_skill_now(creature, skill)) for skill in (3, 4)]
+        return [(name, n) for name, n in out if n is not None]
+
     def thief_skills_now(self, creature: int, skills: Tuple[int, ...] = ROLLED_SKILLS) -> List[Tuple[str, int]]:
         """[(skill, chance), ...] for the skills the game rolls, as they stand now: with the
         equipment penalty, 0 for a skill an effect rules out (or when the thief isn't Okay), 100
@@ -1008,7 +1065,8 @@ class GameData:
         if len(rec) < CREATURE_SIZE:
             return []
         table = self.guest.read((self.load_seg + THIEF_TABLE_SEG) * 16 + THIEF_ARMOUR, 8)
-        penalty = any(item[ITEM_SLOT] in THIEF_PENALTY_SLOTS for _, item, _ in self._worn(creature))
+        slots = self.thief_penalty_slots()
+        penalty = any(item[ITEM_SLOT] in slots for _, item, _ in self._worn(creature))
         ids = {e.id for e in self._mine(creature, self.effects())}
         okay = rec[CREATURE_STATUS] == STATUS_OKAY
         out = []

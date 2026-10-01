@@ -312,8 +312,8 @@ class Viewer:
                 ("no_doubled_save", "Saves against fire, cold and electricity: DEX defensive adjustment "
                                     "instead of a doubled d20"),
                 ("cats_grace", "Cat's Grace in Flaming Sphere's place (DEX + 1d6, at most 24, like Strength)"),
-                ("stealth", "Thieves hide in shadows and move silently to backstab (no enemy beside them; "
-                            "half the chance in daylight)"),
+                ("stealth", "Thieves hide in shadows and move silently to backstab, rangers to attack from behind "
+                            "(no enemy beside them; thieves half the chance in daylight, rangers indoors)"),
                 ("level_10", "Class levels go up to 10 (the game stops at 9; no spells past 5th level are needed)"))):
             self.rule_vars[key] = tk.BooleanVar(value=bool(settings.get(key, True)))
             ttk.Checkbutton(rules, text=text, variable=self.rule_vars[key],
@@ -938,6 +938,9 @@ class Viewer:
                 ac = self.dice.last_ac.get(index) if self.dice and self.dice.attached else None
             known = gd and addr is not None and table is not None
             thief = gd.thief_skills_now(index, game.LEDGER_SKILLS) if known else []
+            label = "Thief skills now"
+            if known and not thief and self.rule_vars["stealth"].get():  # a ranger's, for the stealth rule
+                thief, label = gd.ranger_skills_now(index), "Ranger skills now"
             equipment = gd.equipment(index) if known else []
             try:
                 hits = gd.weapon_hits(index) if known and index < game.PARTY_SIZE else []
@@ -945,7 +948,8 @@ class Viewer:
             except (struct.error, IndexError, ValueError):
                 hits, saves = [], []
             boots = bool(known and self.rule_vars["boots_move"].get() and gd.wears_boots(index))
-            card.show(name, dict(fields), status, ac, self.art, member_slots, thief, equipment, hits, saves, boots)
+            card.show(name, dict(fields), status, ac, self.art, member_slots, thief, equipment, hits, saves, boots,
+                      skills_label=label)
 
     def _hex_base(self) -> Optional[int]:
         record = self.layout.records.get(self.hex_record.get())

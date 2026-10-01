@@ -7,6 +7,11 @@ Athas's sun), and if they do, to move silently up to someone. Both succeeding, t
 attack this turn counts as one from behind (DSCLOG's PROBE_STEALTH), and so as a backstab with
 a weapon that can backstab; attacking gives them away, and the turn ending ends the hiding.
 
+Rangers do it too, with AD&D's chances for a ranger (the game gives them no thief skills;
+game.ranger_skill_parts), but the other way round for the light: outdoorsmen, they hide with
+the full chance under the open sky and half of it indoors. Their attack from behind is no
+backstab (DSCLOG's own check keeps that to thieves). Someone with thief levels hides as a thief.
+
 Daylight goes by the region (the map) the party is in: open desert, rock and the arena are
 outdoors; the slave pens, the sewers, the caverns and the other underground or roofed places
 are not. A few maps have both: buildings with floors of their own on open ground. There, it
@@ -90,13 +95,21 @@ def chance(gd: GameData, creature: int, skill: int) -> Optional[int]:
     return skills[0][1] if skills else None
 
 
+def ranger_chance(gd: GameData, creature: int, skill: int) -> Optional[int]:
+    return gd.ranger_skill_now(creature, skill)
+
+
 def turn(gd: GameData, combatant: int, roll: Callable[[], int]) -> Tuple[List[str], bool]:
-    """A party member's turn has come in a fight: if a thief, the hiding and moving silently.
-    (log lines, whether their next attack is from behind)."""
+    """A party member's turn has come in a fight: if a thief or a ranger, the hiding and moving
+    silently. (log lines, whether their next attack is from behind)."""
     creature = gd.combatant_creature(combatant)
     if creature is None or creature >= game.PARTY_SIZE:
         return [], False
     hide = chance(gd, creature, HIDE)
+    of = chance
+    ranger = hide is None
+    if ranger:
+        hide, of = ranger_chance(gd, creature, HIDE), ranger_chance
     if hide is None:
         return [], False
     who = gd.creature_name(creature)
@@ -104,18 +117,22 @@ def turn(gd: GameData, combatant: int, roll: Callable[[], int]) -> Tuple[List[st
     if enemy:
         return [f"{who} can't hide in shadows: {enemy} is right beside them"], False
     sun = daylight(gd, combatant)
-    need = hide // 2 if sun else hide
-    why = f"{hide}, halved in daylight" if sun else f"{hide}, out of the sun"
+    if ranger:  # at home under the open sky
+        need = hide if sun else hide // 2
+        why = f"{hide}, a ranger under the open sky" if sun else f"{hide}, halved indoors for a ranger"
+    else:
+        need = hide // 2 if sun else hide
+        why = f"{hide}, halved in daylight" if sun else f"{hide}, out of the sun"
     d100 = roll()
     hidden = d100 <= need
     lines = [f"{who} hides in shadows: d100 = {d100}, needs {need} or less ({why}) -> "
              + ("hidden" if hidden else "seen")]
     if not hidden:
         return lines, False
-    quiet = chance(gd, creature, MOVE) or 0
+    quiet = of(gd, creature, MOVE) or 0
     d100 = roll()
     unheard = d100 <= quiet
+    behind = "from behind" if ranger else "from behind (a backstab with a weapon that can)"
     lines.append(f"  {who} moves silently: d100 = {d100}, needs {quiet} or less -> "
-                 + ("unheard: their next attack this turn is from behind (a backstab with a weapon that can)"
-                    if unheard else "heard"))
+                 + (f"unheard: their next attack this turn is {behind}" if unheard else "heard"))
     return lines, unheard

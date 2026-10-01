@@ -49,7 +49,7 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   optional rule changes: helms give AC 1, boots a move more in a fight, AD&D's
   two-weapon penalties, spells saved against with the spell save, and DEX
   rather than a doubled d20 on saves against fire, cold and electricity, a
-  new spell, Cat's Grace, thieves hiding in shadows to backstab, and levels
+  new spell, Cat's Grace, thieves and rangers hiding in shadows, and levels
   up to 10 (see
   [Rule changes](#rule-changes)).
 - **Picking pockets:** a thief can try anyone's pockets, with the Thieves'
@@ -388,7 +388,11 @@ the chance out as:
   game's own check: it doesn't look at what the item is (leather or metal) and
   ignores chest and arm armour and helmets, so a thief holding any weapon pays
   it. (The manual's "anything other than leather-type armor" is AD&D's rule,
-  not what the code does.)
+  not what the code does.) In games started with the dice log the legs and the
+  quiver no longer count, only the hands: the slots are a list in the game's
+  data (DSUN.EXE 44F70h: legs, quiver, left hand, right hand), and the dice
+  log's copy of the game has the hands alone. The Ledger reads the list from
+  the running game, so its numbers match whichever game it is.
 - plus the situation's bonus or penalty (a hard lock, say).
 
 Only characters with thief levels have the skills; everyone else's chance is 0.
@@ -931,7 +935,7 @@ loaded without the dice log simply ignores the effect it doesn't know.
 
 **Hiding in shadows to backstab.** The game never rolls hide in shadows, and a
 thief only backstabs a target that has turned to face someone else. With
-**Thieves hide in shadows and move silently to backstab** ticked, a thief
+**Thieves hide in shadows and move silently to backstab, rangers to attack from behind** ticked, a thief
 whose turn comes in a fight with no enemy in any of the eight squares around
 them tries to hide in shadows; if they do, they try to move silently up to
 someone; and if both succeed, their next attack that turn counts as one from
@@ -960,6 +964,28 @@ a building is out of the sun and one in a roofless ruin isn't. The chances
 are the thief's own as they stand (level, race, DEX, the equipment penalty,
 and effects: Invisibility makes hiding certain, Fire Shield and Mirror Image
 rule it out).
+
+**Rangers** hide and move silently too, with the same box ticked. The game
+gives rangers no thief skills, so the Ledger uses AD&D's ranger table, by
+ranger level, with the race's and DEX's adjustments as for a thief:
+
+| Ranger level | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Hide in shadows | 10 | 15 | 20 | 25 | 31 | 37 | 43 | 49 | 56 | 63 |
+| Move silently | 15 | 21 | 27 | 33 | 40 | 47 | 55 | 62 | 70 | 78 |
+
+The light works the other way round for these outdoorsmen: the **full chance
+under the open sky, half indoors** (the same maps and floors as for thieves).
+Their attack from behind gets +2 to hit, and the target's DEX and shield don't
+count, but it is never a backstab. Armour doesn't matter, nor does what
+they hold. The Characters tab shows a ranger's two chances (**Ranger skills
+now**). Someone with thief levels hides as a thief.
+
+```
+Gerakis hides in shadows: d100 = 15, needs 63 or less (63, a ranger under the open sky) -> hidden
+  Gerakis moves silently: d100 = 42, needs 78 or less -> unheard: their next attack this turn is from behind
+Gerakis attacks Slig from behind with Wooden Club (1d6): d20 = 12, needs 10+ (55%), hits AC 1, target AC 3 -> HIT
+```
 
 How: the Ledger rolls both when the turn passes to the thief and tells the
 helper, which, where the game has just worked out whether an attack is from
@@ -1089,8 +1115,7 @@ change.
   doubled d20 against fire...) is left out; the dice log shows it on each
   save. A 1 always fails and a 20 always saves, so they show between 2 and 20.
 - **Thief skills**: as they stand, with the equipment penalty (anything in
-  the legs slot, the quiver or either hand: 5 off picking pockets, 10 off
-  climbing), 0 for a skill an effect rules out or when the thief isn't Okay,
+  either hand, in games started with the dice log: see Thief skills), 0 for a skill an effect rules out or when the thief isn't Okay,
   and 100 for one an effect makes certain (Detect Traps). Only the situation's
   bonus or penalty (a hard lock) is left out: the dice log shows it on each
   roll (see Thief skills).

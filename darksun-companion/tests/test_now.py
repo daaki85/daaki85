@@ -133,6 +133,17 @@ class ThiefTests(unittest.TestCase):
         self.log.guest.mem[ITEMS + 6 * game.ITEM_SIZE + game.ITEM_SLOT] = 0xFF
         self.assertEqual(self.now(), [16, 39, 16, 16, 16, 16])
 
+    def test_penalty_slots_from_the_game(self):
+        """The slots come from the game's list in memory: the dice log's copy (the hands
+        only) or the game's own (legs and quiver too); the sword in Dag's right hand either way."""
+        m = self.log.guest.mem
+        at = (LOAD_SEG + game.THIEF_TABLE_SEG) * 16 + game.THIEF_PENALTY_LIST
+        m[at:at + 6] = struct.pack("<3H", 10, 3, 13)
+        self.assertEqual(self.log.game.thief_penalty_slots(), (10, 3))
+        self.assertEqual(self.now(), [11, 39, 16, 16, 16, 6])
+        m[at:at + 6] = struct.pack("<3H", 6, 1, 13)  # legs and quiver: the sword doesn't count
+        self.assertEqual(self.now(), [16, 39, 16, 16, 16, 16])
+
     def test_panel_shows_hiding(self):
         """The inventory screen's six (DSCLOG's STATS): hide in shadows in hear noise's place."""
         self.log.guest.mem[(LOAD_SEG + game.THIEF_TABLE_SEG) * 16 + game.THIEF_BASE + 4] = 7  # hide 7 + 16

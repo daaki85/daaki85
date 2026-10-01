@@ -9,7 +9,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dscompanion import game, stealth
-from test_dicelog import CREATURES, DS, HDR, STALKER, far, set_clock
+from test_dicelog import CREATURES, DS, HDR, SHEETS, STALKER, far, set_clock
+
+
+def game_sheet():
+    return SHEETS
 from test_now import ThiefTests
 
 MAP = 0x60000
@@ -87,6 +91,44 @@ class StealthTests(unittest.TestCase):
         self.place(1, 10, 11)
         self.m[CREATURES + game.CREATURE_SIZE + game.CREATURE_SIDE] = self.m[CREATURES + game.CREATURE_SIDE]
         self.assertTrue(stealth.turn(self.gd, 0, rolls(1, 1))[1])
+
+    def ranger(self, level=10, cls=13):
+        """Dag a ranger (air) instead of a thief: AD&D's 63 to hide and 78 to move silently at
+        10th level (no race or DEX adjustment in these tables)."""
+        self.m[game_sheet() + game.SHEET_CLASSES + 1] = cls
+        self.m[game_sheet() + game.SHEET_LEVELS + 1] = level
+
+    def test_ranger_outdoors(self):
+        """Under the open sky a ranger hides with the full chance; their attack is from behind,
+        no backstab."""
+        self.ranger()
+        lines, hidden = stealth.turn(self.gd, 0, rolls(63, 78))
+        self.assertTrue(hidden)
+        self.assertEqual(lines, ["Dag hides in shadows: d100 = 63, needs 63 or less (63, a ranger under the open sky) "
+                                 "-> hidden",
+                                 "  Dag moves silently: d100 = 78, needs 78 or less -> unheard: their next attack "
+                                 "this turn is from behind"])
+
+    def test_ranger_indoors(self):
+        self.ranger(level=1)
+        self.region(0x29)
+        lines, hidden = stealth.turn(self.gd, 0, rolls(6))
+        self.assertEqual(lines, ["Dag hides in shadows: d100 = 6, needs 5 or less (10, halved indoors for a ranger) -> seen"])
+        self.assertFalse(hidden)
+
+    def test_ranger_effects(self):
+        """Not Okay: no hiding for a ranger either."""
+        self.ranger()
+        self.m[CREATURES + game.CREATURE_STATUS] = 3
+        self.assertEqual(self.gd.ranger_skill_now(0, stealth.HIDE), 0)
+
+    def test_thief_and_ranger(self):
+        """Thief levels too: hiding as a thief (halved outdoors, the backstab)."""
+        self.m[game_sheet() + game.SHEET_CLASSES + 2] = 13
+        self.m[game_sheet() + game.SHEET_LEVELS + 2] = 10
+        lines, _ = stealth.turn(self.gd, 0, rolls(8, 16))
+        self.assertIn("halved in daylight", lines[0])
+        self.assertIn("backstab", lines[1])
 
     def test_not_a_thief(self):
         self.assertEqual(stealth.turn(self.gd, 1, rolls()), ([], False))

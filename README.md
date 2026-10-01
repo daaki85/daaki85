@@ -24,7 +24,8 @@ game itself, in the game's own lettering and windows:
   - spells saved against with the spell save;
   - DEX on saves against fire, cold and electricity instead of a doubled d20;
   - a new spell, Cat's Grace;
-  - thieves hiding in shadows and moving silently to backstab;
+  - thieves hiding in shadows and moving silently to backstab, and rangers
+    to attack from behind;
   - class levels up to 10 (the game stops at 9).
 - **New items and thief play:** a Ring of Protection +1 to find in the arena;
   gear for Kurzak, Legcrusher and Pehtucl in the slave pens;
@@ -67,7 +68,15 @@ launcher runs a patched copy of the game that it keeps in its own folder.
   - Pehtucl: a Cloak of Protection +1 (a new item type: +1 AC and +1 on saves,
     as the ring) and a Ring of Protection +1 (a thief can lift it).
 
+- **Rangers hide in shadows and move silently too** (the stealth rule), with
+  AD&D's ranger chances: the full chance outdoors and half indoors, the
+  reverse of thieves. Their attack from behind is +2 to hit and ignores the
+  target's DEX and shield, but is no backstab.
+
 **Changed**
+- **Thief skills: only what's in the hands brings the equipment penalty.**
+  The game also counted anything in the legs slot or the quiver; it no
+  longer does in games started with the dice log.
 - **The inventory screen shows hide in shadows** in hear noise's place (which
   one script check uses); the Ledger's own screens show both.
 - **Pick pockets lifts a short sword** too, though it weighs more than other
