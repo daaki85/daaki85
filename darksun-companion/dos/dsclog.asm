@@ -77,7 +77,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvL'          ; +0
+sig      db 'DSCLOGvM'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -146,7 +146,8 @@ use_seq    dw 0                 ; +180 an item used on something on the map (PRO
 use_reply  dw 0                 ; +182 ... and set to it by the companion once it has had its say
 use_who    dw 0                 ; +184 the object it was used on
 use_taken  dw 0                 ; +186 the companion sets 1 when it was one of its own (the thieving
-                                ;      tools): the game then does nothing more, and PICK_TEXT is shown
+                                ;      tools): the game then does nothing more, and PICK_TEXT is shown;
+                                ;      2 when it is used up as well (the cooked vulture, eaten)
 use_item   dw 0                 ; +188 the item used (FFFFh: none)
 swap_on    dw 0                 ; +190 the companion sets 1 to have the next dialogue text that
                                 ;      starts with SWAP_MATCH shown as SWAP_TEXT instead (once)
@@ -1121,6 +1122,7 @@ pick_show:
 
 PICK_SIZE equ 240
 pick_text times PICK_SIZE db 0
+drop_call dw DROP_OFF, 0
 
 ; PROBE_USE_ITEM: INT VEC_USE_ITEM replaces "cmp si,-1 / jne +3" (5 bytes: INT + 3 NOPs) in the
 ; routine that uses the item on the pointer on whatever is under it on the map (SI: that
@@ -1135,6 +1137,10 @@ USE_DONE  equ 0x7371D - 0x73617 ; the routine's end
 USE_HELD_SEG equ 0x73A15 - 0x73617 ; the routine's "mov dx,<segment>" for the pointer's items,
                                 ;   whose operand the game fixes up when it loads the code
 HELD      equ 0x17A0            ; DS: the pointer's item (in that segment at HELD * 10 + 44h)
+HELD_LIST equ 0x179E            ; DS: the object whose item list is the pointer's
+DGROUP_SEG equ 0x4356           ; the game's DS, less its load segment
+DROP_SEG  equ 0x1A0A            ; and the resident routine (21134h in DSUN.EXE) that empties an
+DROP_OFF  equ 0x1C94            ;   object's item list, putting the items back on the free list
 probe_use_item:
         sti
         pushad
@@ -1176,6 +1182,20 @@ probe_use_item:
         jmp .go                 ; no answer: the companion isn't reading
 .ready: cmp word [cs:use_taken], 0
         je .go
+        cmp word [cs:use_taken], 2
+        jne .kept
+        ; 2: the item is used up (the cooked vulture, eaten): let go of the pointer's items the
+        ; way the game does once it has counted coins picked up, and hold nothing
+        push bx
+        mov ax, ds
+        sub ax, DGROUP_SEG - DROP_SEG
+        mov [cs:drop_call + 2], ax
+        push word [HELD_LIST]
+        call far [cs:drop_call]
+        add sp, 2
+        mov word [HELD], -1
+        pop bx
+.kept:
         mov dx, USE_DONE
         add [ss:bx + 34], dx
         cmp byte [cs:pick_text], 0

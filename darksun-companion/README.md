@@ -55,6 +55,8 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   Tools every thief now carries or with P in a conversation, a move silently
   roll deciding whether a fumble is noticed (see
   [Picking pockets](#picking-pockets)).
+- **A use for the cooked vulture:** take it to Dinos in the slave pens, and he
+  cooks it properly for the party (see [The cooked vulture](#the-cooked-vulture)).
 
 Nothing in the game folder or your save files is changed, except that a game
 you save keeps what the Ledger has handed out: the Ring +1, a thief's Thieves'
@@ -708,6 +710,27 @@ named (the ring's) and "Rest icon", the label of the rest button's picture
 back and renames rings and tools that named them, carried or lying anywhere in
 the region. In the original game, the ring and tools have no name of their
 own.
+
+### The cooked vulture
+
+Hit the arena's vulture and its feathers come off (a plucked vulture); the
+slave pens' campfire cooks it. In the game itself the cooked vulture is then no
+use to anyone: no script asks for it. With the Ledger running, take it to
+**Dinos**, the pens' fine cook: pick it up on the inventory screen, go back to
+the game with it on the pointer, and click him. He shows the party how it
+should be done, everyone eats together, and each party member gets **100 XP**
+and is **restored as after a full rest**: HP, PSP and spell slots full, and
+anyone knocked out back on their feet. The vulture is eaten, gone from the
+pointer. (Not during a fight: Dinos says to come back when it's over. Eaten by
+the party on their own, it's too tough to be worth the chewing.)
+
+![Dinos cooks the vulture](docs/vulture.png)
+
+How: when an item on the pointer is used on someone, the helper asks the
+Ledger first (`INT FDh`, as for the Thieves' Tools). For the cooked vulture
+(the game's object A4Ch) on Dinos, the Ledger adds the XP and refills the
+party, and the helper lets go of the pointer's item the way the game does with
+coins once it has counted them, so the item goes back to the game's free list.
 
 ### Picking pockets
 
@@ -1479,6 +1502,6 @@ After changing `dos/dsclog.asm`, rebuild the helper with
 nasm -f bin -o dos/DSCLOG.EXE dos/dsclog.asm
 ```
 
-The header's signature (`DSCLOGvL` now) goes up whenever the helper and the
+The header's signature (`DSCLOGvM` now) goes up whenever the helper and the
 Ledger must change together (`HDR_SIG` in `dscompanion/dicelog.py`), so a
 Ledger never talks to an older helper.

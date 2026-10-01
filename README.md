@@ -27,6 +27,8 @@ game itself, in the game's own lettering and windows:
   - thieves hiding in shadows and moving silently to backstab.
 - **New items and thief play:** a Ring of Protection +1 to find in the arena;
   Thieves' Tools for every thief; picking anyone's pockets.
+- **A mini-quest:** the cooked vulture, at last good for something (Dinos
+  cooks it for the party).
 
 The game folder and your saves are never modified. For the dice log, the
 launcher runs a patched copy of the game that it keeps in its own folder.
@@ -71,6 +73,9 @@ launcher runs a patched copy of the game that it keeps in its own folder.
   - Daylight goes by the map: outdoors, or on maps with buildings, by the
     floor under the thief.
   - The game itself never rolls hide in shadows.
+- **The cooked vulture quest.** Take the cooked vulture to Dinos in the slave
+  pens: he cooks it for the party, who eat with him. Each member gets 100 XP
+  and a full rest (HP, PSP, spell slots), and the vulture is used up.
 - **32 new entries in the game's item name table**, for the Ledger's own items.
   The Ring of Protection and Thieves' Tools no longer borrow the game's entries:
   the game's "Rest icon" label is back.

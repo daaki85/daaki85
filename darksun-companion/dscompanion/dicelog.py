@@ -24,14 +24,14 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Callable, Dict, List, NamedTuple, Optional, Tuple
 
-from . import game, monsters, names, pickpocket, ring, stealth, tools
+from . import game, monsters, names, pickpocket, ring, stealth, tools, vulture
 from .game import (CONVENTIONAL_AND_UPPER, CREATURE_ABILITIES, CREATURE_SIDE, CREATURE_THAC0, EFFECT_NAMES,
                    EFFECT_RULES, MATERIAL_TO_HIT, MATERIALS, SAVE_NAMES, STR_DAMAGE, GameData)
 from .guestmem import GuestMemory
 from .textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGvL"
+HDR_SIG = b"DSCLOGvM"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
 MSG_SIZE = 900
@@ -453,7 +453,8 @@ class DiceLog:
 
     def _answer_use(self) -> List[str]:
         """An item was used on something on the map: if it was the thieving tools on someone,
-        try their pockets, and have DSCLOG show what came of it instead of the game's doing."""
+        try their pockets; if the cooked vulture, see what comes of it (vulture.py); and have
+        DSCLOG show what came of it instead of the game's doing."""
         if self.tsr_hdr is None:
             return []
         seq = self.guest.read(self.tsr_hdr + TSR_USE_SEQ, 2)
@@ -463,7 +464,14 @@ class DiceLog:
         try:
             item, thing = struct.unpack("<HH", self.guest.read(self.tsr_hdr + TSR_USE_ITEM, 2) +
                                         self.guest.read(self.tsr_hdr + TSR_USE_WHO, 2))
-            if item < game.NO_ITEM and tools.is_tools(ring.Items(self.game).item(item)):
+            it = ring.Items(self.game)
+            rec = it.item(item) if item < game.NO_ITEM else b""
+            kind, index = it.thing(thing) if 0 <= thing < ring.THING_COUNT else (None, None)
+            meal = vulture.use(self.game, rec, index, self._fighting()) if rec and kind == 2 else None
+            if meal is not None:
+                taken = 2 if meal.used_up else True
+                result = pickpocket.Attempt(meal.text, meal.log)
+            elif item < game.NO_ITEM and tools.is_tools(rec):
                 kind, index = ring.Items(self.game).thing(thing)
                 taken = True
                 result = pickpocket.attempt(self.game, self.picked, who=index) if kind == 2 else None
@@ -1126,6 +1134,10 @@ class DiceLog:
             out += lines
             self._set_stealth(hidden, turn)
         return out
+
+    def _fighting(self) -> bool:
+        now = self.game.game_time()
+        return self._round_time is not None and now is not None and now - self._round_time <= FIGHT_GAP
 
     def _set_stealth(self, hidden: bool, member: int = 0) -> None:
         """Have DSCLOG make this party member's next attack one from behind (or no one's)."""
