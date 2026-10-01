@@ -49,7 +49,24 @@ launcher runs a patched copy of the game that it keeps in its own folder.
 
 ## Changelog
 
-### Unreleased ([pull request #7](https://github.com/daaki85/darksun-companion-mod/pull/7), in review)
+### Unreleased (in review)
+
+**Added**
+- **Gear for the slave pens' bosses** (with the Ledger running, given once a
+  game):
+  - Kurzak: a metal Short Sword (1d6, a new item type; a thief can lift it)
+    and a leather Helm;
+  - Legcrusher: Leather Chest Armor +1;
+  - Pehtucl: a Cloak of Protection +1 (a new item type: +1 AC and +1 on saves,
+    as the ring) and a Ring of Protection +1 (a thief can lift it).
+
+**Changed**
+- **The inventory screen shows hide in shadows** in hear noise's place (which
+  one script check uses); the Ledger's own screens show both.
+- **Pick pockets lifts a short sword** too, though it weighs more than other
+  small things.
+
+### Pull request #7 ([merged 2026-10-01](https://github.com/daaki85/darksun-companion-mod/pull/7))
 
 **Added**
 - **Rule change: AD&D's two-weapon penalties.** A non-ranger with a melee weapon
@@ -77,22 +94,11 @@ launcher runs a patched copy of the game that it keeps in its own folder.
 - **The cooked vulture quest.** Take the cooked vulture to Dinos in the slave
   pens: he cooks it for the party, who eat with him. Each member gets 100 XP
   and a full rest (HP, PSP, spell slots), and the vulture is used up.
-- **Gear for the slave pens' bosses** (with the Ledger running, given once a
-  game):
-  - Kurzak: a metal Short Sword (1d6, a new item type; a thief can lift it)
-    and a leather Helm;
-  - Legcrusher: Leather Chest Armor +1;
-  - Pehtucl: a Cloak of Protection +1 (a new item type: +1 AC and +1 on saves,
-    as the ring) and a Ring of Protection +1 (a thief can lift it).
 - **32 new entries in the game's item name table**, for the Ledger's own items.
   The Ring of Protection and Thieves' Tools no longer borrow the game's entries:
   the game's "Rest icon" label is back.
 
 **Changed**
-- **The inventory screen shows hide in shadows** in hear noise's place (which
-  one script check uses); the Ledger's own screens show both.
-- **Pick pockets lifts a short sword** too, though it weighs more than other
-  small things.
 - **Turn pop-ups in the game are off by default**, and have three levels: at the
   least (only what came of each attack and spell, no dice), in short, or in
   detail.
