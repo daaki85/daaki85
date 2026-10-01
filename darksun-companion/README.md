@@ -31,7 +31,7 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   you picked, kept in a tab you can scroll back through.
 - **In the game itself**, in the game's own lettering: the inventory screen
   also shows each character's THAC0 (for each weapon too), saving throws and
-  (for thieves) the thief skills the game rolls, all as they stand now, and the
+  (for thieves) their thief skills, all as they stand now, and the
   View Character screen their THAC0 and saves
   (see [In the game](#in-the-game-thac0-saves-and-thief-skills)); the USE
   screen shows their spell slots left (see
@@ -956,10 +956,13 @@ right-hand panel, drawn by the game's text routine so they look like the rest:
 - at the right of each weapon's damage line, the THAC0 with that weapon
   (`T14`);
 - right of the abilities, level with STR to CHA, for a character with thief
-  levels, the five **thief skills** the game ever rolls and move silently:
-  `PICK` pockets, open `LOCK`s, find/remove `TRAP`s, `MOVE` silently, `HEAR`
-  noise, `CLMB` walls (hide in shadows and read languages are never checked;
-  see Where the game rolls them). Not below the weapons: three weapons fill the panel down to its
+  levels, six **thief skills**: `PICK` pockets, open `LOCK`s, find/remove
+  `TRAP`s, `MOVE` silently, `HIDE` in shadows and `CLMB` walls. Move silently
+  and hide in shadows are the ones the Ledger rolls (for
+  [picking pockets](#picking-pockets) and the [stealth rule](#rule-changes)).
+  Hear noise, which one script check in the game rolls, is left out for want
+  of room (the Characters tab shows it), as is read languages, which nothing
+  checks (see Where the game rolls them). Not below the weapons: three weapons fill the panel down to its
   buttons;
 - right of SP in the saves (where RSW and BW sit on the rows above), the DEX
   **reaction adjustment** (`REAC +4`): -6 at DEX 1 to +5 at DEX 24-25, the

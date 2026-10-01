@@ -81,6 +81,8 @@ launcher runs a patched copy of the game that it keeps in its own folder.
   the game's "Rest icon" label is back.
 
 **Changed**
+- **The inventory screen shows hide in shadows** in hear noise's place (which
+  one script check uses); the Ledger's own screens show both.
 - **Turn pop-ups in the game are off by default**, and have three levels: at the
   least (only what came of each attack and spell, no dice), in short, or in
   detail.

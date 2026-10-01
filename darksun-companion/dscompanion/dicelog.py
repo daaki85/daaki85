@@ -688,7 +688,7 @@ class DiceLog:
         out = struct.pack("<Bb5Bx", 1, clamp(hits[0].thac0), *(s.needs for s in saves))
         out += struct.pack("<3H", *([h.item for h in weapons] + [game.NO_ITEM] * (3 - len(weapons))))
         out += struct.pack("<3b", *([clamp(h.thac0) for h in weapons] + [0] * (3 - len(weapons))))
-        thief = g.thief_skills_now(member)
+        thief = g.thief_skills_now(member, game.PANEL_SKILLS)
         out += struct.pack("<B6B", 1, *(n for _, n in thief)) if len(thief) == 6 else bytes(7)
         return out.ljust(STATS_SIZE, b"\0")
 

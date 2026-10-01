@@ -872,9 +872,10 @@ class Viewer:
             cells = []
             for s in slots:
                 addr = s[1].get("creature")
-                skills = gd.thief_skills_now((addr - table) // game.CREATURE_SIZE) if addr is not None else []
+                skills = gd.thief_skills_now((addr - table) // game.CREATURE_SIZE, game.LEDGER_SKILLS) \
+                    if addr is not None else []
                 cells.append(" ".join(f"{n}" for _, n in skills))
-            rows.append(("Thief skills PP/OL/FT/HN/CW", cells))
+            rows.append(("Thief skills PP/OL/FT/MS/HS/HN/CW", cells))
             worn = []
             for s in slots:
                 addr = s[1].get("creature")
@@ -935,7 +936,7 @@ class Viewer:
                     status += (", " if status else "") + ", ".join(names)
                 ac = self.dice.last_ac.get(index) if self.dice and self.dice.attached else None
             known = gd and addr is not None and table is not None
-            thief = gd.thief_skills_now(index) if known else []
+            thief = gd.thief_skills_now(index, game.LEDGER_SKILLS) if known else []
             equipment = gd.equipment(index) if known else []
             try:
                 hits = gd.weapon_hits(index) if known and index < game.PARTY_SIZE else []

@@ -828,10 +828,10 @@ c_thief:
         cmp bx, 8
         jb .skill
         pop si
-        mov al, [cs:c_vals + 5] ; the five the game ever rolls and move silently (the Templar's
-        mov [cs:c_vals + 4], al ; Ledger rolls it when a pocket isn't picked): hide in shadows
-        mov al, [cs:c_vals + 6] ; and read languages are never checked (its script decoder found
-        mov [cs:c_vals + 5], al ; no script asking for them)
+        mov al, [cs:c_vals + 6] ; pick pockets, open locks, find traps, move silently and hide in
+        mov [cs:c_vals + 5], al ; shadows (which the Templar's Ledger rolls: for picking pockets
+                                ; and its stealth rule), and climb walls; not hear noise (one
+                                ; script check in the game) or read languages (none)
         mov bx, [cs:c_who]      ; the companion's, with equipment and effects, if it keeps them
         call stats_for
         jc .ours
@@ -940,7 +940,7 @@ c_cells_thief:                  ; right of the abilities (whose values end by 10
         dw 0x113, 0x3C, l_lock, 0x12D
         dw 0x113, 0x43, l_trap, 0x12D
         dw 0x113, 0x4A, l_move, 0x12D  ; (move silently)
-        dw 0x113, 0x51, l_hear, 0x12D
+        dw 0x113, 0x51, l_hide, 0x12D  ; (hide in shadows)
         dw 0x113, 0x58, l_clmb, 0x12D
 l_thac0 db 'THAC0:', 0
 l_ppd   db 'PPD', 0
@@ -952,7 +952,7 @@ l_pick  db 'PICK', 0
 l_lock  db 'LOCK', 0
 l_trap  db 'TRAP', 0
 l_move  db 'MOVE', 0
-l_hear  db 'HEAR', 0
+l_hide  db 'HIDE', 0
 l_clmb  db 'CLMB', 0
 l_react db 'REAC', 0
 l_defence db 'DEF', 0

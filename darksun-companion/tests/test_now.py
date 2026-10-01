@@ -133,6 +133,12 @@ class ThiefTests(unittest.TestCase):
         self.log.guest.mem[ITEMS + 6 * game.ITEM_SIZE + game.ITEM_SLOT] = 0xFF
         self.assertEqual(self.now(), [16, 39, 16, 16, 16, 16])
 
+    def test_panel_shows_hiding(self):
+        """The inventory screen's six (DSCLOG's STATS): hide in shadows in hear noise's place."""
+        self.log.guest.mem[(LOAD_SEG + game.THIEF_TABLE_SEG) * 16 + game.THIEF_BASE + 4] = 7  # hide 7 + 16
+        entry = self.log.stats_entry(0)
+        self.assertEqual(list(entry[17:24]), [1, 11, 39, 16, 16, 23, 6])
+
     def test_effects(self):
         set_effects(self.log, [(0, 0, 47)])  # Slowed: all but picking pockets
         self.assertEqual(self.now(), [11, 0, 0, 0, 0, 0])

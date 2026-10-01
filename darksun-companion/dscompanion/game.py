@@ -447,6 +447,11 @@ THIEF_SKILLS = ("pick pockets", "open locks", "find/remove traps", "move silentl
 # the ones shown: those the game ever rolls (no script asks for the other three), and move
 # silently, which the Templar's Ledger rolls when a pocket isn't picked (pickpocket.py)
 ROLLED_SKILLS = (0, 1, 2, 3, 5, 6)
+# the ones the game's inventory screen shows (DSCLOG's STATS): hide in shadows, which the Ledger's
+# stealth rule rolls, in hear noise's place (one script check in the game, and no room for both)
+PANEL_SKILLS = (0, 1, 2, 3, 4, 6)
+# ... and the ones the Ledger's own screens show (room for all that are ever rolled)
+LEDGER_SKILLS = (0, 1, 2, 3, 4, 5, 6)
 THIEF = 17  # class number
 # Tables (a byte per skill): base; then 8 per race (race 1 first); DEX below which each point
 # costs 5, above which each gives 5, above which each costs 3 again; the armour penalty
