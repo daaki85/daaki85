@@ -643,7 +643,7 @@ Searching the body, you find a ring sewn into his loincloth: a Ring of Protectio
 ```
 
 and puts the ring in the leader's backpack (or, if that's full, the first
-backpack with room); the log says whose. Wear it on a finger from the
+backpack with room); the log says whose. Wear it on either hand's finger from the
 inventory screen. The game's names are at most 15 letters long, and
 longer ones run out of the Look box, so in the game it is **RING/PROTECTION**
 on the inventory screen and **Ring/Protection+1** in the box Look opens on it
@@ -1244,7 +1244,7 @@ types 20-byte ones (`DS:0x1669`, 115 of them, from GPLDATA.GFF):
 | item | `+0x04` | the next item in the list (9999: the end) |
 | item | `+0x08` | a container's contents (an object number), as in a Dead Body |
 | item | `+0x0a` | its type |
-| item | `+0x11` | where it's worn: 0-12 the game's slots (arm, ammo, missile, right hand, finger, waist, legs, head, neck, chest, left hand, cloak, foot), 13 and up a backpack cell |
+| item | `+0x11` | where it's worn: 0-13 the game's slots (arm, ammo, missile, right hand, finger, waist, legs, head, neck, chest, left hand, finger, cloak, foot), 14-25 a backpack cell |
 | item | `+0x12` | its name (an entry of the game's name table, 25 bytes each) |
 | item | `+0x14` | its plus |
 | type | `+0x04` | weight, in tenths of a pound |

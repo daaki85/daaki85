@@ -1630,7 +1630,8 @@ RING_TYPE  equ 102
 HELM_LEATHER equ 5              ; the helm item types: Helm, Dapartea's Helm; Helm of
 HELM_METAL   equ 89             ; Contemplation; and a leather one no object uses (Helm of
 HELM_OTHER   equ 109            ; Might, made by a script)
-FINGER     equ 4                ; the item's slot byte while worn on a finger
+FINGER     equ 4                ; the item's slot byte while worn on a finger (the left
+FINGER2    equ 11               ; hand's, then the right's)
 THINGS     equ 0xC36            ; the things table (3 bytes each: kind, index) in its segment
 NO_THING   equ 0x270F
 CREATURES  equ 0x1665           ; DS: far pointer to the creature records (3Ah bytes each)
@@ -1693,8 +1694,13 @@ ring_plus:                      ; DS = the game's, AX = the things table's segme
         cmp byte [es:bx+THINGS], 2
         jne .done               ; not a creature
         mov ax, [es:bx+THINGS+1]
+        mov [cs:r_who], ax
         mov word [cs:ws_slot], FINGER
         mov word [cs:ws_type], RING_TYPE
+        call worn_scan
+        add si, [cs:ws_plus]
+        mov ax, [cs:r_who]
+        mov word [cs:ws_slot], FINGER2
         call worn_scan
         add si, [cs:ws_plus]
 .done:  ret
@@ -1754,6 +1760,7 @@ worn_scan:
 r_things   dw 0
 r_creature dw 0
 r_left     db 0
+r_who      dw 0
 ws_slot    dw 0
 ws_type    dw 0
 ws_count   dw 0
@@ -1763,7 +1770,7 @@ ws_plus    dw 0
 ; in a fight
 RULE_HELMS equ 1
 RULE_BOOTS equ 2
-FOOT       equ 12               ; the item's slot byte while worn on the feet
+FOOT       equ 13               ; the item's slot byte while worn on the feet
 THINGS_SEG equ 0x3972 - 0x4356  ; the things table's segment, relative to DS
 
 ; PROBE_MOVE: INT VEC_MOVE replaces "mov es:[bx+22Bh],ax" (5 bytes: INT + 3 NOPs) where a

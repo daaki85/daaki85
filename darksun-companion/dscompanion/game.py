@@ -62,9 +62,11 @@ THING_ITEM = 1
 CREATURE_ITEM_LISTS = (0x08, 0x0A, 0x0C)  # (+0Ch: where the game puts items handed to a character)
 ITEM_NEXT, ITEM_SLOT, ITEM_TYPE, ITEM_NAME, ITEM_PLUS = 0x04, 0x11, 0x0A, 0x12, 0x14
 NO_ITEM = 9999
+# (as the inventory screen shows them: a ring on each hand, 4 and 11; the cloak 12, the feet 13)
 EQUIP_SLOTS = ("arm", "ammo", "missile", "right hand", "finger", "waist", "legs", "head", "neck", "chest",
-               "left hand", "cloak", "foot")
-FINGER = EQUIP_SLOTS.index("finger")
+               "left hand", "finger", "cloak", "foot")
+FINGERS = tuple(n for n, s in enumerate(EQUIP_SLOTS) if s == "finger")
+FINGER = FINGERS[0]
 FOOT = EQUIP_SLOTS.index("foot")
 # The plain "Ring" item type. With the dice log's patched game, a worn one's plus betters AC
 # and saving throws (DSCLOG's PROBE_RING_AC and PROBE_RING_SAVE); the game has no such ring of
@@ -1071,7 +1073,7 @@ class GameData:
         total = 0
         for _, item, _ in self._worn(creature):
             plus = struct.unpack("b", item[ITEM_PLUS:ITEM_PLUS + 1])[0]
-            if struct.unpack_from("<H", item, ITEM_TYPE)[0] == RING_TYPE and item[ITEM_SLOT] == FINGER and plus > 0:
+            if struct.unpack_from("<H", item, ITEM_TYPE)[0] == RING_TYPE and item[ITEM_SLOT] in FINGERS and plus > 0:
                 total += plus
         return total
 
