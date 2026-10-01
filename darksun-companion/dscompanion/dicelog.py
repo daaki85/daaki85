@@ -407,6 +407,18 @@ class DiceLog:
         new, self._picked_new = self._picked_new, []
         return new
 
+    def give_tools_now(self) -> List[str]:
+        """Thieving tools for each thief in the party not carrying a set (the Ledger's button)."""
+        if self.game is None:
+            return []
+        before = set(self.tools_given)
+        try:
+            out = tools.give_tools(self.game, self.tools_given, now=True)
+        except (struct.error, IndexError, ValueError):
+            return []
+        self._tools_new += sorted(self.tools_given - before)
+        return out or ["Every thief in the party has thieving tools already."]
+
     def take_tools_given(self) -> List[str]:
         """The thieves given tools since the last call, for the caller to remember."""
         new, self._tools_new = self._tools_new, []

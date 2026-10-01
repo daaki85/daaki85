@@ -47,10 +47,11 @@ def carries_tools(gd: GameData, it: ring.Items, member: int) -> bool:
     return False
 
 
-def give_tools(gd: GameData, given: set) -> List[str]:
-    """A set of tools for each thief in the party that should have one: in a new game, each
-    without a set; later, each not given one before (GIVEN: whom, updated)."""
-    fresh = new_game(gd)
+def give_tools(gd: GameData, given: set, now: bool = False) -> List[str]:
+    """A set of tools for each thief in the party that should have one: in a new game (or
+    NOW, the Ledger's button), each without a set; later, each not given one before (GIVEN:
+    whom, updated)."""
+    fresh = now or new_game(gd)
     out = []
     it = ring.Items(gd)
     for member in range(game.PARTY_SIZE):

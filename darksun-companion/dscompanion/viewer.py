@@ -309,6 +309,17 @@ class Viewer:
         ttk.Checkbutton(in_game, text="P in a conversation: the leader, a thief, tries the other's pockets "
                         "(until caught)", variable=self.pickpockets,
                         command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        ttk.Button(in_game, text="Give thieving tools now", command=self.give_tools).pack(anchor="w", pady=(4, 0))
+
+    def give_tools(self) -> None:
+        """A set of thieving tools for each thief in the party without one, right away (they
+        also get one at the start of a new game, or when the Ledger first sees them)."""
+        if self.dice is None or not self.dice.attached:
+            self.status.set("Thieving tools: the game isn't running with the dice log yet.")
+            return
+        lines = self.dice.give_tools_now()
+        self._append_dice(lines)
+        self.status.set(lines[-1] if lines else "")
 
     def _slot_box(self, parent) -> ttk.Combobox:
         box = ttk.Combobox(parent, width=3, state="readonly")
