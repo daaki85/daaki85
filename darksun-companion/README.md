@@ -47,8 +47,8 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
 - **A Ring +1** (+1 AC, +1 on saving throws) found by searching the Tied-up
   Prisoner's body in the arena, an item of the Ledger's own (see [The Ring +1](#the-ring-1)), and
   optional rule changes: helms give AC 1, boots a move more in a fight, AD&D's
-  two-weapon penalties, spells saved against with the spell save, and no
-  doubled d20 on saves against fire, cold and electricity (see
+  two-weapon penalties, spells saved against with the spell save, and DEX
+  rather than a doubled d20 on saves against fire, cold and electricity (see
   [Rule changes](#rule-changes)).
 - **Picking pockets:** a thief can try anyone's pockets, with the Thieves'
   Tools every thief now carries or with P in a conversation, a move silently
@@ -630,9 +630,11 @@ can't. The Scare code looks meant to let some elf or half-elf priests save
 (AD&D gives elves, half-elves and priests a bonus), but it asks for a
 creature that is both an elf and a half-elf, so no one qualifies.
 
-Rules in the code that never come into play: a DEX adjustment and Cloak of
-Bravery's +4 against fear both apply only to a kind of spell that no spell in
-the game is marked as. And nothing in the game gives saves from items: there
+Rules in the code that never come into play: Cloak of Bravery's +4 against
+fear applies only to a kind of spell that no spell in the game is marked as,
+and so does AD&D's DEX defensive adjustment for attacks that can be dodged
+(+5 at DEX 1 to -6 at DEX 25 on AC, so -5 to +6 on the save), unless the
+[rule change](#rule-changes) puts it on the fire, cold and electricity spells. And nothing in the game gives saves from items: there
 are no rings or cloaks of protection, which is why the Ledger adds
 [one](#the-ring-1). Its +1 is in the log's saving throws as `+1 Ring of Protection`.
 
@@ -791,8 +793,10 @@ Three more put back AD&D's rules where the game parts from them (see
   +2 at 17-18, +3 at 19-20, +4 at 21-23 and +5 at 24-25. It can lessen the
   penalty to 0 but never make it a bonus, and low DEX makes it worse: DEX 17
   is 0 and -2, DEX 21 0 and 0, DEX 3 -5 and -7. Rangers have no penalty
-  (in any armour). The game's own rule, a small bonus at DEX 5 or less, is
-  gone. The dice log names it (`-4 two weapons, off hand at DEX 15`), as do
+  (in any armour). It takes a melee weapon in each hand: one weapon, a
+  two-handed weapon, a weapon and a shield, or a weapon and a bow or sling
+  (the missile slot) have no penalty. The game's own rule, a small bonus at
+  DEX 5 or less, is gone. The dice log names it (`-4 two weapons, off hand at DEX 15`), as do
   the THAC0 lines on the Characters tab and the inventory screen.
 - **Spells are saved against with the spell save.** Almost every spell is
   marked for the game's "kind 5" save, which it treats as
@@ -801,19 +805,27 @@ Three more put back AD&D's rules where the game parts from them (see
   the psionic attacks) keep it, as AD&D has them, and so do three monsters'
   powers marked for petrification/polymorph. The dice log and the Spells tab
   name the save used.
-- **No doubled d20 on saves against fire, cold and electricity.** The game
+- **Fire, cold and electricity: DEX instead of a doubled d20.** The game
   doubles the save's d20 against those spells (Fireball, Lightning Bolt, Cone
-  of Cold...); with this rule it doesn't. Fireball and the rest become far more
-  dangerous, for the party as for its enemies: needing 14, the chance to save
-  drops from 70% to 35%.
+  of Cold, Burning Hands... and nine monsters' attacks of those kinds), which
+  looks meant as a dodge. With this rule the d20 isn't doubled and AD&D's
+  DEX defensive adjustment is added instead, as AD&D does for attacks that
+  can be dodged: -5 at DEX 1, -4 at 3, -3 at 4, ... none for 7-14, +1 at 15,
+  +2 at 16, +3 at 17, +4 at 18-20, +5 at 21-23 and +6 at 24-25. Fireball
+  stays dangerous for slow targets (needing 14 at DEX 12: 35% to save, where
+  the doubled d20 gave 70%) and much less so for quick ones (DEX 21: 60%).
+  The log names it: `+5 DEX 21 dodging`.
 
 How: the game reads the attacker's DEX adjustment when it works out the
 two-weapon adjustment; the helper takes over from there (`INT FEh`) and gives
 AD&D's for the hand the attack's weapon is in. For the spell save, the Ledger
 writes the game's own table that turns a spell's kind of save into one of the
 five (a table of words at DS:1E75h, read afresh for every save), and puts it
-back when the rule is unticked. And the helper does the save's doubling
-(`INT F0h`) only while that rule is off.
+back when the rule is unticked. The helper does the save's doubling (`INT F0h`)
+only while that rule is off, and the Ledger marks the fire, cold and
+electricity spells with the game's own "can be dodged" flag (bit 40h of the
+spell's category word), which no spell has, so the game's save routine adds
+the DEX defensive adjustment from its own table.
 
 ### No critical hits
 

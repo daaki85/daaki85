@@ -447,25 +447,48 @@ class RuleTests(RingTests):
         self.mu.mem_write(TSR * 16 + self.RULES, struct.pack("<H", value))
 
     def two(self, dex_adjust, item):
-        """INT VEC_TWO with AX the DEX's initiative adjustment and [BP+0Ah] the attack's item:
-        the adjustment in DX."""
+        """INT VEC_TWO with AX the DEX's initiative adjustment, [BP+0Ah] the attack's item and
+        CX the attacker's object (3: creature 1): the adjustment in DX."""
         self.mu.mem_write(SS * 16 + BP + 0x0A, struct.pack("<H", item))
-        self.run_at(bytes((0xCD, VEC_TWO)), eax=dex_adjust & 0xFFFF, ebx=0x2222, es=0x6666)
-        self.assertEqual((self.mu.reg_read(r.UC_X86_REG_BX), self.mu.reg_read(r.UC_X86_REG_ES)), (0x2222, 0x6666))
+        self.run_at(bytes((0xCD, VEC_TWO)), eax=dex_adjust & 0xFFFF, ebx=0x2222, ecx=3, es=0x6666)
+        self.assertEqual([self.mu.reg_read(x) for x in (r.UC_X86_REG_BX, r.UC_X86_REG_CX, r.UC_X86_REG_ES)],
+                         [0x2222, 3, 0x6666])
         return struct.unpack("<h", struct.pack("<H", self.mu.reg_read(r.UC_X86_REG_DX)))[0]
+
+    def hands(self, right=(81, 3), left=(81, 10)):
+        """Creature 1's items 4 and 7 as (type, slot); type 81 is a melee weapon (class 1),
+        type 90 a shield (class 0)."""
+        self.mu.mem_write(GAME_DS * 16 + 0x1669, struct.pack("<HH", 0, self.TYPES))
+        things = (GAME_DS + 0x3972 - 0x4356) * 16 + 0xC36  # where the game keeps them, from DS
+        for thing, kind, index in ((3, 2, 1), (10, 1, 4), (11, 1, 7), (12, 1, 5)):
+            self.mu.mem_write(things + thing * 3, struct.pack("<BH", kind, index))
+        for typ, cls in ((81, 1), (90, 0), (60, 2)):
+            self.mu.mem_write(self.TYPES * 16 + typ * 0x14 + 0x0A, bytes([cls]))
+        for item, (typ, slot) in ((4, right), (7, left)):
+            rec = bytearray(self.mu.mem_read(self.ITEMS * 16 + item * 21, 21))
+            struct.pack_into("<H", rec, 0x0A, typ)
+            rec[0x11] = slot
+            self.mu.mem_write(self.ITEMS * 16 + item * 21, bytes(rec))
 
     def test_two_weapons_the_games(self):
         self.rules(0)
+        self.hands()
         self.assertEqual([self.two(adj, 4) for adj in (-6, -1, 0, 3)], [6, 1, 0, 0])
 
     def test_two_weapons_adnd(self):
-        """Item 4 is worn in slot 4 (not the left hand): the main hand; item 9, in slot 10, the off hand."""
+        """A weapon in each hand: item 4 in the right (main), item 7 in the left (off)."""
         self.rules(4)
-        rec = bytearray(21)
-        rec[0x11] = 10
-        self.mu.mem_write(self.ITEMS * 16 + 9 * 21, bytes(rec))
+        self.hands()
         self.assertEqual([self.two(adj, 4) for adj in (-3, 0, 1, 2, 5)], [-5, -2, -1, 0, 0])
-        self.assertEqual([self.two(adj, 9) for adj in (-3, 0, 2, 3, 4, 5)], [-7, -4, -2, -1, 0, 0])
+        self.assertEqual([self.two(adj, 7) for adj in (-3, 0, 2, 3, 4, 5)], [-7, -4, -2, -1, 0, 0])
+
+    def test_one_weapon_no_penalty(self):
+        """A shield in the other hand, a bow in the missile slot, or the weapon not in a hand:
+        no penalty, whatever the DEX."""
+        self.rules(4)
+        for right, left in (((81, 3), (90, 10)), ((81, 3), (60, 2)), ((81, 3), (81, 0xFF)), ((81, 2), (81, 10))):
+            self.hands(right, left)
+            self.assertEqual([self.two(adj, 4) for adj in (-3, 0)], [0, 0], (right, left))
 
     def test_doubled_save(self):
         for rules, want in ((0, 14), (16, 7)):

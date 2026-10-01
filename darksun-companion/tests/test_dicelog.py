@@ -140,6 +140,22 @@ def raw_for(face, sides):
     return (face - 1) * 0x8000 // sides + 1
 
 
+def two_hands(m):
+    """Dag's items 5 (type 9) and 6 (type 11) as melee weapons (class 1), the long sword in
+    the right hand and item 6 in the left."""
+    for typ in (9, 11):
+        m[ITEM_TYPES + typ * game.ITEM_TYPE_SIZE + 0x0A] = 1
+    m[ITEMS + 5 * game.ITEM_SIZE + game.ITEM_SLOT] = 3
+    m[ITEMS + 6 * game.ITEM_SIZE + game.ITEM_SLOT] = 10
+    struct.pack_into("<H", m, ITEMS + 6 * game.ITEM_SIZE + game.ITEM_TYPE, 11)
+    # in Dag's first list (object 400): item 5, then 6
+    things = (LOAD_SEG + game.COMBATANTS_SEG) * 16 + game.COMBATANTS_OFF
+    struct.pack_into("<Bh", m, things + 400 * 3, game.THING_ITEM, 5)
+    struct.pack_into("<h", m, CREATURES + 8, 400)
+    struct.pack_into("<h", m, ITEMS + 5 * game.ITEM_SIZE + game.ITEM_NEXT, 6)
+    struct.pack_into("<H", m, ITEMS + 6 * game.ITEM_SIZE + game.ITEM_NEXT, game.NO_ITEM)
+
+
 class AttackTests(unittest.TestCase):
     def attack(self, d20, thac0, ac, item, item_type, after_f1, hit_bonus, attacker=0, combatant=0, **flags):
         # attack(): [BP+6] dword, THAC0, AC, attacker, sheet, item, item type, mode 1, attacker combatant,
@@ -198,15 +214,23 @@ class AttackTests(unittest.TestCase):
         m = log.guest.mem
         dex = CREATURES + game.CREATURE_ABILITIES + 1
         m[dex], m[DS * 16 + game.DEX_INITIATIVE + 17] = 17, 2
+        two_hands(m)
         m[ITEMS + 5 * game.ITEM_SIZE + game.ITEM_SLOT] = 3  # the right hand: no penalty at DEX 17
         lines = log.describe(self.attack(18, 9, 4, 5, 9, after_f1=10, hit_bonus=1, m16=2))
         self.assertEqual(lines[1], "    THAC0 16, +6 STR, +1 weapon = 9")
         m[ITEMS + 5 * game.ITEM_SIZE + game.ITEM_SLOT] = 10  # the left hand: -4 + 2
+        m[ITEMS + 6 * game.ITEM_SIZE + game.ITEM_SLOT] = 3
         lines = log.describe(self.attack(18, 11, 4, 5, 9, after_f1=10, hit_bonus=-1, m16=2))
         self.assertEqual(lines[1], "    THAC0 16, +6 STR, +1 weapon, -2 two weapons, off hand at DEX 17 = 11")
         m[dex], m[DS * 16 + game.DEX_INITIATIVE + 4] = 4, 0xFE  # DEX 4: -2 makes it worse
         lines = log.describe(self.attack(18, 15, 4, 5, 9, after_f1=10, hit_bonus=-5, m16=2))
         self.assertEqual(lines[1], "    THAC0 16, +6 STR, +1 weapon, -6 two weapons, off hand at DEX 4 = 15")
+        # a shield in the other hand: no penalty (whatever the game's count said)
+        m[ITEMS + 5 * game.ITEM_SIZE + game.ITEM_SLOT] = 3
+        m[ITEMS + 6 * game.ITEM_SIZE + game.ITEM_SLOT] = 10
+        m[ITEM_TYPES + 11 * game.ITEM_TYPE_SIZE + 0x0A] = 0
+        lines = log.describe(self.attack(18, 9, 4, 5, 9, after_f1=10, hit_bonus=1, m16=2))
+        self.assertEqual(lines[1], "    THAC0 16, +6 STR, +1 weapon = 9")
 
     def test_monster_natural_attack(self):
         log = make_game()
@@ -406,7 +430,8 @@ class SaveTests(unittest.TestCase):
                           "needs 14 (70% to save) -> saved: half damage, 7 of 15"])
 
     def test_save_not_doubled_with_the_rule(self):
-        """With the companion's rule the game doesn't double the d20, and neither does the log."""
+        """With the companion's rule the game doesn't double the d20, and neither does the log;
+        the target's DEX defensive adjustment counts instead (DEX 16: +2)."""
         log = make_game()
         log.set_rules(game.RULE_NO_DOUBLE)
         self.addCleanup(setattr, game, "RULES_IN_FORCE", 0)
@@ -415,9 +440,12 @@ class SaveTests(unittest.TestCase):
             log.describe(entry(raw_for(f, 6), dicelog.DICE_SITE, words(0, 0, 3, 6), words(0, 0, FIREBALL, 3),
                                parent_code=dicelog.SPELL_DAMAGE_RETURN), now=1.0)
         log.describe(self.save_roll(log, 9, spell=FIREBALL), now=1.1)
-        self.assertEqual(log.describe(self.probe(9, needed=14, spell=FIREBALL)),
-                         ["Mountain Stalker saves vs Fireball from Dag (spell): d20 = 9, "
-                          "needs 14 (35% to save) -> failed: full damage, 15"])
+        self.assertEqual(log.describe(self.probe(11, needed=14, spell=FIREBALL)),
+                         ["Mountain Stalker saves vs Fireball from Dag (spell): d20 = 9 +2 DEX 16 dodging = 11, "
+                          "needs 14 (45% to save) -> failed: full damage, 15"])
+        log.set_rules(0)  # and the mark comes off again
+        rules = (LOAD_SEG + game.SPELLS_SEG) * 16 + game.SPELLS_OFF + FIREBALL * game.SPELL_SIZE
+        self.assertFalse(log.guest.mem[rules + 1] & game.CATEGORY_DODGE)
 
     def damage_formula(self, log, spell, b0, b1, b2):
         rules = (LOAD_SEG + game.SPELLS_SEG) * 16 + game.SPELLS_OFF + spell * game.SPELL_SIZE

@@ -4,7 +4,7 @@
 import struct
 from typing import List, NamedTuple, Optional
 
-from .game import (KIND_TO_SAVE, EFFECT_NAMES, EFFECT_RULES, PARTY_SIZE, PERMANENT, PSIONIC_COUNT, PSIONIC_FIRST, SAVE_NAMES,
+from .game import (CATEGORY_DODGE, KIND_TO_SAVE, EFFECT_NAMES, EFFECT_RULES, PARTY_SIZE, PERMANENT, PSIONIC_COUNT, PSIONIC_FIRST, SAVE_NAMES,
                    SPELL_COUNT, SPELL_INFO_OFF, SPELL_INFO_SIZE, SPELL_LEVEL_CAP, SPELL_SIZE, GameData, kind_to_save,
                    ordinal)
 
@@ -80,6 +80,8 @@ def save_text(gd: GameData, spell: int, rec: bytes, damages: bool) -> str:
         text += f" {rules.save_modifier:+d}"
     if rules and rules.doubles_roll:
         text += f", d20 doubled (against {rules.doubled_for})"
+    if len(rec) > 0x11 and rec[0x11] & CATEGORY_DODGE:
+        text += ", DEX defensive adjustment counts (dodging)"
     if damages:
         text += "; saving stops the damage" if gd.save_negates_damage(spell) else "; saving halves the damage"
     return text

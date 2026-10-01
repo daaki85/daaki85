@@ -518,6 +518,8 @@ class DiceLog:
                     and struct.unpack("<H", self.guest.read(table + 2 * game.SPELL_KIND, 2))[0] in (3, 5):
                 save = game.kind_to_save(game.SPELL_KIND, rules)
                 self.guest.write(table + 2 * game.SPELL_KIND, struct.pack("<H", save))
+            if self.game is not None:
+                self.game.set_dodge(bool(rules & game.RULE_NO_DOUBLE))
 
     def _answer_look(self) -> List[str]:
         """DSCLOG asks about a creature the player looks at in a fight: give the Look box its

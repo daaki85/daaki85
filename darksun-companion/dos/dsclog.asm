@@ -1638,6 +1638,8 @@ THINGS     equ 0xC36            ; the things table (3 bytes each: kind, index) i
 NO_THING   equ 0x270F
 CREATURES  equ 0x1665           ; DS: far pointer to the creature records (3Ah bytes each)
 ITEMS      equ 0x165D           ; DS: far pointer to the item records (15h bytes each)
+ITEM_TYPES equ 0x1669           ; DS: far pointer to the item types (14h bytes each; +0Ah: 1 melee)
+WS_MELEE   equ 0xFFFE           ; WS_TYPE: any melee weapon
 
 ; PROBE_RING_AC: INT VEC_RING_AC replaces "mov al,es:[bx+0Fh] / cbw" (5 bytes: INT + 3 NOPs)
 ; in the AC function, where ES:BX is a worn item's type and CX its number; bit 80h of AX
@@ -1742,7 +1744,20 @@ worn_scan:
         mov ax, [cs:ws_type]
         cmp ax, 0xFFFF
         je .match
+        cmp ax, WS_MELEE
+        je .melee
         cmp [es:bx+0x0A], ax
+        jne .on
+        jmp .match
+.melee: push es               ; WS_MELEE: a melee weapon (its type's class 1)
+        push bx
+        mov ax, [es:bx+0x0A]
+        imul ax, ax, 0x14
+        les bx, [ITEM_TYPES]
+        add bx, ax
+        cmp byte [es:bx+0x0A], 1
+        pop bx
+        pop es
         jne .on
 .match: inc word [cs:ws_count]
         mov al, [es:bx+0x14]    ; the plus
@@ -1810,9 +1825,12 @@ probe_move:
 ; PROBE_TWO: INT VEC_TWO replaces "neg ax / mov dx,ax / or dx,dx / jge +2 / xor dx,dx" (10
 ; bytes: INT + 8 NOPs) in the routine that gives an attack's to-hit adjustment for two weapons
 ; ready, after the call that reads the attacker's DEX in the game's initiative table (AX), for
-; a non-ranger; [BP+0Ah] is the attack's item. Leaves the adjustment in DX: the game's,
-; -AX and no less than 0; with RULE_TWO_WEAPONS, AD&D's: -2 (main hand) or -4 (the item in the
-; left hand, slot 10) plus AX (the same numbers as the reaction adjustment), no more than 0.
+; a non-ranger; [BP+0Ah] is the attack's item, CX the attacker's object. Leaves the
+; adjustment in DX: the game's, -AX and no less than 0; with RULE_TWO_WEAPONS, AD&D's: -2 (the
+; item in the right hand) or -4 (in the left) plus AX (the same numbers as the reaction
+; adjustment), no more than 0, and only with a melee weapon in the other hand too (else 0:
+; a two-handed weapon, a shield, a sling or bow in the missile slot don't count).
+RIGHT_HAND equ 3
 LEFT_HAND  equ 10
 probe_two:
         test byte [cs:rules], RULE_TWO_WEAPONS
@@ -1825,25 +1843,55 @@ probe_two:
 .done:  iret
 .rule:  push bx
         push es
-        mov dx, -2
+        push cx
+        mov [cs:t_adjust], ax
+        xor dx, dx
         mov bx, [bp+0x0A]
         cmp bx, NO_THING
-        jae .add
+        jae .out
         imul bx, bx, 0x15
-        push ax
         mov ax, bx
         les bx, [ITEMS]
         add bx, ax
-        pop ax
-        cmp byte [es:bx+0x11], LEFT_HAND
-        jne .add
+        mov al, [es:bx+0x11]    ; the attack's hand, and the other
+        mov dx, -2
+        mov ah, LEFT_HAND
+        cmp al, RIGHT_HAND
+        je .hand
         mov dx, -4
-.add:   add dx, ax
+        mov ah, RIGHT_HAND
+        cmp al, LEFT_HAND
+        je .hand
+        xor dx, dx
+        jmp .out
+.hand:  mov [cs:t_base], dx
+        mov [cs:ws_slot], ah
+        mov byte [cs:ws_slot+1], 0
+        mov word [cs:ws_type], WS_MELEE
+        mov ax, ds
+        add ax, THINGS_SEG
+        mov [cs:r_things], ax
+        mov es, ax
+        mov bx, cx
+        imul bx, bx, 3
+        xor dx, dx
+        cmp byte [es:bx+THINGS], 2
+        jne .out                ; not a creature
+        mov ax, [es:bx+THINGS+1]
+        call worn_scan
+        xor dx, dx
+        cmp word [cs:ws_count], 0
+        je .out                 ; nothing to fight with in the other hand
+        mov dx, [cs:t_base]
+        add dx, [cs:t_adjust]
         jle .out
         xor dx, dx
-.out:   pop es
+.out:   pop cx
+        pop es
         pop bx
         iret
+t_base   dw 0
+t_adjust dw 0
 
 ; PROBE_DOUBLE: INT VEC_DOUBLE replaces "shl al,1" (2 bytes), where the saving throw doubles
 ; its d20 against fire, cold and electricity spells; not with RULE_NO_DOUBLE.

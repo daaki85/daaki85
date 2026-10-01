@@ -93,6 +93,15 @@ SPELL_KIND, SPELL_SAVE = 5, 5
 TWO_WEAPON_PENALTY = {3: -2, 10: -4}
 
 
+# A spell's category word (its rules' +01h, the record's +11h; WIS counts against 0x1E, ...):
+# with bit 40h set, the game's saving throw adds the target's DEX defensive adjustment (its
+# DEX AC table, sign flipped: +4 at DEX 18, -4 at DEX 3), AD&D's rule for attacks that can be
+# dodged. The game marks no spell so; with RULE_NO_DOUBLE the Ledger marks the fire, cold and
+# electricity spells (DOUBLED_KINDS), in place of the doubled d20 (set_dodge).
+CATEGORY_DODGE = 0x40
+DOUBLED_FLAGS = 0x86
+
+
 def rules_from_settings(settings: dict) -> int:
     return sum(bit for key, bit in RULE_SETTINGS if settings.get(key, True))
 
@@ -668,6 +677,23 @@ class GameData:
         doubled = bool(kinds) and not self.rules & RULE_NO_DOUBLE
         return SpellRules(doubled, nibble - 16 if nibble & 8 else nibble, kinds if doubled else "")
 
+    def set_dodge(self, on: bool) -> int:
+        """Mark the fire, cold and electricity spells for DEX on their saves (CATEGORY_DODGE),
+        or unmark them. Returns how many records changed."""
+        changed = 0
+        for spell in range(1, 256):
+            at = (self.load_seg + SPELLS_SEG) * 16 + SPELLS_OFF + spell * SPELL_SIZE
+            rec = self.guest.read(at, SPELL_SIZE)
+            if len(rec) < SPELL_SIZE:
+                break
+            want = on and bool(struct.unpack_from("<H", rec, 0x0A)[0] & DOUBLED_FLAGS)
+            byte = rec[0x01]
+            new = byte | CATEGORY_DODGE if want else byte & ~CATEGORY_DODGE
+            if new != byte:
+                self.guest.write(at + 0x01, bytes((new,)))
+                changed += 1
+        return changed
+
     def spell_record(self, spell: int) -> bytes:
         """The spell's whole 32-byte record (it starts 10h before the fields SPELLS_OFF names)."""
         if not 0 <= spell < 256:
@@ -789,6 +815,11 @@ class GameData:
             adjust = struct.unpack("b", self.guest.read(self.ds * 16 + SAVE_WIS + wis, 1))[0]
             if adjust:
                 out.append((adjust, f"WIS {wis}"))
+        if category & CATEGORY_DODGE:  # (the game's rule; see CATEGORY_DODGE)
+            dex = abilities[1]
+            adjust = -struct.unpack("b", self.guest.read(self.ds * 16 + DEX_AC + dex, 1))[0] if dex < 26 else 0
+            if adjust:
+                out.append((adjust, f"DEX {dex} dodging"))
         if save == PPD_SAVE:
             con = abilities[2]
             if sheet[SHEET_RACE] in (DWARF, HALFLING):
@@ -1070,8 +1101,7 @@ class GameData:
             slot = item[ITEM_SLOT]
             if slot in WEAPON_HANDS + (MISSILE_SLOT,) and typ[0x0C] and typ[0x0D]:  # it has damage dice
                 weapons.append((index, item, typ, slot))
-        hands = [w for w in weapons if w[3] in WEAPON_HANDS]
-        two_weapons = len(hands) >= 2
+        two_weapons = all(self.melee_weapon_in(creature, hand) for hand in WEAPON_HANDS)
         out = []
         order = {WEAPON_HANDS[0]: 0, WEAPON_HANDS[1]: 1, MISSILE_SLOT: 2}
         for index, item, typ, slot in sorted(weapons, key=lambda w: order[w[3]]):
@@ -1106,8 +1136,16 @@ class GameData:
         hand = "off hand" if slot == WEAPON_HANDS[1] else "main hand"
         if ranger:
             return f"two weapons, {hand} (ranger)", 0
+        if slot not in WEAPON_HANDS or not self.melee_weapon_in(creature, sum(WEAPON_HANDS) - slot):
+            return "two weapons", 0  # not a hand's weapon, or nothing to fight with in the other hand
         return (f"two weapons, {hand} at DEX {dex}",
                 min(0, TWO_WEAPON_PENALTY.get(slot, -2) + self.dex_initiative(dex)))
+
+    def melee_weapon_in(self, creature: int, slot: int) -> bool:
+        """A melee weapon (its type's class 1, as the game counts weapons ready) in SLOT: not
+        a shield, a bow or a sling."""
+        return any(item[ITEM_SLOT] == slot and len(typ) > 0x0A and typ[0x0A] == 1
+                   for _, item, typ in self._worn(creature))
 
     def wears_boots(self, creature: int) -> bool:
         """Something worn on the feet (with the Options' rule, a move more in a fight)."""
