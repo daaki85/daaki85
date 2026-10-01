@@ -51,6 +51,7 @@ VEC_NAMES_FILL equ 0xEB    ; PROBE_NAMES_FILL
 VEC_STEALTH equ 0xEA       ; PROBE_STEALTH
 VEC_TYPES_SIZE equ 0xE9    ; PROBE_TYPES_SIZE
 VEC_TYPES_FILL equ 0xE8    ; PROBE_TYPES_FILL
+VEC_LEVEL equ 0xE7         ; PROBE_LEVEL
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -79,7 +80,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvN'          ; +0
+sig      db 'DSCLOGvO'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -1900,6 +1901,7 @@ RULE_SPELL_SAVE equ 8           ; (the companion writes the game's save table fo
 RULE_NO_DOUBLE equ 16
 RULE_CATS_GRACE equ 32          ; (the companion also gives Flaming Sphere Strength's record and the name)
 RULE_STEALTH equ 64             ; (the companion rolls the hiding and moving silently, and sets STEALTH)
+RULE_LEVEL_10 equ 128          ; class levels go up to 10, not 9
 FOOT       equ 13               ; the item's slot byte while worn on the feet
 THINGS_SEG equ 0x3972 - 0x4356  ; the things table's segment, relative to DS
 
@@ -2010,6 +2012,23 @@ probe_double:
         jnz .done
         shl al, 1
 .done:  iret
+
+; PROBE_LEVEL: INT VEC_LEVEL replaces "cmp byte es:[bx+24h],9" (5 bytes: INT + 3 NOPs) in the
+; two places the game holds a class level (ES:BX+24h, a sheet's) against its cap of 9: where a
+; character goes up a level (only while below it) and where View Character shows the XP for the
+; next level (not at it). With RULE_LEVEL_10 the cap is 10: the game's XP tables, hit points,
+; THAC0, saves, spell slots and thief skills all go on past 9 (the tables have 20 levels, the
+; rest are formulas). RETF 2 keeps the compare's flags.
+probe_level:
+        sti
+        push ax
+        mov al, 9
+        test byte [cs:rules], RULE_LEVEL_10
+        jz .cmp
+        inc al
+.cmp:   cmp [es:bx+0x24], al
+        pop ax
+        retf 2
 
 ; CAT'S GRACE (RULE_CATS_GRACE): Flaming Sphere (spell 14), given Strength's record and the
 ; name by the companion, works as Strength does but for DEX: its own effect (54, a number the
@@ -2339,7 +2358,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 29
+        mov cx, 30
 .check:
         lodsb
         mov ah, 35h
@@ -2442,6 +2461,9 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_TYPES_FILL
         mov dx, probe_types_fill
         int 21h
+        mov ax, 2500h + VEC_LEVEL
+        mov dx, probe_level
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -2457,8 +2479,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or E8h-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL
+busy    db 'DSCLOG: interrupts 60h-65h or E7h-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL, VEC_LEVEL
 
         align 16, db 0
 image_len equ $ - $$

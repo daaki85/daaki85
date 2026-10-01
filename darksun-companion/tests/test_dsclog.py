@@ -17,7 +17,7 @@ from dscompanion.textlog import TextBuffer
 from dscompanion.gamepatch import (VEC_AC, VEC_DOUBLE, VEC_MSG, VEC_NEXT, VEC_RAND, VEC_RING_AC, VEC_USE_ITEM,
                                   VEC_RING_SAVE, VEC_SAVE, VEC_TEXT, VEC_TWO, VEC_GRACE_CAST, VEC_GRACE_EFFECT,
                                   VEC_GRACE_ABILITY, VEC_NAMES_FILL, VEC_NAMES_SIZE, VEC_STEALTH, VEC_TYPES_FILL,
-                                  VEC_TYPES_SIZE)
+                                  VEC_TYPES_SIZE, VEC_LEVEL)
 
 try:
     from unicorn import Uc, UC_ARCH_X86, UC_HOOK_INTR, UC_HOOK_MEM_WRITE, UC_MODE_16
@@ -511,6 +511,28 @@ class RuleTests(RingTests):
             self.rules(rules)
             self.run_at(bytes((0xCD, VEC_DOUBLE)), eax=7)
             self.assertEqual(self.mu.reg_read(r.UC_X86_REG_AL), want)
+
+    def level(self, level):
+        """INT VEC_LEVEL with ES:BX a sheet whose class level (+24h) is LEVEL: (below the cap,
+        at it), from the flags the game's JL and JZ read; AX and interrupts as they were."""
+        image = load_image()
+        probe = image.find(bytes.fromhex("fb50b0092ef606") + struct.pack("<H", self.RULES) + bytes([128]))
+        self.assertGreater(probe, 0)
+        self.mu.mem_write(VEC_LEVEL * 4, struct.pack("<HH", probe, TSR))
+        self.mu.mem_write(self.TYPES * 16 + 0x100 + 0x24, bytes([level]))
+        self.run_at(bytes((0xCD, VEC_LEVEL)), es=self.TYPES, ebx=0x100, eax=0x1234)
+        flags = self.mu.reg_read(r.UC_X86_REG_EFLAGS)
+        self.assertEqual((self.mu.reg_read(r.UC_X86_REG_AX), bool(flags & IF)), (0x1234, True))
+        return bool(flags & 0x80) != bool(flags & 0x800), bool(flags & 0x40)
+
+    def test_level_cap(self):
+        """The game's cap of 9, or 10 with rule 128."""
+        self.rules(0)
+        self.assertEqual([self.level(n) for n in (1, 8, 9, 10)],
+                         [(True, False), (True, False), (False, True), (False, False)])
+        self.rules(128)
+        self.assertEqual([self.level(n) for n in (8, 9, 10, 11)],
+                         [(True, False), (True, False), (False, True), (False, False)])
 
 
 

@@ -24,7 +24,8 @@ game itself, in the game's own lettering and windows:
   - spells saved against with the spell save;
   - DEX on saves against fire, cold and electricity instead of a doubled d20;
   - a new spell, Cat's Grace;
-  - thieves hiding in shadows and moving silently to backstab.
+  - thieves hiding in shadows and moving silently to backstab;
+  - class levels up to 10 (the game stops at 9).
 - **New items and thief play:** a Ring of Protection +1 to find in the arena;
   gear for Kurzak, Legcrusher and Pehtucl in the slave pens;
   Thieves' Tools for every thief; picking anyone's pockets.
@@ -52,6 +53,10 @@ launcher runs a patched copy of the game that it keeps in its own folder.
 ### Unreleased (in review)
 
 **Added**
+- **Rule change: levels up to 10.** Every class can reach 10th level, at
+  AD&D's XP (the game stops at 9). The game's own tables and formulas give
+  the rest: hit points, THAC0, saves, spell slots (still no higher than 5th
+  level) and thief skills.
 - **Gear for the slave pens' bosses** (with the Ledger running, given once a
   game):
   - Kurzak: a metal Short Sword (1d6, a new item type; a thief can lift it)

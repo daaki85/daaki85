@@ -313,7 +313,8 @@ class Viewer:
                                     "instead of a doubled d20"),
                 ("cats_grace", "Cat's Grace in Flaming Sphere's place (DEX + 1d6, at most 24, like Strength)"),
                 ("stealth", "Thieves hide in shadows and move silently to backstab (no enemy beside them; "
-                            "half the chance in daylight)"))):
+                            "half the chance in daylight)"),
+                ("level_10", "Class levels go up to 10 (the game stops at 9; no spells past 5th level are needed)"))):
             self.rule_vars[key] = tk.BooleanVar(value=bool(settings.get(key, True)))
             ttk.Checkbutton(rules, text=text, variable=self.rule_vars[key],
                             command=self._popups_changed).pack(anchor="w", pady=(4 if n else 0, 0))
