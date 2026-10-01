@@ -52,6 +52,8 @@ VEC_STEALTH equ 0xEA       ; PROBE_STEALTH
 VEC_TYPES_SIZE equ 0xE9    ; PROBE_TYPES_SIZE
 VEC_TYPES_FILL equ 0xE8    ; PROBE_TYPES_FILL
 VEC_LEVEL equ 0xE7         ; PROBE_LEVEL
+VEC_HD_ROLL equ 0xE6       ; PROBE_HD_ROLL
+VEC_HD_CON equ 0xE5        ; PROBE_HD_CON
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -80,7 +82,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvO'          ; +0
+sig      db 'DSCLOGvP'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -2030,6 +2032,48 @@ probe_level:
         pop ax
         retf 2
 
+; A thief's hit dice. The game keeps one "dice up to this level" for thieves and psionicists
+; together (9: after it, +2 a level), but an AD&D thief rolls a d6 up to 10th (a psionicist
+; stops at 9th). With RULE_LEVEL_10 a thief's goes to 10, in the two places it counts.
+THIEF_CLASS equ 17
+; PROBE_HD_ROLL: INT VEC_HD_ROLL replaces "mov al,es:[bx+1]" (5 bytes: INT + 3 NOPs) where a new
+; level's hit points are a roll or the fixed gain: ES:BX the class's hit point group, the
+; game's [BP+8] the class.
+probe_hd_roll:
+        mov al, [es:bx+1]
+        test byte [cs:rules], RULE_LEVEL_10
+        jz .done
+        cmp al, 9
+        jne .done
+        cmp word [bp+8], THIEF_CLASS
+        jne .done
+        inc al
+.done:  iret
+
+; PROBE_HD_CON: INT VEC_HD_CON replaces "cmp al,es:[bx+1]" (5 bytes: INT + 3 NOPs) where the game
+; counts the levels CON's hit point bonus applies to: AL a class's level, ES:BX its group, the
+; game's [BP-4] the sheet (far) and CX which of its classes. RETF 2 keeps the compare's flags.
+probe_hd_con:
+        sti
+        push dx
+        mov dl, [es:bx+1]
+        test byte [cs:rules], RULE_LEVEL_10
+        jz .cmp
+        cmp dl, 9
+        jne .cmp
+        push es
+        push bx
+        les bx, [bp-4]
+        add bx, cx
+        cmp byte [es:bx+0x21], THIEF_CLASS
+        pop bx
+        pop es
+        jne .cmp
+        inc dl
+.cmp:   cmp al, dl
+        pop dx
+        retf 2
+
 ; CAT'S GRACE (RULE_CATS_GRACE): Flaming Sphere (spell 14), given Strength's record and the
 ; name by the companion, works as Strength does but for DEX: its own effect (54, a number the
 ; game leaves unused) holds the 1d6, which the routine that works out a creature's abilities
@@ -2358,7 +2402,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 30
+        mov cx, 32
 .check:
         lodsb
         mov ah, 35h
@@ -2464,6 +2508,12 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_LEVEL
         mov dx, probe_level
         int 21h
+        mov ax, 2500h + VEC_HD_ROLL
+        mov dx, probe_hd_roll
+        int 21h
+        mov ax, 2500h + VEC_HD_CON
+        mov dx, probe_hd_con
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -2479,8 +2529,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or E7h-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL, VEC_LEVEL
+busy    db 'DSCLOG: interrupts 60h-65h or E5h-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON
 
         align 16, db 0
 image_len equ $ - $$

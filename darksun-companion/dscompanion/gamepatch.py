@@ -39,7 +39,7 @@ VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY = 0xED, 0xEE, 0xEF
 VEC_NAMES_SIZE, VEC_NAMES_FILL = 0xEC, 0xEB
 VEC_STEALTH = 0xEA
 VEC_TYPES_SIZE, VEC_TYPES_FILL = 0xE9, 0xE8
-VEC_LEVEL = 0xE7
+VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON = 0xE7, 0xE6, 0xE5
 
 
 class Patch(NamedTuple):
@@ -145,6 +145,10 @@ PATCHES = (
     # goes up a level, and where View Character shows the XP for the next one
     Patch("level_up", 0x87BE6, bytes.fromhex("26807f2409"), _interrupt(VEC_LEVEL, 5)),
     Patch("level_next", 0x67D08, bytes.fromhex("26807f2409"), _interrupt(VEC_LEVEL, 5)),
+    # a thief's hit dice up to 10th with that rule: "mov al,es:[bx+1]" where a new level's hit
+    # points are a roll or the fixed gain, "cmp al,es:[bx+1]" where CON's bonus is counted
+    Patch("hd_roll", 0x872DE, bytes.fromhex("268a870100"), _interrupt(VEC_HD_ROLL, 5)),
+    Patch("hd_con", 0x87779, bytes.fromhex("263a870100"), _interrupt(VEC_HD_CON, 5)),
     # (not changed: DSCLOG reads the segment this "mov dx,<segment>" loads, the pointer's items')
     Patch("use_item_seg", 0x73A14, bytes.fromhex("ba8003"), bytes.fromhex("ba8003")),
     # The data path is argv[0] cut after its last \ or :, kept at DS:4B81h. The

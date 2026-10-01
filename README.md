@@ -56,7 +56,9 @@ launcher runs a patched copy of the game that it keeps in its own folder.
 - **Rule change: levels up to 10.** Every class can reach 10th level, at
   AD&D's XP (the game stops at 9). The game's own tables and formulas give
   the rest: hit points, THAC0, saves, spell slots (still no higher than 5th
-  level) and thief skills.
+  level), thief skills, a gladiator's armour bonus, a preserver's new spell
+  and a psionicist's new power. Thieves roll their 10th hit die (the game
+  would give them a psionicist's fixed +2).
 - **Gear for the slave pens' bosses** (with the Ledger running, given once a
   game):
   - Kurzak: a metal Short Sword (1d6, a new item type; a thief can lift it)

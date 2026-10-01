@@ -17,7 +17,7 @@ from dscompanion.textlog import TextBuffer
 from dscompanion.gamepatch import (VEC_AC, VEC_DOUBLE, VEC_MSG, VEC_NEXT, VEC_RAND, VEC_RING_AC, VEC_USE_ITEM,
                                   VEC_RING_SAVE, VEC_SAVE, VEC_TEXT, VEC_TWO, VEC_GRACE_CAST, VEC_GRACE_EFFECT,
                                   VEC_GRACE_ABILITY, VEC_NAMES_FILL, VEC_NAMES_SIZE, VEC_STEALTH, VEC_TYPES_FILL,
-                                  VEC_TYPES_SIZE, VEC_LEVEL)
+                                  VEC_TYPES_SIZE, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON)
 
 try:
     from unicorn import Uc, UC_ARCH_X86, UC_HOOK_INTR, UC_HOOK_MEM_WRITE, UC_MODE_16
@@ -533,6 +533,51 @@ class RuleTests(RingTests):
         self.rules(128)
         self.assertEqual([self.level(n) for n in (8, 9, 10, 11)],
                          [(True, False), (True, False), (False, True), (False, False)])
+
+    def hit_dice(self, cls, levels=9):
+        """INT VEC_HD_ROLL with ES:BX a hit point group whose dice go up to LEVELS and the
+        game's [BP+8] the class: the levels that roll dice, in AL."""
+        image = load_image()
+        probe = image.find(bytes.fromhex("268a4701") + bytes.fromhex("2ef606") + struct.pack("<H", self.RULES))
+        self.assertGreater(probe, 0)
+        self.mu.mem_write(VEC_HD_ROLL * 4, struct.pack("<HH", probe, TSR))
+        self.mu.mem_write(self.TYPES * 16 + 0x200, bytes([6, levels, 2, 6]))
+        self.mu.mem_write(SS * 16 + BP + 8, struct.pack("<H", cls))
+        self.run_at(bytes((0xCD, VEC_HD_ROLL)), es=self.TYPES, ebx=0x200, eax=0x1200)
+        self.assertEqual(self.mu.reg_read(r.UC_X86_REG_AH), 0x12)
+        return self.mu.reg_read(r.UC_X86_REG_AL)
+
+    def test_thief_hit_dice(self):
+        """A thief (17) rolls up to 10th with rule 128; a psionicist (12) still stops at 9th."""
+        self.rules(0)
+        self.assertEqual([self.hit_dice(c) for c in (17, 12)], [9, 9])
+        self.rules(128)
+        self.assertEqual([self.hit_dice(c) for c in (17, 12)], [10, 9])
+        self.assertEqual(self.hit_dice(17, levels=10), 10)  # (a preserver's group: as it was)
+
+    def con_levels(self, cls, level):
+        """INT VEC_HD_CON with AL a class's level, ES:BX its group (dice up to 9), the game's
+        [BP-4] a sheet whose second class (CX = 1) is CLS: whether the level is past the cap
+        (the game's JNG not taken); DX and the sheet's ES:BX as they were."""
+        image = load_image()
+        probe = image.find(bytes.fromhex("fb52268a5701"))
+        self.assertGreater(probe, 0)
+        self.mu.mem_write(VEC_HD_CON * 4, struct.pack("<HH", probe, TSR))
+        self.mu.mem_write(self.TYPES * 16 + 0x200, bytes([6, 9, 2, 6]))
+        self.mu.mem_write(self.CREATURES * 16 + 0x300 + 0x21, bytes([12, cls, 0]))
+        self.mu.mem_write(SS * 16 + BP - 4, struct.pack("<HH", 0x300, self.CREATURES))
+        self.run_at(bytes((0xCD, VEC_HD_CON)), es=self.TYPES, ebx=0x200, ecx=1, edx=0x5555, eax=level)
+        mu = self.mu
+        self.assertEqual([mu.reg_read(x) for x in (r.UC_X86_REG_DX, r.UC_X86_REG_ES, r.UC_X86_REG_BX)],
+                         [0x5555, self.TYPES, 0x200])
+        flags = mu.reg_read(r.UC_X86_REG_EFLAGS)
+        return not (flags & 0x40 or bool(flags & 0x80) != bool(flags & 0x800))
+
+    def test_thief_con_levels(self):
+        self.rules(0)
+        self.assertEqual([self.con_levels(17, n) for n in (9, 10)], [False, True])
+        self.rules(128)
+        self.assertEqual([self.con_levels(c, n) for c, n in ((17, 9), (17, 10), (12, 10))], [False, False, True])
 
 
 
