@@ -614,7 +614,7 @@ probe_char:
         jmp .react
 .thief: mov al, [es:si + bx + 3]  ; the thief level (levels follow the classes)
         call c_thief
-.react: mov al, [cs:c_react]      ; right of the AC line: "REAC +4"
+.react: mov al, [cs:c_react]      ; right of SP in the saves: "REAC +4"
         cmp al, NO_REACT
         je .done
         mov di, c_num
@@ -633,7 +633,7 @@ probe_char:
         push cs
         push word c_num
         call c_draw_line
-        mov al, [cs:c_defence]    ; right of SP in the saves: "DEF -4"
+        mov al, [cs:c_defence]    ; right of the AC line: "DEF -4"
         mov di, c_num
         test al, al
         jle .dsign
@@ -954,12 +954,12 @@ l_defence db 'DEF', 0
 c_react db 0
 c_defence db 0
 DEX_DEFENCE equ 0x07F6          ; DS: the DEX defensive adjustment (bytes, by score: on AC)
-DEF_Y   equ 0x25                ; the saves' last row, right of SP (where BW and RSW are above)
-DEF_VALUE_X equ 0x12A           ; (as the saves' second column)
+DEF_Y   equ 0x72                ; the AC line's y
+DEF_VALUE_X equ 0x12D           ; (under the thief skills' values, as REAC's)
 NO_REACT equ 0x80
 DEX_REACTION equ 0x07DC         ; DS: the DEX reaction adjustment (bytes, by score)
-REACT_Y equ 0x72                ; the AC line's y
-REACT_VALUE_X equ 0x12D          ; (under the thief skills' values)
+REACT_Y equ 0x25                ; the saves' last row, right of SP (where BW and RSW are above)
+REACT_VALUE_X equ 0x130         ; (a little right of the thief skills' values: REAC is the longer label)
 c_vals  times 8 db 0
 c_num   db 0, 0, 0, 0
 c_draw  dd 0

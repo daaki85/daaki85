@@ -898,13 +898,13 @@ right-hand panel, drawn by the game's text routine so they look like the rest:
   noise, `CLMB` walls (hide in shadows and read languages are never checked;
   see Where the game rolls them). Not below the weapons: three weapons fill the panel down to its
   buttons;
-- right of the AC line, the DEX **reaction adjustment** (`REAC +4`): -6 at DEX 1
-  to +5 at DEX 24-25, the number the [two-weapon rule](#rule-changes) adds to
-  its penalties. It is worked out from the character's DEX each time the panel
-  is drawn, so it follows any change. (Nothing in the game changes DEX once a
-  character is made: no spell, effect or item touches it; only STR has
-  effects of its own.)
-- right of SP in the saves, the DEX **defensive adjustment** (`DEF -5`), as
+- right of SP in the saves (where RSW and BW sit on the rows above), the DEX
+  **reaction adjustment** (`REAC +4`): -6 at DEX 1 to +5 at DEX 24-25, the
+  number the [two-weapon rule](#rule-changes) adds to its penalties, and the
+  one initiative uses. It is worked out from the character's DEX each time
+  the panel is drawn, so it follows any change (Cat's Grace's, while it
+  lasts).
+- right of the AC line, the DEX **defensive adjustment** (`DEF -5`), as
   AD&D's table gives it, on AC: +5 at DEX 1 to -6 at DEX 24-25 (-4 at 18, -5
   at 21-23). The game counts it in AC already; on saving throws against what
   can be dodged it counts the other way round (DEF -5 is +5 on the save), with
