@@ -72,8 +72,58 @@ FOOT = EQUIP_SLOTS.index("foot")
 # and saving throws (DSCLOG's PROBE_RING_AC and PROBE_RING_SAVE); the game has no such ring of
 # its own, and the companion can put a Ring +1 in the arena (ring.py).
 RING_TYPE = 102
-# The companion's rule changes (DSCLOG's RULES): helms count AC 1, boots add a move in a fight
-RULE_HELMS, RULE_BOOTS = 1, 2
+# The companion's rule changes (DSCLOG's RULES): helms count AC 1, boots add a move in a fight;
+# AD&D's two-weapon penalties; spells saved against with the spell save; no doubled d20
+RULE_HELMS, RULE_BOOTS, RULE_TWO_WEAPONS, RULE_SPELL_SAVE, RULE_NO_DOUBLE = 1, 2, 4, 8, 16
+RULE_CATS_GRACE = 32  # Cat's Grace in Flaming Sphere's place
+RULE_STEALTH = 64  # a thief hiding in shadows and moving silently backstabs (stealth.py)
+# the Options' setting for each, all on unless unticked
+RULE_SETTINGS = (("helm_ac", RULE_HELMS), ("boots_move", RULE_BOOTS), ("two_weapons", RULE_TWO_WEAPONS),
+                 ("spell_save", RULE_SPELL_SAVE), ("no_doubled_save", RULE_NO_DOUBLE),
+                 ("cats_grace", RULE_CATS_GRACE), ("stealth", RULE_STEALTH))
+# Cat's Grace (RULE_CATS_GRACE): Flaming Sphere (wizard level 2) gets Strength's record and the
+# name, and DSCLOG sends it to Strength's code, which rolls 1d6 into an effect of its own (54,
+# a number the game leaves unused) that adds to DEX, at most 24, as Strength's adds to STR.
+FLAMING_SPHERE, STRENGTH_SPELL, GRACE_EFFECT = 14, 23, 54
+GRACE_NAME, SPHERE_NAME = b"CAT'S GRACE", b"FLAMING SPHERE"  # (in the game's capitals)
+# Flaming Sphere's own record, from DSUN.EXE, to put back when the rule is off
+SPHERE_RECORD = bytes.fromhex("067800000000003c0014000001ffff4dff004049ffff6106ff000202001104a1")
+# The game turns a spell's kind of save (bits 5-7 of its +0Fh) into one of the sheet's five
+# saves (1-5: paralysis/poison/death ... spell) with a table of words at DS:1E75h, read afresh
+# for each save. Kind 5, what almost every spell is marked with, is petrification/polymorph
+# (3); RULE_SPELL_SAVE makes it the spell save (5). Kind 1 (paralysis/poison/death: the
+# clouds, Poison, Slay Living, the psionic attacks) and kind 4 (petrification/polymorph:
+# three monsters' powers) stay as they are.
+SAVE_KINDS = 0x1E75
+KIND_TO_SAVE = (1, 1, 1, 2, 3, 3, 4, 5, 5, 5)
+SPELL_KIND, SPELL_SAVE = 5, 5
+# AD&D's two weapons: -2 with the main (right) hand, -4 with the off (left) hand, the DEX
+# reaction adjustment (the game's initiative table, the same numbers) added and no better than
+# 0; rangers have none
+TWO_WEAPON_PENALTY = {3: -2, 10: -4}
+
+
+# A spell's category word (its rules' +01h, the record's +11h; WIS counts against 0x1E, ...):
+# with bit 40h set, the game's saving throw adds the target's DEX defensive adjustment (its
+# DEX AC table, sign flipped: +4 at DEX 18, -4 at DEX 3), AD&D's rule for attacks that can be
+# dodged. The game marks no spell so; with RULE_NO_DOUBLE the Ledger marks the fire, cold and
+# electricity spells (DOUBLED_KINDS), in place of the doubled d20 (set_dodge).
+CATEGORY_DODGE = 0x40
+DOUBLED_FLAGS = 0x86
+
+
+def rules_from_settings(settings: dict) -> int:
+    return sum(bit for key, bit in RULE_SETTINGS if settings.get(key, True))
+
+
+def kind_to_save(kind: int, rules: int) -> int:
+    if kind == SPELL_KIND and rules & RULE_SPELL_SAVE:
+        return SPELL_SAVE
+    return KIND_TO_SAVE[kind]
+
+
+# The rules in force (DiceLog.set_rules): GameData objects made without rules of their own use these
+RULES_IN_FORCE = 0
 EFFECTS_SEG, EFFECTS_OFF = 0x3BF6, 0x106  # 10 bytes per active effect
 # The game's clock and event queue: a far pointer to the time (a dword, divided by the byte at
 # GAME_TIME_SCALE); the first queue's entries (17 bytes: due time, kind, then the event's data),
@@ -156,7 +206,7 @@ EFFECT_NAMES = {
     60: "Magical Vestments", 61: "Animal Affinity", 62: "Body Weaponry", 63: "Strength Enhanced",
     64: "Strength Borrowed", 65: "Strength Lent", 66: "Adrenalin Control", 67: "Strength",
     68: "Weakened", 69: "Extra Hitpoints", 70: "Flame Blade", 71: "Spirit. Hammer", 72: "Shillelagh",
-    73: "Prayer",
+    73: "Prayer", GRACE_EFFECT: "Cat's Grace",
 }
 
 # What effects do, where the game's own code shows it (to-hit, AC and saving throws)
@@ -169,7 +219,7 @@ EFFECT_RULES = {
     52: "AC -7 against evil", 55: "attackers -2 to hit", 56: "armour AC at most 4, +3 on saves",
     57: "AC at most 6 - level/4, +1 on saves", 58: "AC -2", 59: "AC at most 10 - level",
     60: "AC 5, 1 better per 3 caster levels above 5", 63: "higher STR", 64: "STR + the amount borrowed, at most 24",
-    67: "STR + 1d6, at most 24", 68: "STR - the amount, at least 3",
+    67: "STR + 1d6, at most 24", 68: "STR - the amount, at least 3", GRACE_EFFECT: "DEX + 1d6, at most 24",
     73: "+1 to hit and saves for the caster's side, -1 for the other",
     # what the game's turn, movement, casting and damage code does with the rest
     1: "2d4 acid damage each round",
@@ -440,10 +490,11 @@ class Weapon(NamedTuple):
 class GameData:
     """Lookups into the running game's memory for one session."""
 
-    def __init__(self, guest: GuestMemory, ds: int):
+    def __init__(self, guest: GuestMemory, ds: int, rules: Optional[int] = None):
         self.guest = guest
         self.ds = ds
         self.load_seg = ds - DGROUP
+        self.rules = RULES_IN_FORCE if rules is None else rules
 
     def _word(self, offset: int) -> int:
         return struct.unpack("<h", self.guest.read(self.ds * 16 + offset, 2))[0]
@@ -633,7 +684,43 @@ class GameData:
         nibble = (rec[0x0F] >> 1) & 0x0F
         flags = struct.unpack_from("<H", rec, 0x0A)[0]
         kinds = " and ".join(name for bit, name in DOUBLED_KINDS.items() if flags & bit)
-        return SpellRules(bool(kinds), nibble - 16 if nibble & 8 else nibble, kinds)
+        doubled = bool(kinds) and not self.rules & RULE_NO_DOUBLE
+        return SpellRules(doubled, nibble - 16 if nibble & 8 else nibble, kinds if doubled else "")
+
+    def set_dodge(self, on: bool) -> int:
+        """Mark the fire, cold and electricity spells for DEX on their saves (CATEGORY_DODGE),
+        or unmark them. Returns how many records changed."""
+        changed = 0
+        for spell in range(1, 256):
+            at = (self.load_seg + SPELLS_SEG) * 16 + SPELLS_OFF + spell * SPELL_SIZE
+            rec = self.guest.read(at, SPELL_SIZE)
+            if len(rec) < SPELL_SIZE:
+                break
+            want = on and bool(struct.unpack_from("<H", rec, 0x0A)[0] & DOUBLED_FLAGS)
+            byte = rec[0x01]
+            new = byte | CATEGORY_DODGE if want else byte & ~CATEGORY_DODGE
+            if new != byte:
+                self.guest.write(at + 0x01, bytes((new,)))
+                changed += 1
+        return changed
+
+    def set_cats_grace(self, on: bool) -> bool:
+        """Put Cat's Grace in Flaming Sphere's place (Strength's record, the name), or Flaming
+        Sphere back. Only over what's there now being one or the other. True if it is as asked."""
+        sphere = (self.load_seg + SPELLS_SEG) * 16 + SPELLS_OFF - 0x10 + FLAMING_SPHERE * SPELL_SIZE
+        info = self.load_seg * 16 + SPELL_INFO_OFF + (FLAMING_SPHERE - 1) * SPELL_INFO_SIZE
+        name_at = self.ds * 16 + struct.unpack("<H", self.guest.read(info + 5, 2))[0]
+        name = self.guest.read(name_at, len(SPHERE_NAME) + 1)
+        if name.rstrip(b"\0") not in (SPHERE_NAME, GRACE_NAME):
+            return False  # not the name it should be: leave it
+        strength = self.spell_record(STRENGTH_SPELL)
+        want = strength if on else SPHERE_RECORD
+        mine = self.guest.read(sphere, SPELL_SIZE)
+        if mine != want:  # (the category's dodge flag aside, which set_dodge sees to)
+            self.guest.write(sphere, want)
+        text = GRACE_NAME if on else SPHERE_NAME
+        self.guest.write(name_at, text.ljust(len(SPHERE_NAME), b"\0") + b"\0")
+        return True
 
     def spell_record(self, spell: int) -> bytes:
         """The spell's whole 32-byte record (it starts 10h before the fields SPELLS_OFF names)."""
@@ -756,6 +843,11 @@ class GameData:
             adjust = struct.unpack("b", self.guest.read(self.ds * 16 + SAVE_WIS + wis, 1))[0]
             if adjust:
                 out.append((adjust, f"WIS {wis}"))
+        if category & CATEGORY_DODGE:  # (the game's rule; see CATEGORY_DODGE)
+            dex = abilities[1]
+            adjust = -struct.unpack("b", self.guest.read(self.ds * 16 + DEX_AC + dex, 1))[0] if dex < 26 else 0
+            if adjust:
+                out.append((adjust, f"DEX {dex} dodging"))
         if save == PPD_SAVE:
             con = abilities[2]
             if sheet[SHEET_RACE] in (DWARF, HALFLING):
@@ -793,28 +885,30 @@ class GameData:
 
     def spell_slots(self, member: int) -> List[Tuple[str, List[Tuple[int, int, int]]]]:
         """A party member's spell slots: [(kind, [(spell level, left, most), ...]), ...] for
-        the kinds of magic (Wizard, Priest) their classes cast, at the levels they have any."""
+        the kinds of magic (Wizard, Priest) their classes cast, at the spell levels their class
+        levels reach. (The game gives WIS's bonus slots at spell levels the class can't cast yet
+        too: no use to them, so not shown.)"""
         out = []
         for kind, bit in MAGIC_KINDS:
             left = self.guest.read(self.ds * 16 + SLOTS_LEFT[kind] + member * SLOTS_STRIDE, SPELL_LEVELS + 1)
-            levels = [(lvl, left[lvl], self.max_spell_slots(member, bit, lvl)) for lvl in range(1, SPELL_LEVELS + 1)]
-            levels = [x for x in levels if x[1] or x[2]]
+            levels = [(lvl, left[lvl], self.max_spell_slots(member, bit, lvl)) for lvl in range(1, SPELL_LEVELS + 1)
+                      if self.max_spell_slots(member, bit, lvl, wis=False)]
             if levels:
                 out.append((kind, levels))
         return out
 
-    def max_spell_slots(self, member: int, bit: int, spell_level: int) -> int:
+    def max_spell_slots(self, member: int, bit: int, spell_level: int, wis: bool = True) -> int:
         """The slots the game gives on resting (its routine at 5E0ACh in DSUN.EXE): for each class
         casting this kind of magic, rules from its tables applied to the class level and then WIS.
         A rule word: bits 8-11 the most it gives, bits 4-7 one more than the spell level it
         starts below, bit 0 how odd values round. A human's later (dual) classes count only while
-        their level is below the first class's."""
+        their level is below the first class's. Without `wis`, the class levels' alone."""
         if member < 4 and self._word(SLOTS_ALL_19) == 1:  # the game's own test switch
             return 19
         sheet = self.sheet(member)
         if len(sheet) < SHEET_SIZE:
             return 0
-        wis = self.creature(member)[CREATURE_ABILITIES + 4]
+        ability = self.creature(member)[CREATURE_ABILITIES + 4]
         magic = self.guest.read((self.load_seg + CLASS_MAGIC_SEG) * 16 + CLASS_MAGIC_OFF, 4 * 32)
         total = 0
         for n in range(3):
@@ -824,7 +918,7 @@ class GameData:
             if n and sheet[SHEET_RACE] == HUMAN and level >= sheet[SHEET_LEVELS]:
                 continue
             rules = self.guest.read(self.ds * 16 + SLOT_CLASS_RULES + cls, 1)[0]
-            for value in (level, wis):
+            for value in (level, ability) if wis else (level,):
                 if not rules:
                     break
                 word, = struct.unpack("<H", self.guest.read(self.ds * 16 + SLOT_RULES + (rules & 0x0F) * 2, 2))
@@ -893,11 +987,11 @@ class GameData:
             out.append((name, sum(n for _, n in parts)))
         return out
 
-    def thief_skills_now(self, creature: int) -> List[Tuple[str, int]]:
+    def thief_skills_now(self, creature: int, skills: Tuple[int, ...] = ROLLED_SKILLS) -> List[Tuple[str, int]]:
         """[(skill, chance), ...] for the skills the game rolls, as they stand now: with the
         equipment penalty, 0 for a skill an effect rules out (or when the thief isn't Okay), 100
         for one an effect makes certain. Not the situation's bonus (a hard lock...). [] for
-        someone without thief levels."""
+        someone without thief levels. `skills`: which (numbers in THIEF_SKILLS)."""
         rec = self.creature(creature)
         if len(rec) < CREATURE_SIZE:
             return []
@@ -906,7 +1000,7 @@ class GameData:
         ids = {e.id for e in self._mine(creature, self.effects())}
         okay = rec[CREATURE_STATUS] == STATUS_OKAY
         out = []
-        for skill in ROLLED_SKILLS:
+        for skill in skills:
             parts = self.thief_skill_parts(creature, skill)
             if parts is None:
                 return []
@@ -924,7 +1018,7 @@ class GameData:
         if len(typ) == ITEM_TYPE_SIZE and typ[0x08] & NO_MATERIAL and not material:
             material = len(MATERIALS)  # a ring, a body...: no material to name
         plus = struct.unpack("b", item[ITEM_PLUS:ITEM_PLUS + 1])[0]
-        name = self.item_name(item[ITEM_NAME])
+        name = self.item_name(struct.unpack_from("<H", item, ITEM_NAME)[0])
         if plus and not name.endswith(f"{plus:+d}"):  # (a name such as "Sling +2" has it)
             name += f" {plus:+d}"
         return (f"{MATERIALS[material]} " if material < len(MATERIALS) else "") + name
@@ -1037,12 +1131,7 @@ class GameData:
             slot = item[ITEM_SLOT]
             if slot in WEAPON_HANDS + (MISSILE_SLOT,) and typ[0x0C] and typ[0x0D]:  # it has damage dice
                 weapons.append((index, item, typ, slot))
-        hands = [w for w in weapons if w[3] in WEAPON_HANDS]
-        two = 0
-        if len(hands) >= 2:  # two weapons ready: the DEX table the game also uses for initiative
-            sheet = self.sheet(creature)
-            ranger = len(sheet) >= SHEET_FLAGS + 2 and struct.unpack_from("<H", sheet, SHEET_FLAGS)[0] & SHEET_FLAG_RANGER
-            two = 0 if ranger else max(0, -self.dex_initiative(dex))
+        two_weapons = all(self.melee_weapon_in(creature, hand) for hand in WEAPON_HANDS)
         out = []
         order = {WEAPON_HANDS[0]: 0, WEAPON_HANDS[1]: 1, MISSILE_SLOT: 2}
         for index, item, typ, slot in sorted(weapons, key=lambda w: order[w[3]]):
@@ -1055,14 +1144,38 @@ class GameData:
                 parts.append(("weapon", plus))
             elif not typ[0x08] & 0x80 and material in MATERIAL_TO_HIT:
                 parts.append((MATERIALS[material].lower(), MATERIAL_TO_HIT[material]))
-            if two and not missile:
-                parts.append((f"two weapons at DEX {dex}", two))
+            if two_weapons and not missile:
+                parts.append(self.two_weapons(creature, slot))
             parts = [(why, n) for why, n in parts if n]
             out.append(WeaponHit(index, slot, self.item_label(item, typ), base - sum(n for _, n in parts), parts))
         if not out:
             parts = [(why, n) for why, n in [("STR", table(STR_TO_HIT, strength))] + common if n]
             out.append(WeaponHit(-1, -1, "unarmed", base - sum(n for _, n in parts), parts))
         return out
+
+    def two_weapons(self, creature: int, slot: int) -> Tuple[str, int]:
+        """The to-hit adjustment for an attack with the weapon in SLOT while two are ready (in
+        melee), and what it's called. The game's: its DEX table for initiative, sign flipped and
+        never below 0 (a bonus at DEX 5 or less). With RULE_TWO_WEAPONS, AD&D's: -2 main hand,
+        -4 off hand, plus the DEX reaction adjustment, never above 0. Rangers: none either way."""
+        dex = self.creature(creature)[CREATURE_ABILITIES + 1]
+        sheet = self.sheet(creature)
+        ranger = len(sheet) >= SHEET_FLAGS + 2 and struct.unpack_from("<H", sheet, SHEET_FLAGS)[0] & SHEET_FLAG_RANGER
+        if not self.rules & RULE_TWO_WEAPONS:
+            return f"two weapons at DEX {dex}", 0 if ranger else max(0, -self.dex_initiative(dex))
+        hand = "off hand" if slot == WEAPON_HANDS[1] else "main hand"
+        if ranger:
+            return f"two weapons, {hand} (ranger)", 0
+        if slot not in WEAPON_HANDS or not self.melee_weapon_in(creature, sum(WEAPON_HANDS) - slot):
+            return "two weapons", 0  # not a hand's weapon, or nothing to fight with in the other hand
+        return (f"two weapons, {hand} at DEX {dex}",
+                min(0, TWO_WEAPON_PENALTY.get(slot, -2) + self.dex_initiative(dex)))
+
+    def melee_weapon_in(self, creature: int, slot: int) -> bool:
+        """A melee weapon (its type's class 1, as the game counts weapons ready) in SLOT: not
+        a shield, a bow or a sling."""
+        return any(item[ITEM_SLOT] == slot and len(typ) > 0x0A and typ[0x0A] == 1
+                   for _, item, typ in self._worn(creature))
 
     def wears_boots(self, creature: int) -> bool:
         """Something worn on the feet (with the Options' rule, a move more in a fight)."""
@@ -1154,7 +1267,7 @@ class GameData:
                               ITEM_TYPE_SIZE)
         if len(rec) < ITEM_SIZE or len(typ) < ITEM_TYPE_SIZE:
             return None
-        return Weapon(self.item_name(rec[0x12]), typ[0x0D], typ[0x0C], struct.unpack("b", typ[0x0E:0x0F])[0],
+        return Weapon(self.item_name(struct.unpack_from("<H", rec, ITEM_NAME)[0]), typ[0x0D], typ[0x0C], struct.unpack("b", typ[0x0E:0x0F])[0],
                       struct.unpack("b", rec[0x14:0x15])[0], typ[0x08] & 0x0F, bool(typ[0x08] & 0x80))
 
     def weapon_name(self, w: Weapon) -> str:

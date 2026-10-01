@@ -14,7 +14,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dscompanion.dicelog import FILTERS, HDR_SIG, Entry
 from dscompanion.textlog import TextBuffer
-from dscompanion.gamepatch import VEC_AC, VEC_MSG, VEC_NEXT, VEC_RAND, VEC_RING_AC, VEC_USE_ITEM, VEC_RING_SAVE, VEC_SAVE, VEC_TEXT
+from dscompanion.gamepatch import (VEC_AC, VEC_DOUBLE, VEC_MSG, VEC_NEXT, VEC_RAND, VEC_RING_AC, VEC_USE_ITEM,
+                                  VEC_RING_SAVE, VEC_SAVE, VEC_TEXT, VEC_TWO, VEC_GRACE_CAST, VEC_GRACE_EFFECT,
+                                  VEC_GRACE_ABILITY, VEC_NAMES_FILL, VEC_NAMES_SIZE, VEC_STEALTH)
 
 try:
     from unicorn import Uc, UC_ARCH_X86, UC_HOOK_INTR, UC_HOOK_MEM_WRITE, UC_MODE_16
@@ -425,6 +427,246 @@ class RingTests(unittest.TestCase):
             self.run_at(bytes((0xCD, VEC_RING_AC)), es=self.TYPES, ebx=0, ecx=typ, eax=0x1234)
             self.assertEqual(mu.reg_read(r.UC_X86_REG_AX), want)
             self.assertEqual((mu.reg_read(r.UC_X86_REG_CX), mu.reg_read(r.UC_X86_REG_BX)), (typ, 0))
+
+
+
+@unittest.skipIf(Uc is None, "unicorn not installed")
+class RuleTests(RingTests):
+    """The companion's rule changes: two weapons' to-hit, and the doubled save d20."""
+    RULES = 170  # the header's RULES word
+
+    def setUp(self):
+        super().setUp()
+        image = load_image()
+        two = image.find(bytes.fromhex("2ef606") + struct.pack("<H", self.RULES) + bytes([4]))
+        double = image.find(bytes.fromhex("2ef606") + struct.pack("<H", self.RULES) + bytes([16]))
+        self.assertGreater(min(two, double), 0)
+        self.mu.mem_write(VEC_TWO * 4, struct.pack("<HH", two, TSR))
+        self.mu.mem_write(VEC_DOUBLE * 4, struct.pack("<HH", double, TSR))
+
+    def rules(self, value):
+        self.mu.mem_write(TSR * 16 + self.RULES, struct.pack("<H", value))
+
+    def two(self, dex_adjust, item):
+        """INT VEC_TWO with AX the DEX's initiative adjustment, [BP+0Ah] the attack's item and
+        CX the attacker's object (3: creature 1): the adjustment in DX."""
+        self.mu.mem_write(SS * 16 + BP + 0x0A, struct.pack("<H", item))
+        self.run_at(bytes((0xCD, VEC_TWO)), eax=dex_adjust & 0xFFFF, ebx=0x2222, ecx=3, es=0x6666)
+        self.assertEqual([self.mu.reg_read(x) for x in (r.UC_X86_REG_BX, r.UC_X86_REG_CX, r.UC_X86_REG_ES)],
+                         [0x2222, 3, 0x6666])
+        return struct.unpack("<h", struct.pack("<H", self.mu.reg_read(r.UC_X86_REG_DX)))[0]
+
+    def hands(self, right=(81, 3), left=(81, 10)):
+        """Creature 1's items 4 and 7 as (type, slot); type 81 is a melee weapon (class 1),
+        type 90 a shield (class 0)."""
+        self.mu.mem_write(GAME_DS * 16 + 0x1669, struct.pack("<HH", 0, self.TYPES))
+        things = (GAME_DS + 0x3972 - 0x4356) * 16 + 0xC36  # where the game keeps them, from DS
+        for thing, kind, index in ((3, 2, 1), (10, 1, 4), (11, 1, 7), (12, 1, 5)):
+            self.mu.mem_write(things + thing * 3, struct.pack("<BH", kind, index))
+        for typ, cls in ((81, 1), (90, 0), (60, 2)):
+            self.mu.mem_write(self.TYPES * 16 + typ * 0x14 + 0x0A, bytes([cls]))
+        for item, (typ, slot) in ((4, right), (7, left)):
+            rec = bytearray(self.mu.mem_read(self.ITEMS * 16 + item * 21, 21))
+            struct.pack_into("<H", rec, 0x0A, typ)
+            rec[0x11] = slot
+            self.mu.mem_write(self.ITEMS * 16 + item * 21, bytes(rec))
+
+    def test_two_weapons_the_games(self):
+        self.rules(0)
+        self.hands()
+        self.assertEqual([self.two(adj, 4) for adj in (-6, -1, 0, 3)], [6, 1, 0, 0])
+
+    def test_two_weapons_adnd(self):
+        """A weapon in each hand: item 4 in the right (main), item 7 in the left (off)."""
+        self.rules(4)
+        self.hands()
+        self.assertEqual([self.two(adj, 4) for adj in (-3, 0, 1, 2, 5)], [-5, -2, -1, 0, 0])
+        self.assertEqual([self.two(adj, 7) for adj in (-3, 0, 2, 3, 4, 5)], [-7, -4, -2, -1, 0, 0])
+
+    def test_one_weapon_no_penalty(self):
+        """A shield in the other hand, a bow in the missile slot, or the weapon not in a hand:
+        no penalty, whatever the DEX."""
+        self.rules(4)
+        for right, left in (((81, 3), (90, 10)), ((81, 3), (60, 2)), ((81, 3), (81, 0xFF)), ((81, 2), (81, 10))):
+            self.hands(right, left)
+            self.assertEqual([self.two(adj, 4) for adj in (-3, 0)], [0, 0], (right, left))
+
+    def test_doubled_save(self):
+        for rules, want in ((0, 14), (16, 7)):
+            self.rules(rules)
+            self.run_at(bytes((0xCD, VEC_DOUBLE)), eax=7)
+            self.assertEqual(self.mu.reg_read(r.UC_X86_REG_AL), want)
+
+
+
+@unittest.skipIf(Uc is None, "unicorn not installed")
+class GraceTests(RuleTests):
+    """Cat's Grace (spell 14, rule 32): Strength's code, its own effect (54), DEX."""
+
+    def setUp(self):
+        super().setUp()
+        image = load_image()
+        for vector, start in ((VEC_GRACE_CAST, "8b460e2ef606aa0020"), (VEC_GRACE_EFFECT, "c746ec4300817e0e9400"),
+                              (VEC_GRACE_ABILITY, "8946f6b90700")):
+            at = image.find(bytes.fromhex(start))
+            self.assertGreater(at, 0)
+            self.mu.mem_write(vector * 4, struct.pack("<HH", at, TSR))
+
+    def word(self, offset, value=None):
+        at = SS * 16 + (BP + offset) % 0x10000
+        if value is not None:
+            self.mu.mem_write(at, struct.pack("<h", value))
+        return struct.unpack("<h", self.mu.mem_read(at, 2))[0]
+
+    def test_cast_goes_to_strength(self):
+        for rules, spell, want in ((32, 14, 23), (0, 14, 14), (32, 20, 20), (32, 23, 23)):
+            self.rules(rules)
+            self.word(0x0E, spell)
+            self.run_at(bytes((0xCD, VEC_GRACE_CAST)))
+            self.assertEqual((self.word(-0x1A), self.mu.reg_read(r.UC_X86_REG_AX)), (want, spell if want == spell else 23))
+
+    def test_its_own_effect(self):
+        for rules, spell, want in ((32, 14, 54), (0, 14, 0x43), (32, 23, 0x43), (32, 0x94, 0x42), (0, 0x94, 0x42)):
+            self.rules(rules)
+            self.word(0x0E, spell)
+            self.run_at(bytes((0xCD, VEC_GRACE_EFFECT)))
+            self.assertEqual(self.word(-0x14), want, (rules, spell))
+
+    def test_adds_to_dex(self):
+        effects = 0x9800
+        self.mu.mem_write(effects * 16 + 0x10F, bytes([5]))
+        for effect, dex, want in ((54, 15, 20), (54, 21, 24), (67, 15, 15)):
+            self.word(-0x340, dex)
+            self.word(-0x342, 18)  # STR, untouched
+            self.run_at(bytes((0xCD, VEC_GRACE_ABILITY)), eax=effect, ebx=0, es=effects, ecx=0)
+            self.assertEqual((self.word(-0x340), self.word(-0x342), self.word(-0x0A)), (want, 18, effect))
+            self.assertEqual(self.mu.reg_read(r.UC_X86_REG_CX), 7)
+
+
+@unittest.skipIf(Uc is None, "unicorn not installed")
+class NamesTests(unittest.TestCase):
+    """The game's name table: room for NAMES_EXTRA more names, and DSCLOG's copied in."""
+    NAMES_SEG = 0x5000
+
+    def setUp(self):
+        self.image = image = load_image()
+        self.mu = mu = Uc(UC_ARCH_X86, UC_MODE_16)
+        mu.mem_map(0, 0x100000)
+        mu.mem_write(TSR * 16, image)
+        size = image.find(bytes.fromhex("8146fc2003" "8356fe00"))
+        fill = image.find(bytes.fromhex("83c40c" "2eff36")) - 15
+        self.assertGreater(min(size, fill), 0)
+        mu.mem_write(VEC_NAMES_SIZE * 4, struct.pack("<HH", size, TSR))
+        mu.mem_write(VEC_NAMES_FILL * 4, struct.pack("<HH", fill, TSR))
+        mu.hook_add(UC_HOOK_INTR, real_mode_interrupt)
+        mu.mem_write(GAME_DS * 16 + 0x166D, struct.pack("<HH", 4, self.NAMES_SEG))
+        self.hdr = TSR * 16 + image.find(HDR_SIG)
+
+    def interrupt(self, vector, **regs):
+        mu = self.mu
+        mu.mem_write(CALLER * 16 + 0x600, bytes((0xCD, vector, 0x90)))
+        for name, value in dict(cs=CALLER, ds=GAME_DS, ss=SS, esp=0x800, ebp=BP, eflags=IF | 2, **regs).items():
+            mu.reg_write(getattr(r, "UC_X86_REG_" + name.upper()), value)
+        mu.emu_start(CALLER * 16 + 0x600, CALLER * 16 + 0x602)
+        return mu.reg_read(r.UC_X86_REG_SP)
+
+    def test_room(self):
+        """In place of "push dword 1": the chunk's size (the dword at [BP-4]) gets the room."""
+        for size, want in ((8050, 8850), (0xFF00, 0xFF00 + 800)):
+            self.mu.mem_write(SS * 16 + BP - 4, struct.pack("<I", size))
+            self.assertEqual(self.interrupt(VEC_NAMES_SIZE), 0x7FC)
+            self.assertEqual(struct.unpack("<II", self.mu.mem_read(SS * 16 + 0x7FC, 4) +
+                                           self.mu.mem_read(SS * 16 + BP - 4, 4)), (1, want))
+
+    def test_filled(self):
+        """In place of "add sp,0Ch": with the chunk read (AX 0), DSCLOG's names after the game's."""
+        names = self.NAMES_SEG * 16 + 4 + 0x142 * 25
+        self.assertEqual(self.interrupt(VEC_NAMES_FILL, eax=0), 0x80C)
+        self.assertEqual(bytes(self.mu.mem_read(names, 50)),
+                         b"Ring/Protection".ljust(25, b"\0") + b"Thieves' Tools".ljust(25, b"\0"))
+        self.assertEqual(struct.unpack("<HH", self.mu.mem_read(self.hdr + 200, 4)), (4, self.NAMES_SEG))
+        self.assertEqual([self.mu.reg_read(x) for x in (r.UC_X86_REG_AX, r.UC_X86_REG_DS, r.UC_X86_REG_BP)],
+                         [0, GAME_DS, BP])
+
+    def test_not_read(self):
+        self.assertEqual(self.interrupt(VEC_NAMES_FILL, eax=1), 0x80C)
+        self.assertEqual(bytes(self.mu.mem_read(self.NAMES_SEG * 16 + 4 + 0x142 * 25, 4)), bytes(4))
+        self.assertEqual(bytes(self.mu.mem_read(self.hdr + 200, 4)), bytes(4))
+        self.assertEqual(self.mu.reg_read(r.UC_X86_REG_AX), 1)
+
+
+@unittest.skipIf(Uc is None, "unicorn not installed")
+class StealthTests(unittest.TestCase):
+    """A hidden thief's attack (RULE_STEALTH, 64): from behind, a backstab when it can be."""
+    SHEETS, TYPES = 0x8000, 0x9000
+
+    def setUp(self):
+        self.image = image = load_image()
+        self.mu = mu = Uc(UC_ARCH_X86, UC_MODE_16)
+        mu.mem_map(0, 0x100000)
+        mu.mem_write(TSR * 16, image)
+        self.hdr = TSR * 16 + image.find(HDR_SIG)
+        at = image.find(bytes.fromhex("2ef606") + struct.pack("<H", 170) + bytes([64]))
+        self.assertGreater(at, 0)
+        mu.mem_write(VEC_STEALTH * 4, struct.pack("<HH", at - 15, TSR))  # (after its three pops)
+        mu.hook_add(UC_HOOK_INTR, real_mode_interrupt)
+        mu.mem_write(GAME_DS * 16 + 0x1661, struct.pack("<HH", 0, self.SHEETS))
+        mu.mem_write(GAME_DS * 16 + 0x1669, struct.pack("<HH", 0, self.TYPES))
+        mu.mem_write(TSR * 16 + 170, struct.pack("<H", 64))
+
+    def word(self, offset, value=None):
+        at = SS * 16 + (BP + offset) % 0x10000
+        if value is not None:
+            self.mu.mem_write(at, struct.pack("<h", value))
+        return struct.unpack("<h", self.mu.mem_read(at, 2))[0]
+
+    def attack(self, attacker=2, hidden=0b0100, behind=0, stab=0, thac0=15, thief=True, melee=1,
+               weight=20, target_object=0):
+        """INT VEC_STEALTH with SI the attacker; its sheet 5 ([BP-12h]) a thief or not, its
+        weapon of type 7 ([BP-4]): ([BP-1Ah], [BP-24h], [BP-20h], what was pushed, STEALTH,
+        STEALTH_USED)."""
+        mu = self.mu
+        mu.mem_write(self.hdr + 204, struct.pack("<HH", hidden, 0))
+        mu.mem_write(self.SHEETS * 16 + 5 * 0x47 + 0x12, struct.pack("<H", 0x400 if thief else 0))
+        mu.mem_write(self.TYPES * 16 + 7 * 0x14 + 4, struct.pack("<H", weight))
+        for offset, value in ((-0x12, 5), (-4, 7), (-0x1A, behind), (-0x24, stab), (-0x20, thac0),
+                              (-0x1C, target_object), (0x0E, melee)):
+            self.word(offset, value)
+        mu.mem_write(CALLER * 16 + 0x600, bytes((0xCD, VEC_STEALTH, 0x90)))
+        for name, value in dict(cs=CALLER, ds=GAME_DS, ss=SS, esp=0x800, ebp=BP, eflags=IF | 2, esi=attacker,
+                                eax=0x1111, ebx=0x2222, es=0x6666).items():
+            mu.reg_write(getattr(r, "UC_X86_REG_" + name.upper()), value)
+        mu.emu_start(CALLER * 16 + 0x600, CALLER * 16 + 0x602)
+        self.assertEqual(mu.reg_read(r.UC_X86_REG_SP), 0x7FE)
+        self.assertEqual([mu.reg_read(x) for x in (r.UC_X86_REG_AX, r.UC_X86_REG_BX, r.UC_X86_REG_ES)],
+                         [0x1111, 0x2222, 0x6666])
+        pushed, = struct.unpack("<h", mu.mem_read(SS * 16 + 0x7FE, 2))
+        stealth, used = struct.unpack("<HH", mu.mem_read(self.hdr + 204, 4))
+        return self.word(-0x1A), self.word(-0x24), self.word(-0x20), pushed, stealth, used
+
+    def test_backstab(self):
+        self.assertEqual(self.attack(), (1, 1, 11, 1, 0, 1))
+
+    def test_behind_already(self):
+        """The game had it from behind: only the backstab's +2 more."""
+        self.assertEqual(self.attack(behind=1, thac0=13), (1, 1, 11, 1, 0, 1))
+
+    def test_no_backstab(self):
+        """From behind only: not a thief, a missile, a weapon too heavy."""
+        for kw in (dict(thief=False), dict(melee=2), dict(weight=41)):
+            self.assertEqual(self.attack(**kw), (1, 0, 13, 1, 0, 1), kw)
+
+    def test_not_hidden(self):
+        self.assertEqual(self.attack(hidden=0b1011), (0, 0, 15, 0, 0b1011, 0))
+        self.assertEqual(self.attack(attacker=0x29, hidden=0b1111), (0, 0, 15, 0, 0b1111, 0))
+
+    def test_an_object(self):
+        """Attacking an object (no back): nothing, but the hiding is over."""
+        self.assertEqual(self.attack(target_object=1), (0, 0, 15, 0, 0, 1))
+
+    def test_rule_off(self):
+        self.mu.mem_write(TSR * 16 + 170, struct.pack("<H", 0))
+        self.assertEqual(self.attack(), (0, 0, 15, 0, 0b0100, 0))
 
 
 if __name__ == "__main__":

@@ -26,14 +26,11 @@ THING_COUNT = 0x208  # objects 0-519; 320-519 are handed out from a free list
 FREE_THINGS, THINGS_USED = 0x4D72, 0x4C48  # DS: that list's first, and how many are out
 FREE_ITEMS = 0x4D76  # DS: the first free item record (each names the next at +04h)
 ITEM_CONTENTS = 0x08
-# Its name, in an entry of the game's name table that nothing uses (all zeros): the inventory
-# screen shows the name alone, the box an item's Look opens shows it with the plus after it
-# ("%Fs%+d": "Ring/Protection+1"). The table is read from GPLDATA.GFF each time the game
-# starts, so the companion writes the name whenever it looks (name_ring); without it, the name
-# is blank.
-NAME_ENTRY = 0x95
+# Its name, in the first of the entries DSCLOG adds after the game's 322 (names.py): the
+# inventory screen shows the name alone, the box an item's Look opens shows it with the plus
+# after it ("%Fs%+d": "Ring/Protection+1").
+NAME_ENTRY = 0x142
 NAME = b"Ring/Protection"  # the game's own way of shortening ("Helm/Contempltn")
-OLD_NAMES = (b"Ring +1", b"Ring of Protection")  # what earlier versions called it
 # The box an item's Look opens is only so wide: the game's own names are at most 15 letters
 # long (with its plus after them), and longer ones run out of it
 NAME_FIT = 15
@@ -87,20 +84,6 @@ class Items:
 def is_ring(rec: bytes) -> bool:
     return struct.unpack_from("<H", rec, game.ITEM_TYPE)[0] == game.RING_TYPE and \
         struct.unpack("b", rec[game.ITEM_PLUS:game.ITEM_PLUS + 1])[0] > 0
-
-
-def name_ring(gd: GameData) -> bool:
-    """Give the ring its name in the game's name table, if that entry is still free. True if
-    the entry holds the name."""
-    at = game.far_pointer(gd.guest, gd.ds, game.ITEM_NAMES_PTR) + NAME_ENTRY * game.ITEM_NAME_SIZE
-    entry = gd.guest.read(at, game.ITEM_NAME_SIZE)
-    want = NAME.ljust(game.ITEM_NAME_SIZE, b"\0")
-    if entry == want:
-        return True
-    if any(entry) and entry.split(b"\0", 1)[0] not in OLD_NAMES:
-        return False  # the game uses it after all
-    gd.guest.write(at, want)
-    return True
 
 
 def name_items(gd: GameData, rules: int) -> None:

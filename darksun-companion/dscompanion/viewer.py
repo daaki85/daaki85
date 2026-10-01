@@ -15,8 +15,8 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Dict, List, Optional, Tuple
 
-from . import art, game, launch, partyview, spellbook, theme, values
-from .dicelog import RULE_BOOTS, RULE_HELMS, DiceLog, DiceLogError
+from . import art, dicelog, game, launch, partyview, spellbook, theme, values
+from .dicelog import DiceLog, DiceLogError
 from .guestmem import GuestMemory
 from .layout import Layout
 from .process import ProcessError
@@ -282,27 +282,41 @@ class Viewer:
         in_game = ttk.LabelFrame(options, text="In the game (when started with the dice log)", padding=6)
         in_game.pack(fill="x", pady=(8, 0))
         # long lines wrap to the window (as with larger text) instead of running out of it
-        options.bind("<Configure>", lambda e: ttk.Style().configure(
-            "TCheckbutton", wraplength=max(200, e.width - 60)), add="+")
+        options.bind("<Configure>", lambda e: [ttk.Style().configure(
+            kind, wraplength=max(200, e.width - 60)) for kind in ("TCheckbutton", "TRadiobutton")], add="+")
         # the game's own window, at the end of each turn in a fight: that turn's rolls
-        self.popups = tk.BooleanVar(value=bool(settings.get("turn_popups", True)))
+        self.popups = tk.BooleanVar(value=bool(settings.get("turn_popups", False)))
         ttk.Checkbutton(in_game, text="Show each turn's rolls in the game (click Continue to go on)",
                         variable=self.popups, command=self._popups_changed).pack(anchor="w")
-        self.popup_detail = tk.BooleanVar(value=settings.get("turn_popups_detail", True))
-        ttk.Checkbutton(in_game, text="... in detail, as in the log (MORE shows the next lines)",
-                        variable=self.popup_detail, command=self._popups_changed).pack(anchor="w", padx=(20, 0))
+        self.popup_level = tk.StringVar(value=dicelog.popup_level(settings))
+        for value, text in ((dicelog.POPUP_MINIMAL, "... at the least: what came of each attack and spell, no dice"),
+                            (dicelog.POPUP_SHORT, "... in short: each attack's roll, what it needed and the damage"),
+                            (dicelog.POPUP_DETAIL, "... in detail, as in the log (MORE shows the next lines)")):
+            ttk.Radiobutton(in_game, text=text, value=value, variable=self.popup_level,
+                            command=self._popups_changed).pack(anchor="w", padx=(20, 0))
         # the game's Look box, on a monster in a fight: what hurts it, then all of it in a window
         self.monster_info = tk.BooleanVar(value=bool(settings.get("monster_info", True)))
         ttk.Checkbutton(in_game, text="Describe monsters when you Look at them in a fight (defences, then a window)",
                         variable=self.monster_info, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
         rules = ttk.LabelFrame(options, text="Rule changes (in games started with the dice log)", padding=6)
         rules.pack(fill="x", pady=(8, 0))
-        self.helm_ac = tk.BooleanVar(value=bool(settings.get("helm_ac", True)))
-        ttk.Checkbutton(rules, text="Helms give AC 1 (the game's helms give none)", variable=self.helm_ac,
-                        command=self._popups_changed).pack(anchor="w")
-        self.boots_move = tk.BooleanVar(value=bool(settings.get("boots_move", True)))
-        ttk.Checkbutton(rules, text="Boots give 1 more move in a fight", variable=self.boots_move,
-                        command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        # one switch for each of game.RULE_SETTINGS
+        self.rule_vars: Dict[str, tk.BooleanVar] = {}
+        for n, (key, text) in enumerate((
+                ("helm_ac", "Helms give AC 1 (the game's helms give none)"),
+                ("boots_move", "Boots give 1 more move in a fight"),
+                ("two_weapons", "Two weapons: -2 main hand, -4 off hand, DEX reaction adjustment added "
+                                "(no better than 0; rangers none)"),
+                ("spell_save", "Spells are saved against with the spell save (the game uses "
+                               "petrification/polymorph)"),
+                ("no_doubled_save", "Saves against fire, cold and electricity: DEX defensive adjustment "
+                                    "instead of a doubled d20"),
+                ("cats_grace", "Cat's Grace in Flaming Sphere's place (DEX + 1d6, at most 24, like Strength)"),
+                ("stealth", "Thieves hide in shadows and move silently to backstab (no enemy beside them; "
+                            "half the chance in daylight)"))):
+            self.rule_vars[key] = tk.BooleanVar(value=bool(settings.get(key, True)))
+            ttk.Checkbutton(rules, text=text, variable=self.rule_vars[key],
+                            command=self._popups_changed).pack(anchor="w", pady=(4 if n else 0, 0))
         # the companion's own item: a Ring +1 on the Tied-up Prisoner in the arena (ring.py)
         self.arena_ring = tk.BooleanVar(value=bool(settings.get("arena_ring", True)))
         ttk.Checkbutton(in_game, text="A Ring of Protection +1 on the arena's Tied-up Prisoner (search his body)",
@@ -589,7 +603,7 @@ class Viewer:
                 self.dice.speaker_names = launch.speaker_names()
                 self.dice.learned_speakers = launch.learned_speakers()
                 self.dice.popups = self.popups.get()
-                self.dice.popup_detail = self.popup_detail.get()
+                self.dice.popup_level = self.popup_level.get()
                 self.dice.monster_info = self.monster_info.get()
                 self.dice.arena_ring = self.arena_ring.get()
                 self.dice.pickpockets = self.pickpockets.get()
@@ -670,23 +684,23 @@ class Viewer:
         on = self.popups.get()
         settings = launch.load_settings()
         settings["turn_popups"] = on
-        settings["turn_popups_detail"] = self.popup_detail.get()
+        settings["turn_popups_level"] = self.popup_level.get()
         settings["monster_info"] = self.monster_info.get()
         settings["arena_ring"] = self.arena_ring.get()
         settings["pickpockets"] = self.pickpockets.get()
-        settings["helm_ac"] = self.helm_ac.get()
-        settings["boots_move"] = self.boots_move.get()
+        for key, var in self.rule_vars.items():
+            settings[key] = var.get()
         launch.save_settings(settings)
         if self.dice is not None:
             self.dice.set_popups(on)
-            self.dice.popup_detail = self.popup_detail.get()
+            self.dice.popup_level = self.popup_level.get()
             self.dice.set_monster_info(self.monster_info.get())
             self.dice.arena_ring = self.arena_ring.get()
             self.dice.set_pickpockets(self.pickpockets.get())
             self.dice.set_rules(self._rules())
 
     def _rules(self) -> int:
-        return (RULE_HELMS if self.helm_ac.get() else 0) | (RULE_BOOTS if self.boots_move.get() else 0)
+        return game.rules_from_settings({key: var.get() for key, var in self.rule_vars.items()})
 
     def show_spells(self) -> None:
         """Fill the Spells tab from the running game's records."""
@@ -928,7 +942,7 @@ class Viewer:
                 saves = gd.saves_now(index) if known and index < game.PARTY_SIZE else []
             except (struct.error, IndexError, ValueError):
                 hits, saves = [], []
-            boots = bool(known and self.boots_move.get() and gd.wears_boots(index))
+            boots = bool(known and self.rule_vars["boots_move"].get() and gd.wears_boots(index))
             card.show(name, dict(fields), status, ac, self.art, member_slots, thief, equipment, hits, saves, boots)
 
     def _hex_base(self) -> Optional[int]:

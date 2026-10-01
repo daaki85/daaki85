@@ -51,6 +51,24 @@ class HitTests(unittest.TestCase):
         set_effects(log, [(0, 0, 7), (0, 0, 12)])  # +1, -1
         self.assertEqual(log.game.weapon_hits(0)[0].thac0, 9)
 
+    def test_two_weapon_rule_needs_two_weapons(self):
+        """Dag's long sword and his bow (the missile slot): one melee weapon, so no penalty with
+        the AD&D rule on; a second melee weapon in the left hand brings -2 and -4; a ranger never."""
+        g = dag().game
+        g.rules = game.RULE_TWO_WEAPONS
+        m = g.guest.mem
+        self.assertEqual([h.parts for h in g.weapon_hits(0)][0], [("STR", 6), ("weapon", 1)])
+        m[ITEM_TYPES + 11 * game.ITEM_TYPE_SIZE + 0x0A] = 1  # the bow's type as a melee weapon...
+        m[ITEMS + 6 * game.ITEM_SIZE + game.ITEM_SLOT] = 10  # ... in the left hand
+        m[ITEM_TYPES + 10 * game.ITEM_TYPE_SIZE + 0x0A] = 1
+        m[ITEM_TYPES + 9 * game.ITEM_TYPE_SIZE + 0x0A] = 1
+        dex = g.creature(0)[game.CREATURE_ABILITIES + 1]
+        parts = {h.slot: h.parts[-1] for h in g.weapon_hits(0)}
+        self.assertEqual(parts[3], (f"two weapons, main hand at DEX {dex}", -2 + g.dex_initiative(dex)))
+        self.assertEqual(parts[10][1], min(0, -4 + g.dex_initiative(dex)))
+        struct.pack_into("<H", m, SHEETS + game.SHEET_FLAGS, game.SHEET_FLAG_RANGER)
+        self.assertFalse(any("two weapons" in why for h in g.weapon_hits(0) for why, _ in h.parts))
+
     def test_unarmed(self):
         log = dag()
         struct.pack_into("<h", log.guest.mem, CREATURES + 8, game.NO_ITEM)
@@ -128,8 +146,11 @@ class ThiefTests(unittest.TestCase):
 class SettingsTests(unittest.TestCase):
     def test_saved_options(self):
         log = dag()
-        log.use_settings({"helm_ac": False, "arena_ring": False})
-        self.assertEqual((log.rules, log.arena_ring, log.monster_info), (dicelog.RULE_BOOTS, False, True))
+        log.use_settings({"helm_ac": False, "arena_ring": False, "no_doubled_save": False})
+        self.assertEqual((log.rules, log.arena_ring, log.monster_info),
+                         (game.RULE_BOOTS | game.RULE_TWO_WEAPONS | game.RULE_SPELL_SAVE | game.RULE_CATS_GRACE
+                          | game.RULE_STEALTH,
+                          False, True))
 
 
 class SpeakerTests(unittest.TestCase):

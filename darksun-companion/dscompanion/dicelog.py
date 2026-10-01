@@ -16,21 +16,22 @@ Everything game-specific here was taken from the GOG release of Shattered
 Lands (DSUN.EXE, 611408 bytes).
 """
 
+import random
 import re
 import struct
 import time
 from collections import Counter
 from dataclasses import dataclass
-from typing import Dict, List, NamedTuple, Optional, Tuple
+from typing import Callable, Dict, List, NamedTuple, Optional, Tuple
 
-from . import game, monsters, pickpocket, ring, tools
+from . import game, monsters, names, pickpocket, ring, stealth, tools, vulture
 from .game import (CONVENTIONAL_AND_UPPER, CREATURE_ABILITIES, CREATURE_SIDE, CREATURE_THAC0, EFFECT_NAMES,
                    EFFECT_RULES, MATERIAL_TO_HIT, MATERIALS, SAVE_NAMES, STR_DAMAGE, GameData)
 from .guestmem import GuestMemory
 from .textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGvH"
+HDR_SIG = b"DSCLOGvM"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
 MSG_SIZE = 900
@@ -148,6 +149,20 @@ RANDOM_NAME_RETURNS = (bytes.fromhex("83c40448eb11"), bytes.fromhex("83c40405630
                        bytes.fromhex("83c40405c700eb"))
 
 KIND_ROLL, KIND_SAVE, KIND_AC = 0, 1, 2
+# How much each turn's pop-up in the game says (the Options' turn_popups_level)
+POPUP_DETAIL, POPUP_SHORT, POPUP_MINIMAL = "detail", "short", "minimal"
+POPUP_LEVELS = (POPUP_MINIMAL, POPUP_SHORT, POPUP_DETAIL)
+# a spell's result in the log, for the least of them: "  Slig takes 9 from Fireball, now 9/18 HP"
+SPELL_RESULT = re.compile(r"^\s+(.+? (?:takes \d+|regains \d+ HP) from [^,]+)")
+
+
+def popup_level(settings: dict) -> str:
+    """The pop-ups' level as saved (earlier versions had only detail or not)."""
+    level = settings.get("turn_popups_level")
+    if level in POPUP_LEVELS:
+        return level
+    return POPUP_DETAIL if settings.get("turn_popups_detail", True) else POPUP_SHORT
+
 THIEF = 17  # class number
 
 EFFECT_INTERVAL = 0.25  # seconds between looks at the active effects
@@ -305,7 +320,7 @@ class DiceLog:
         self._new_speakers: Dict[int, str] = {}  # learned since take_speakers()
         self._talk: Optional[dict] = None  # the conversation on screen: its portraits and who it's with
         self.popups = False  # in-game turn summaries (set_popups)
-        self.popup_detail = True  # ... with the dice log's lines, or in short
+        self.popup_level = POPUP_DETAIL  # ... with the dice log's lines, in short, or the results only
         self.monster_info = True  # monsters' defences in the game's Look box (set_monster_info)
         self.arena_ring = True  # put the Ring +1 on the Tied-up Prisoner's body in the arena (ring.py)
         self.pickpockets = True  # P in a conversation picks a pocket (pickpocket.py)
@@ -316,6 +331,7 @@ class DiceLog:
         self._swap_seq = 0  # DSCLOG's text swaps seen (the arena ring's search, ring.py)
         self._tools_new: List[str] = []
         self.rules = 0  # RULE_HELMS | RULE_BOOTS: rule changes DSCLOG makes (set_rules)
+        self.stealth_roll: Callable[[], int] = lambda: random.randint(1, 100)  # hiding, moving silently
         self._ring_check = 0.0
         self._look_seq = 0
         self._turn_seq = 0
@@ -417,6 +433,8 @@ class DiceLog:
             return []
         before = set(self.tools_given)
         try:
+            if not names.update(self.game, self.tsr_hdr):
+                return ["The game's name table has no room for the tools' name yet: load a game, then try again."]
             out = tools.give_tools(self.game, self.tools_given, now=True, session=self._tools_session)
         except (struct.error, IndexError, ValueError):
             return []
@@ -435,7 +453,8 @@ class DiceLog:
 
     def _answer_use(self) -> List[str]:
         """An item was used on something on the map: if it was the thieving tools on someone,
-        try their pockets, and have DSCLOG show what came of it instead of the game's doing."""
+        try their pockets; if the cooked vulture, see what comes of it (vulture.py); and have
+        DSCLOG show what came of it instead of the game's doing."""
         if self.tsr_hdr is None:
             return []
         seq = self.guest.read(self.tsr_hdr + TSR_USE_SEQ, 2)
@@ -445,7 +464,14 @@ class DiceLog:
         try:
             item, thing = struct.unpack("<HH", self.guest.read(self.tsr_hdr + TSR_USE_ITEM, 2) +
                                         self.guest.read(self.tsr_hdr + TSR_USE_WHO, 2))
-            if item < game.NO_ITEM and tools.is_tools(ring.Items(self.game).item(item)):
+            it = ring.Items(self.game)
+            rec = it.item(item) if item < game.NO_ITEM else b""
+            kind, index = it.thing(thing) if 0 <= thing < ring.THING_COUNT else (None, None)
+            meal = vulture.use(self.game, rec, index, self._fighting()) if rec and kind == 2 else None
+            if meal is not None:
+                taken = 2 if meal.used_up else True
+                result = pickpocket.Attempt(meal.text, meal.log)
+            elif item < game.NO_ITEM and tools.is_tools(rec):
                 kind, index = ring.Items(self.game).thing(thing)
                 taken = True
                 result = pickpocket.attempt(self.game, self.picked, who=index) if kind == 2 else None
@@ -494,21 +520,33 @@ class DiceLog:
 
     def use_settings(self, settings: dict) -> None:
         """The Options tab's switches for the game, as saved (for the logs without a window)."""
-        self.popups = bool(settings.get("turn_popups", True))
-        self.popup_detail = bool(settings.get("turn_popups_detail", True))
+        self.popups = bool(settings.get("turn_popups", False))
+        self.popup_level = popup_level(settings)
         self.monster_info = bool(settings.get("monster_info", True))
         self.arena_ring = bool(settings.get("arena_ring", True))
         self.pickpockets = bool(settings.get("pickpockets", True))
         self.picked = set(settings.get("pickpocketed", []))
         self.tools_given = set(settings.get("tools_given", []))
-        self.rules = (RULE_HELMS if settings.get("helm_ac", True) else 0) | \
-            (RULE_BOOTS if settings.get("boots_move", True) else 0)
+        self.rules = game.rules_from_settings(settings)
 
     def set_rules(self, rules: int) -> None:
-        """Turn the rule changes on or off: helms count AC 1, boots add a move in a fight."""
+        """Turn the rule changes on or off (game.RULE_*). DSCLOG makes most of them; the spell
+        save is the game's own table, written here."""
         self.rules = rules
+        game.RULES_IN_FORCE = rules
+        if self.game is not None:
+            self.game.rules = rules
         if self.tsr_hdr is not None:
             self.guest.write(self.tsr_hdr + TSR_RULES, struct.pack("<H", rules))
+            table = self.game.ds * 16 + game.SAVE_KINDS if self.game is not None else None
+            # (only over the game's own table: kind 5 is petrification/polymorph or, so far, the spell save)
+            if table is not None and struct.unpack("<5H", self.guest.read(table, 10)) == game.KIND_TO_SAVE[:5] \
+                    and struct.unpack("<H", self.guest.read(table + 2 * game.SPELL_KIND, 2))[0] in (3, 5):
+                save = game.kind_to_save(game.SPELL_KIND, rules)
+                self.guest.write(table + 2 * game.SPELL_KIND, struct.pack("<H", save))
+            if self.game is not None:
+                self.game.set_cats_grace(bool(rules & game.RULE_CATS_GRACE))
+                self.game.set_dodge(bool(rules & game.RULE_NO_DOUBLE))
 
     def _answer_look(self) -> List[str]:
         """DSCLOG asks about a creature the player looks at in a fight: give the Look box its
@@ -558,15 +596,31 @@ class DiceLog:
         ("needs 8+ (65%)", as the AC the roll hits and the target's AC say it) or a save's chance."""
         return TO_HIT_CHANCE.sub("", line.strip())
 
-    def turn_summary(self, combatant: int, detail: bool = True) -> str:
+    def turn_summary(self, combatant: int, level: str = POPUP_DETAIL) -> str:
         """What happened during that combatant's turn, for the game's window. In detail, the dice
         log's lines for it, a line each: attacks (the roll, the THAC0 worked out, the damage
-        dice), spells' damage and saving throws; otherwise in short, the attacks as
-        "Daaki attacks Guard: 18 vs 8+ HIT, 13 damage; 5 vs 8+ miss" and the spells' first lines."""
+        dice), spells' damage and saving throws; in short, the attacks as
+        "Daaki attacks Guard: 18 vs 8+ HIT, 13 damage; 5 vs 8+ miss" and the spells' first lines;
+        at the least, what came of it, no dice: "Daaki hits Guard for 13, misses. Slig takes 9
+        from Fireball"."""
         own = self.game.combatant_creature(combatant)
         order = sorted(self._turn_attacks, key=lambda c: c != own)  # stable: the rest in order of attacking
-        if detail:
+        if level == POPUP_DETAIL:
             text = "\n".join(self._for_game(line) for line in self._turn_log)
+        elif level == POPUP_MINIMAL:
+            parts = []
+            for creature in order:
+                target = None
+                for a in self._turn_attacks[creature]:
+                    what = (f"hits for {a['damage']}" if a["damage"] is not None else "hits") if a["hit"] else "misses"
+                    if a["target"] != target:
+                        target = a["target"]
+                        what = what.replace("hits", f"hits {target}", 1) if a["hit"] else f"misses {target}"
+                        parts.append(f"{self.game.creature_name(creature)} {what}")
+                    else:
+                        parts[-1] += f", {what}"
+            parts += [m.group(1) for m in map(SPELL_RESULT.match, self._turn_log) if m]
+            text = ". ".join(parts)
         else:
             parts = []
             for creature in order:
@@ -701,14 +755,14 @@ class DiceLog:
         # Only in the party's own fights: a fight the scripts stage without the party (the
         # Defiler's show at the arena's start) waits on the game's dialogue window, and a summary
         # there would let its script run on before the fight is over.
-        summary = self.turn_summary(ended, self.popup_detail) if self.popups and self._party_fighting(ended) else ""
-        if summary:  # and who is still to come, so the order isn't lost deep in a round
+        summary = self.turn_summary(ended, self.popup_level) if self.popups and self._party_fighting(ended) else ""
+        if summary and self.popup_level != POPUP_MINIMAL:  # and who is still to come, so the order isn't lost
             try:
                 still = self.still_to_act(ended, frozenset(self._turn_attacks))
             except (struct.error, IndexError, ValueError):
                 still = ""
             if still:
-                summary += ("\n" if self.popup_detail else ". ") + still
+                summary += ("\n" if self.popup_level == POPUP_DETAIL else ". ") + still
         summary = summary.replace("%", " pct")  # the game's window shows no "%", even as "%%"
         if len(summary) > MSG_SIZE - 1:
             summary = summary[:MSG_SIZE - 4].rsplit(" ", 1)[0] + "..."
@@ -812,17 +866,18 @@ class DiceLog:
         return out
 
     def _arena_ring(self, now: float) -> List[str]:
-        """The Ring +1: its name (wherever it is by now), and in the arena, the ring itself; the
-        thieving tools' name, and a set for each thief who hasn't had one."""
+        """The helms' and boots' names for the rules; once the game's name table has DSCLOG's
+        names, the ring and tools from earlier versions named in them, and in the arena, the
+        ring itself, and a set of tools for each thief who hasn't had one."""
         if now < self._ring_check:
             return []
         self._ring_check = now + RING_INTERVAL
         out: List[str] = []
         try:
-            ring.name_ring(self.game)
             ring.name_items(self.game, self.rules)
+            if not names.update(self.game, self.tsr_hdr):
+                return out  # no names for them yet: none given
             if self.pickpockets:
-                tools.name_tools(self.game)
                 tools.repaint(self.game)
                 before = set(self.tools_given)
                 out += tools.give_tools(self.game, self.tools_given, session=self._tools_session)
@@ -1065,11 +1120,29 @@ class DiceLog:
             return []
         self._turn = turn
         self._acted.add(turn)
+        self._set_stealth(False)  # the last turn's hiding is over
         now = self.game.game_time()
         if self._round_time is None or now is None or now - self._round_time > FIGHT_GAP:
             return []  # not in a fight
         name = self.game.combatant_name(turn)
-        return [f"{name}'s turn"] if name != "?" else []
+        out = [f"{name}'s turn"] if name != "?" else []
+        if self.rules & game.RULE_STEALTH and turn < game.PARTY_SIZE:
+            try:
+                lines, hidden = stealth.turn(self.game, turn, self.stealth_roll)
+            except (struct.error, IndexError, ValueError):
+                lines, hidden = [], False
+            out += lines
+            self._set_stealth(hidden, turn)
+        return out
+
+    def _fighting(self) -> bool:
+        now = self.game.game_time()
+        return self._round_time is not None and now is not None and now - self._round_time <= FIGHT_GAP
+
+    def _set_stealth(self, hidden: bool, member: int = 0) -> None:
+        """Have DSCLOG make this party member's next attack one from behind (or no one's)."""
+        if self.tsr_hdr is not None:
+            self.guest.write(self.tsr_hdr + stealth.TSR_STEALTH, struct.pack("<H", 1 << member if hidden else 0))
 
     def round_status(self, acted_creatures: frozenset = frozenset()) -> Optional[dict]:
         """The round in progress, for keeping its order in view: {"round", "now": (name, score),
@@ -1302,16 +1375,18 @@ class DiceLog:
                 rest -= penalty
         # With two weapons ready the game adjusts every melee attack by the DEX table it
         # also uses for initiative, sign flipped and never below 0 (rangers excepted): a
-        # bonus at DEX 5 or less, nothing otherwise. The manual's off-hand penalty isn't there.
+        # bonus at DEX 5 or less, nothing otherwise. The manual's off-hand penalty isn't there,
+        # unless the companion's rule puts AD&D's in (GameData.two_weapons).
         weapons_ready = e.parent_local(-0x16)
         if mode <= 1 and weapons_ready is not None and weapons_ready >= 2:
-            sheet = g.sheet(attacker)
-            ranger = len(sheet) >= game.SHEET_FLAGS + 2 and \
-                struct.unpack_from("<H", sheet, game.SHEET_FLAGS)[0] & game.SHEET_FLAG_RANGER
-            dex = g.creature(attacker)[CREATURE_ABILITIES + 1]
-            two_weapons = 0 if ranger else max(0, -g.dex_initiative(dex))
+            item = e.arg(0x12)
+            slot = None
+            if item is not None and 0 <= item < game.NO_ITEM:
+                at = game.far_pointer(g.guest, g.ds, game.ITEMS_PTR) + item * game.ITEM_SIZE
+                slot = g.guest.read(at + game.ITEM_SLOT, 1)[0]
+            why, two_weapons = g.two_weapons(attacker, slot)
             if two_weapons:
-                parts.append((f"two weapons at DEX {dex}", two_weapons))
+                parts.append((why, two_weapons))
                 rest -= two_weapons
         if attacker_combatant is not None and attacker_combatant >= 4:
             difficulty = g.difficulty() - 1
@@ -1361,8 +1436,10 @@ class DiceLog:
             if count == 1 and e.parent_code.startswith(STRENGTH_ROLL_RETURN) and e.parent_arg(0x0E) is not None:
                 spell, target = e.parent_arg(0x0E), e.parent_arg(6)
                 self._spell_cast(spell, now)
+                # (Cat's Grace, in Flaming Sphere's place, uses Strength's code for DEX)
+                ability = "DEX" if spell == game.FLAMING_SPHERE and self.rules & game.RULE_CATS_GRACE else "STR"
                 return self.flush(now, force=True) + [
-                    f"{self.game.spell_name(spell)}: 1d{sides} = {faces[0]} -> {self._name(target)}'s STR "
+                    f"{self.game.spell_name(spell)}: 1d{sides} = {faces[0]} -> {self._name(target)}'s {ability} "
                     f"+{faces[0]} while it lasts (at most {STR_MOST})"]
             if count == 1 and sides == 100 and e.parent_code.startswith(RESISTANCE_ROLL_RETURN):
                 return self._magic_resistance(e.parent_arg(6), e.parent_arg(8), faces[0])

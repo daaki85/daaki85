@@ -66,22 +66,6 @@ class SearchTests(unittest.TestCase):
 
 
 class NameTests(unittest.TestCase):
-    def test_free_entry(self):
-        log = arena()
-        self.assertTrue(ring.name_ring(log.game))
-        self.assertEqual(log.game.item_name(ring.NAME_ENTRY), "Ring/Protection")
-
-    def test_old_name(self):
-        """Saved with an earlier version: its "Ring +1" or "Ring of Protection" (too long for
-        the Look box) becomes the new name."""
-        log = arena()
-        at = NAMES + 3 + ring.NAME_ENTRY * game.ITEM_NAME_SIZE
-        for old in (b"Ring +1", b"Ring of Protection"):
-            log.guest.mem[at:at + game.ITEM_NAME_SIZE] = old.ljust(game.ITEM_NAME_SIZE, b"\0")
-            self.assertTrue(ring.name_ring(log.game))
-            self.assertEqual(log.game.item_name(ring.NAME_ENTRY), "Ring/Protection")
-        self.assertEqual(log.game.item_name(ring.NAME_ENTRY), "Ring/Protection")
-
     def test_rule_names(self):
         """Helms and boots named for the rules while they're on, and back without them."""
         log = arena()
@@ -104,20 +88,12 @@ class NameTests(unittest.TestCase):
         ring.name_items(log.game, game.RULE_HELMS | game.RULE_BOOTS)
         self.assertEqual((log.game.item_name(236), log.game.item_name(286)), ("Helm of Might", "Serpent Boots"))
 
-    def test_entry_in_use(self):
-        log = arena()
-        at = NAMES + 3 + ring.NAME_ENTRY * game.ITEM_NAME_SIZE
-        log.guest.mem[at:at + 5] = b"Other"
-        self.assertFalse(ring.name_ring(log.game))
-        self.assertEqual(log.game.item_name(ring.NAME_ENTRY), "Other")
-
 
 class WornTests(unittest.TestCase):
     def setUp(self):
         """Dag wears the Ring +1 (item 70, from object 401)."""
         self.log = arena()
         m = self.log.guest.mem
-        ring.name_ring(self.log.game)
         struct.pack_into("<Bh", m, THINGS + 401 * 3, game.THING_ITEM, 70)
         struct.pack_into("<h", m, CREATURES + 0x0C, 401)
         m[ITEMS + 70 * game.ITEM_SIZE:ITEMS + 71 * game.ITEM_SIZE] = ring.RING

@@ -35,9 +35,9 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   View Character screen their THAC0 and saves
   (see [In the game](#in-the-game-thac0-saves-and-thief-skills)); the USE
   screen shows their spell slots left (see
-  [spell slots](#in-the-game-spell-slots-on-the-use-screen)); and after each
-  turn in a fight the game stops to show that turn's attack rolls, spell
-  damage and saving throws, and who is still to act (see
+  [spell slots](#in-the-game-spell-slots-on-the-use-screen)); and, if you
+  tick it, after each turn in a fight the game stops to show that turn's
+  attack rolls, spell damage and saving throws, and who is still to act (see
   [each turn's rolls](#in-the-game-each-turns-rolls)); and Looking at a monster
   in a fight tells you what hurts it (see
   [the Look box](#in-the-game-what-hurts-a-monster-the-look-box)). The game,
@@ -46,12 +46,17 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   from the game's own records (see [the Spells tab](#the-spells-tab)).
 - **A Ring +1** (+1 AC, +1 on saving throws) found by searching the Tied-up
   Prisoner's body in the arena, an item of the Ledger's own (see [The Ring +1](#the-ring-1)), and
-  two optional rule changes: helms give AC 1, boots a move more in a fight (see
-  [Rule changes](#rule-changes-helms-and-boots)).
+  optional rule changes: helms give AC 1, boots a move more in a fight, AD&D's
+  two-weapon penalties, spells saved against with the spell save, and DEX
+  rather than a doubled d20 on saves against fire, cold and electricity, a
+  new spell, Cat's Grace, and thieves hiding in shadows to backstab (see
+  [Rule changes](#rule-changes)).
 - **Picking pockets:** a thief can try anyone's pockets, with the Thieves'
   Tools every thief now carries or with P in a conversation, a move silently
   roll deciding whether a fumble is noticed (see
   [Picking pockets](#picking-pockets)).
+- **A use for the cooked vulture:** take it to Dinos in the slave pens, and he
+  cooks it properly for the party (see [The cooked vulture](#the-cooked-vulture)).
 
 Nothing in the game folder or your save files is changed, except that a game
 you save keeps what the Ledger has handed out: the Ring +1, a thief's Thieves'
@@ -69,7 +74,7 @@ the arena, all sampled from the game (no game artwork is copied).
 
 ![The Dialogue tab](docs/dialogue.png)
 
-![The inventory screen's panel in the game, with THAC0, saves and Cilla's thief skills added, move silently among them](docs/inventory.png)
+![The inventory screen's panel in the game, with THAC0, saves, Cilla's thief skills (move silently among them) and her DEX reaction and defensive adjustments added](docs/inventory.png)
 
 ## Requirements
 
@@ -89,8 +94,8 @@ install anything into the game folder.
 
 **One-time setup**
 
-1. Download this project: on GitHub open the `templars-ledger`
-   branch, click **Code → Download ZIP**, and unzip it anywhere.
+1. Download this project: on its GitHub page click **Code → Download ZIP**,
+   and unzip it anywhere.
    The files you need are in the `darksun-companion` folder.
 2. Python: the first time you double-click one of the `.bat` files, it
    checks for a 64-bit Python 3.8 or later. If there is none, it asks
@@ -111,8 +116,8 @@ no packaged program to trust.
 Double-click **`Start Game with Dice Log.bat`** in the `darksun-companion`
 folder. It starts Shattered Lands (through GOG's own DOSBox) with the dice log
 helper loaded, and opens Templar's Ledger next to it. The game gets its
-in-game additions too: each turn's rolls shown in the game (untick **Show
-each turn's rolls in the game** on the Options tab to turn that off), THAC0,
+in-game additions too: each turn's rolls shown in the game if you want them
+(tick **Show each turn's rolls in the game** on the Options tab), THAC0,
 saves and thief skills on the inventory and View Character screens, and spell
 slots on the USE screen. Your saves are the same ones the game normally uses.
 The first time, it looks for the game in the usual GOG folders; if it can't
@@ -263,6 +268,8 @@ became 5 and 6), and nothing at DEX 15 or 25; a character with one weapon
 logged hit and none for the misses (46 attacks), including a d20 of 4 that
 only hit because of the +6. It looks like a sign slip in the game: AD&D uses
 the same DEX adjustment to make two-weapon fighting *harder* at low DEX.
+The [rule changes](#rule-changes) can put AD&D's rule in instead: -2 and -4,
+with the DEX adjustment.
 
 ### Spells and effects
 
@@ -301,7 +308,8 @@ paralysis/poison/death, used by the clouds, Poison, Slay Living and the psionic
 attacks). The spell save, the one AD&D uses for spells, is never used. That
 was checked against the AD&D tables: a 3rd-level warrior needs 13 against
 Psychic Crush (paralysis) and 14 against Fireball (petrification), where the
-spell save would be 16.
+spell save would be 16. The [rule changes](#rule-changes) can put the spell
+save back, and take the doubled d20 away.
 
 **How long.** A duration is (caster level × so much + dice) × a unit of time.
 A round is 60 game seconds. Some effects last a number of uses instead
@@ -433,7 +441,9 @@ has a script command that lets each member try in turn, but no script uses it.)
 
 **Move silently, hide in shadows and read languages are never rolled** anywhere
 in the game, so they make no difference; nor does the equipment penalty on
-them. The scripts also make 3 ability checks (a d20 under the ability): CHA
+them. (The Ledger rolls move silently when a pocket isn't picked, see
+[Picking pockets](#picking-pockets), and hide in shadows and move silently in
+fights with the [stealth rule](#rule-changes).) The scripts also make 3 ability checks (a d20 under the ability): CHA
 twice and STR once.
 
 `python -m dscompanion checks` lists them all with the script's text around
@@ -625,9 +635,11 @@ can't. The Scare code looks meant to let some elf or half-elf priests save
 (AD&D gives elves, half-elves and priests a bonus), but it asks for a
 creature that is both an elf and a half-elf, so no one qualifies.
 
-Rules in the code that never come into play: a DEX adjustment and Cloak of
-Bravery's +4 against fear both apply only to a kind of spell that no spell in
-the game is marked as. And nothing in the game gives saves from items: there
+Rules in the code that never come into play: Cloak of Bravery's +4 against
+fear applies only to a kind of spell that no spell in the game is marked as,
+and so does AD&D's DEX defensive adjustment for attacks that can be dodged
+(+5 at DEX 1 to -6 at DEX 25 on AC, so -5 to +6 on the save), unless the
+[rule change](#rule-changes) puts it on the fire, cold and electricity spells. And nothing in the game gives saves from items: there
 are no rings or cloaks of protection, which is why the Ledger adds
 [one](#the-ring-1). Its +1 is in the log's saving throws as `+1 Ring of Protection`.
 
@@ -661,8 +673,9 @@ the body lying below him, keep it there.
 
 How it works: the game has a plain "Ring" item that nothing in it has a plus
 on, and no item that betters saving throws. The Ledger adds a Ring with a plus
-of 1 to a backpack (an item record from the game's free list, and the ring's
-name in an unused entry of the game's name table); the patched game's routine
+of 1 to a backpack (an item record from the game's free list, its name one
+the helper adds to the game's name table: see
+[New item names](#new-item-names)); the patched game's routine
 that feeds the dialogue window (`INT 63h`) shows the search's line in place of
 the script's when the Ledger asks it to. The dice
 log's patched game does the rest (see
@@ -671,14 +684,53 @@ ring counts like armour does (its plus, on top of AC 0), and where it adds up
 a saving throw's modifiers, it starts from the pluses of the rings worn. So:
 
 - The ring works in games started with the dice log. In the original game
-  it is a plain ring, and without the Ledger running its name is blank (the
-  game reads the name table afresh each time it starts, and the Ledger writes
-  the name back within a few seconds).
+  it is a plain ring, without a name of its own (the game's table has no
+  name with that number).
 - The AC it gives shows on the View Character and inventory screens and in the
   Ledger's **AC: spells, rings, other** row; the +1 on saves in the saves those
   screens and the Characters tab show, and in the log.
 - A ring the original game has (the plain Ring and the Serpent Ring are the
   only kind the patch looks at) has no plus, so it plays as before.
+
+### New item names
+
+An item names its entry in the game's name table by number. The game reads
+the table (GPLDATA's 322 names, 25 letters each) in as it starts and as a game
+is loaded, and none of it is free to take, so in games started with the dice
+log the helper makes room for 32 more each time and copies its own names into
+them, from number 322 on: the Ring of Protection's (322) and the Thieves'
+Tools' (323), the rest for items to come. Nothing in the game checks the
+numbers against its own 322 (its inventory, list, Look and View Character
+screens all read the name the same way), and the names are there before
+anything shows them, Ledger running or not.
+
+Earlier versions borrowed two of the game's own entries instead: one nothing
+named (the ring's) and "Rest icon", the label of the rest button's picture
+(the tools'). Once the table has the new names, the Ledger gives those entries
+back and renames rings and tools that named them, carried or lying anywhere in
+the region. In the original game, the ring and tools have no name of their
+own.
+
+### The cooked vulture
+
+Hit the arena's vulture and its feathers come off (a plucked vulture); the
+slave pens' campfire cooks it. In the game itself the cooked vulture is then no
+use to anyone: no script asks for it. With the Ledger running, take it to
+**Dinos**, the pens' fine cook: pick it up on the inventory screen, go back to
+the game with it on the pointer, and click him. He shows the party how it
+should be done, everyone eats together, and each party member gets **100 XP**
+and is **restored as after a full rest**: HP, PSP and spell slots full, and
+anyone knocked out back on their feet. The vulture is eaten, gone from the
+pointer. (Not during a fight: Dinos says to come back when it's over. Eaten by
+the party on their own, it's too tough to be worth the chewing.)
+
+![Dinos cooks the vulture](docs/vulture.png)
+
+How: when an item on the pointer is used on someone, the helper asks the
+Ledger first (`INT FDh`, as for the Thieves' Tools). For the cooked vulture
+(the game's object A4Ch) on Dinos, the Ledger adds the XP and refills the
+party, and the helper lets go of the pointer's item the way the game does with
+coins once it has counted them, so the item goes back to the game's free list.
 
 ### Picking pockets
 
@@ -692,10 +744,9 @@ can try anyone's, two ways, with the thief as the party's leader (keys 1-4):
   now** on the Options tab gives a set at once to each thief in the party
   without one (lost or sold ones included). Moving the tools about the inventory
   screen doesn't count as being without: no second set for that. They are called **Thieves'
-  Tools**: the game's name table has no free entry, so the name goes over
-  "Rest icon", an internal label of the game's that no item has (without the
-  Ledger running, that is what they're called). Tools an earlier version gave,
-  called "pick", are renamed. They look like a satchel (the game's own
+  Tools**, a name the helper adds to the game's (see
+  [New item names](#new-item-names)). Tools an earlier version gave, called
+  "pick" or named over the game's "Rest icon", are renamed. They look like a satchel (the game's own
   picture), and earlier sets that looked like a key change to it too. On the
   inventory screen, pick the tools up, go back to the
   game with them on the pointer, and click someone in sight: the result comes
@@ -744,11 +795,13 @@ pointer on something on the map tells the helper what was used on what
 (`INT FDh`): for the thieving tools on someone, the Ledger does the same, and
 the helper shows the result instead of the game's "nothing happens".
 
-### Rule changes: helms and boots
+### Rule changes
 
-Two small changes to the game's rules, both on the Options tab (on by default;
-they take effect in games started with the dice log, while the Ledger runs or
-with **Play Dark Sun (in-game rolls)**, which uses the Options as last set):
+Seven changes to the game's rules, each with its own box under **Rule changes**
+on the Options tab (all on by default; they take effect in games started with
+the dice log, while the Ledger runs or with **Play Dark Sun (in-game rolls)**,
+which uses the Options as last set). Untick one and the game's own rule is back
+at once.
 
 - **Helms give AC 1.** The game's helms count as armour but give AC 0. With
   **Helms give AC 1** ticked they give 1: the plain leather Helm, Dapartea's
@@ -768,12 +821,120 @@ the inventory screen and the Characters tab show them. (Dapartea's Helm,
 Helm/Contempltn, Helm of Might and Serpent Boots get the rule too, but keep
 their names: with the note they'd be too long for the game's Look box.) With the rule off they're the game's own names again. (Like the
 Ring of Protection's, the names are in the game's name table, which it reads
-afresh each time it starts; without the Ledger they're the game's own.)
+afresh each time it starts and a game is loaded; without the Ledger they're
+the game's own.)
 
 How: the helper sets the helm types' AC as the game's AC routine reads it
 (`INT F8h`, the Ring +1's place), and adds the move where the game sets a
-round's movement, Move x 10 (`INT FBh`). Untick either and the game's own
-rule is back at once.
+round's movement, Move x 10 (`INT FBh`).
+
+Three more put back AD&D's rules where the game parts from them (see
+[Two weapons](#two-weapons) and [Spells and effects](#spells-and-effects)):
+
+- **Two weapons: AD&D's penalties.** With two melee weapons ready, a
+  character who isn't a ranger attacks at -2 with the main (right) hand and
+  -4 with the off (left) hand, and the DEX reaction adjustment is added:
+  -6 at DEX 1, -4 at 2, -3 at 3, -2 at 4, -1 at 5, none for 6-15, +1 at 16,
+  +2 at 17-18, +3 at 19-20, +4 at 21-23 and +5 at 24-25. It can lessen the
+  penalty to 0 but never make it a bonus, and low DEX makes it worse: DEX 17
+  is 0 and -2, DEX 21 0 and 0, DEX 3 -5 and -7. Rangers have no penalty
+  (in any armour). It takes a melee weapon in each hand: one weapon, a
+  two-handed weapon, a weapon and a shield, or a weapon and a bow or sling
+  (the missile slot) have no penalty. The game's own rule, a small bonus at
+  DEX 5 or less, is gone. The dice log names it (`-4 two weapons, off hand at DEX 15`), as do
+  the THAC0 lines on the Characters tab and the inventory screen.
+- **Spells are saved against with the spell save.** Almost every spell is
+  marked for the game's "kind 5" save, which it treats as
+  petrification/polymorph; with this rule it is the spell save. The spells
+  marked for paralysis/poison/death (the poison clouds, Poison, Slay Living,
+  the psionic attacks) keep it, as AD&D has them, and so do three monsters'
+  powers marked for petrification/polymorph. The dice log and the Spells tab
+  name the save used.
+- **Fire, cold and electricity: DEX instead of a doubled d20.** The game
+  doubles the save's d20 against those spells (Fireball, Lightning Bolt, Cone
+  of Cold, Burning Hands... and nine monsters' attacks of those kinds), which
+  looks meant as a dodge. With this rule the d20 isn't doubled and AD&D's
+  DEX defensive adjustment is added instead, as AD&D does for attacks that
+  can be dodged: -5 at DEX 1, -4 at 3, -3 at 4, ... none for 7-14, +1 at 15,
+  +2 at 16, +3 at 17, +4 at 18-20, +5 at 21-23 and +6 at 24-25. Fireball
+  stays dangerous for slow targets (needing 14 at DEX 12: 35% to save, where
+  the doubled d20 gave 70%) and much less so for quick ones (DEX 21: 60%).
+  The log names it: `+5 DEX 21 dodging`.
+
+How: the game reads the attacker's DEX adjustment when it works out the
+two-weapon adjustment; the helper takes over from there (`INT FEh`) and gives
+AD&D's for the hand the attack's weapon is in. For the spell save, the Ledger
+writes the game's own table that turns a spell's kind of save into one of the
+five (a table of words at DS:1E75h, read afresh for every save), and puts it
+back when the rule is unticked. The helper does the save's doubling (`INT F0h`)
+only while that rule is off, and the Ledger marks the fire, cold and
+electricity spells with the game's own "can be dodged" flag (bit 40h of the
+spell's category word), which no spell has, so the game's save routine adds
+the DEX defensive adjustment from its own table.
+
+**Cat's Grace** (a new spell, in Flaming Sphere's place). A level 2 wizard
+spell from AD&D's *Spells & Magic*, made to work exactly as the game's
+Strength does, for DEX: the caster touches someone, whose DEX goes up by 1d6
+(at most 24) for 60 rounds per caster level. Everything that reads DEX
+follows it while it lasts: AC, initiative, REAC and DEF, thief skills, the
+two-weapon penalties and the saves against fire, cold and electricity. The
+log says what it rolled: `Cat's Grace: 1d6 = 4 -> Gerakis's DEX +4 while it
+lasts (at most 24)`.
+
+The game has no room for a new spell (wizard spells are numbers 1-68, every
+one taken), so Cat's Grace takes the place of Flaming Sphere, the weakest
+level 2 spell: 2d4 fire damage once, whatever the caster's level. While the
+box is ticked (it is by default), every character and monster who would cast
+Flaming Sphere casts Cat's Grace instead, under that name on the USE screen;
+untick it and Flaming Sphere is back.
+
+How: the Ledger gives Flaming Sphere (spell 14) Strength's record (range,
+duration, whom it can be cast on) and the name, in the game's memory. The
+helper sends it to Strength's own code (`INT EDh`), which rolls the 1d6;
+gives it an effect of its own (`INT EEh`: number 54, which the game leaves
+unused) holding the roll; and, in the routine that works out a creature's
+abilities from its own scores and its effects, adds that to DEX the way
+Strength's adds to STR (`INT EFh`). When the spell runs out, the game works
+the abilities out again without it. A game saved while Cat's Grace lasts and
+loaded without the dice log simply ignores the effect it doesn't know.
+
+**Hiding in shadows to backstab.** The game never rolls hide in shadows, and a
+thief only backstabs a target that has turned to face someone else. With
+**Thieves hide in shadows and move silently to backstab** ticked, a thief
+whose turn comes in a fight with no enemy in any of the eight squares around
+them tries to hide in shadows; if they do, they try to move silently up to
+someone; and if both succeed, their next attack that turn counts as one from
+behind: +2 to hit, the target's DEX and shield don't count, and with a weapon
+that can backstab it is a backstab, the damage multiplied as usual. The
+attack gives the thief away, and so does the turn ending without one. An enemy
+next to the thief when the turn comes means no hiding at all: get clear
+first.
+
+```
+Cilla's turn
+Cilla hides in shadows: d100 = 21, needs 27 or less (54, halved in daylight) -> hidden
+  Cilla moves silently: d100 = 30, needs 54 or less -> unheard: their next attack this turn is from behind (a backstab with a weapon that can)
+Cilla attacks Slig BACKSTAB with Bone Long Sword (1d8): d20 = 11, needs 10+ (55%), hits AC 2, target AC 3 -> HIT
+    THAC0 19, +2 from behind, +2 backstab, +3 STR, -1 bone = 13
+  Cilla hits Slig for 16: (1d8 = [1] -1 weapon (raised to the minimum of 1) +7 STR 19) x2 backstab
+```
+
+The chance to hide is **halved in daylight**. Which maps are under the open
+sky goes by the game's regions: open desert and rock, the villages' open
+ground and the arena are; the slave pens, the sewers, the lava caverns and
+the other underground or roofed places aren't. Three maps have both, buildings
+with floors of their own standing on open ground: there it goes by the floor
+under the thief (from the game's map of the region in memory), so a thief in
+a building is out of the sun and one in a roofless ruin isn't. The chances
+are the thief's own as they stand (level, race, DEX, the equipment penalty,
+and effects: Invisibility makes hiding certain, Fire Shield and Mirror Image
+rule it out).
+
+How: the Ledger rolls both when the turn passes to the thief and tells the
+helper, which, where the game has just worked out whether an attack is from
+behind and a backstab (`INT EAh`), makes the hidden thief's next one so, by
+the game's own conditions for a backstab (a thief, in melee, a weapon of
+weight 40 or less).
 
 ### No critical hits
 
@@ -786,7 +947,7 @@ damage as any other. A backstab is the only thing that multiplies damage.
 ### In the game: THAC0, saves and thief skills
 
 Started with the dice log, the game's own inventory screen (the one with the
-character's figure and their equipment) shows three more things in its
+character's figure and their equipment) shows five more things in its
 right-hand panel, drawn by the game's text routine so they look like the rest:
 
 - above STR, **THAC0** and the five **saving throws**, with the usual AD&D
@@ -799,7 +960,19 @@ right-hand panel, drawn by the game's text routine so they look like the rest:
   `PICK` pockets, open `LOCK`s, find/remove `TRAP`s, `MOVE` silently, `HEAR`
   noise, `CLMB` walls (hide in shadows and read languages are never checked;
   see Where the game rolls them). Not below the weapons: three weapons fill the panel down to its
-  buttons.
+  buttons;
+- right of SP in the saves (where RSW and BW sit on the rows above), the DEX
+  **reaction adjustment** (`REAC +4`): -6 at DEX 1 to +5 at DEX 24-25, the
+  number the [two-weapon rule](#rule-changes) adds to its penalties, and the
+  one initiative uses. It is worked out from the character's DEX each time
+  the panel is drawn, so it follows any change (Cat's Grace's, while it
+  lasts).
+- right of the AC line, the DEX **defensive adjustment** (`DEF -5`), as
+  AD&D's table gives it, on AC: +5 at DEX 1 to -6 at DEX 24-25 (-4 at 18, -5
+  at 21-23). The game counts it in AC already; on saving throws against what
+  can be dodged it counts the other way round (DEF -5 is +5 on the save), with
+  the [rule change](#rule-changes) for fire, cold and electricity. Worked out
+  the same way as REAC, each time the panel is drawn.
 
 The **View Character** screen gets THAC0 and the saves too, under the item
 icons: `THAC0: 15` and `SAVE: 8 12 11` / `15 13`, the saves in the order
@@ -857,9 +1030,10 @@ The game's USE (cast spells) screen shows, at the top of the panel under the
 spells, how many spells of each level the selected character can still cast,
 and the most they get after resting: `WIZ` for preservers' wizard spells, `PRI`
 for clerics', druids' and rangers' priest spells, one `left/most` per spell
-level from the 1st (six to a line):
+level from the 1st (six to a line), up to the highest level the character can
+cast (more appear as they level up):
 
-![The USE screen with Daaki's spell slots above a Guava's icon](docs/use-slots.png)
+![The USE screen with K'ratchek's spell slots: a 2nd-level druid, five first-level spells](docs/use-slots.png)
 
 The numbers go down as spells are cast (the screen shows the new count when it
 is next drawn) and back up after resting. That panel is where the game puts
@@ -879,11 +1053,13 @@ and stay, while Templar's Ledger (or its command-line dice log) is running.
 
 ### In the game: each turn's rolls
 
-With **Show each turn's rolls in the game** ticked on the Options tab (the
-default; or `python -m dscompanion dicelog --popups`), the game stops at the end
+With **Show each turn's rolls in the game** ticked on the Options tab (it is
+off unless you tick it; or `python -m dscompanion dicelog --popups`), the game
+stops at the end
 of every turn in a fight in which someone attacked or cast a spell, and shows
-that turn's rolls in its own dialogue window, with **Continue** to go on. They
-are the dice log's own lines: each attack's d20, the AC it would hit and the
+that turn's rolls in its own dialogue window, with **Continue** to go on. Below
+the box, pick how much it says: **at the least**, **in short** or **in
+detail**. In detail, they are the dice log's own lines: each attack's d20, the AC it would hit and the
 target's AC, how the THAC0 was worked out, and for a hit the damage dice and
 bonuses; a spell's damage dice, and each saving throw against it. (The chance
 to hit or to save is left out: the log has it.) The last line says who is
@@ -897,14 +1073,18 @@ next ones:
 
 ![The game's window after a Defiler's Cone of Cold](docs/turn-spell.png)
 
-Untick **... in detail** (or add `--short-popups`) for one line per target
-instead (and each spell's first line):
+**In short** (or `--short-popups`) gives one line per target instead (and each
+spell's first line):
 
 ![The game's window at the end of Mlemlem's turn, in short](docs/turn-summary.png)
 
 `20 vs 11+ HIT, 12 damage` is the d20, the roll it needed (THAC0 − the
 target's AC; a natural 20 always hits, a 1 always misses), and the damage the
 hit did.
+
+**At the least** (or `--minimal-popups`) gives only what came of the turn, no
+dice: `Mlemlem hits Mountain Stalker for 12, misses. Slig takes 9 from
+Fireball`. It leaves out who is still to act.
 
 Each turn gets its own window, monsters' included. (The game plays a
 monster's whole turn inside one call, so the helper is also called there, just
@@ -1043,7 +1223,11 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    weapon's line on the inventory screen `INT FAh`, and the start of a round's
    movement `INT FBh` (for boots), a key the conversation window doesn't know
    `INT FCh` and an item used on the map `INT FDh` (for
-   [picking pockets](#picking-pockets)), and
+   [picking pockets](#picking-pockets)), the two-weapon adjustment `INT FEh`
+   and the doubling of a save's d20 `INT F0h`, Cat's Grace `INT EDh`-`INT EFh` and a hidden thief's attack `INT EAh` (for
+   [rule changes](#rule-changes)), and
+   where the game makes room for its name table and reads it in `INT ECh` and
+   `INT EBh` (for [new item names](#new-item-names)), and
    the copy looks for its data files in the current
    folder rather than next to itself. DOSBox runs it from the game folder, so
    it uses your saves as usual.
@@ -1064,7 +1248,7 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
 
 Because the replacement produces identical numbers, the game plays exactly as
 it would without it, apart from what you choose: the Ring +1 and the
-[rule changes](#rule-changes-helms-and-boots) on the Options tab.
+[rule changes](#rule-changes) on the Options tab.
 
 Limitations:
 - Only the GOG release (`DSUN.EXE` of 611,408 bytes) is supported. With
@@ -1146,11 +1330,12 @@ tools** tabs, and **Options** (Alt+O) with the Ledger's switches: what the
 dice log shows (unlabelled rolls, details), what it adds to the game (each
 turn's rolls, monster descriptions, the Ring +1, picking pockets, and a button
 that gives each thief a set of Thieves' Tools now) and the rule changes (helms,
-boots). The switches for the game are remembered for next time.
+boots, two weapons, the spell save, doubled saves, Cat's Grace). The switches for the game
+are remembered for next time.
 
 ![The Options tab](docs/options.png)
 
-**Spell slots.** `Priest spells left: 1st 5/5, 2nd 3/3, 3rd 2/2, 4th 1/1`
+**Spell slots.** `Priest spells left: 1st 5/5, 2nd 3/3, 3rd 2/2`
 means five first-level priest spells can still be cast out of five, and so
 on. Casting a spell uses one slot of its level, and resting fills them
 again. Wizard slots belong to preservers; priest slots belong to clerics,
@@ -1161,8 +1346,11 @@ when it refills them (its tables are read from memory):
 - Clerics and druids: from their level plus a WIS bonus.
 - Rangers: from their level only, with their first slot at level 8.
 
-The WIS bonus doesn't depend on level, so a 2nd-level druid with WIS 19
-already has 3rd- and 4th-level slots. For a human dual-class character, a
+The game's WIS bonus doesn't depend on level, so it gives a 2nd-level druid
+with WIS 19 slots at the 2nd to 4th levels too, though a druid that level
+casts only 1st-level spells. Those aren't shown (here or in the game): only
+the spell levels the character's class levels reach, as in AD&D, where the
+WIS bonus counts only at levels the priest can cast. For a human dual-class character, a
 later class counts only while its level is below the first class's. Checked
 against two characters at the start of a new game, whose slots the game had
 just filled.
@@ -1314,6 +1502,6 @@ After changing `dos/dsclog.asm`, rebuild the helper with
 nasm -f bin -o dos/DSCLOG.EXE dos/dsclog.asm
 ```
 
-The header's signature (`DSCLOGvC` now) goes up whenever the helper and the
+The header's signature (`DSCLOGvM` now) goes up whenever the helper and the
 Ledger must change together (`HDR_SIG` in `dscompanion/dicelog.py`), so a
 Ledger never talks to an older helper.

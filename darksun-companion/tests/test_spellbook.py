@@ -7,19 +7,20 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dscompanion import spellbook
+from dscompanion import game, spellbook
 from dscompanion.game import SpellDamage, SpellRules
 
 
 class StubGame:
-    def __init__(self, damage=None, rules=None, negates=False, name="Spell"):
-        self.damage, self.rules, self.negates, self.name = damage, rules, negates, name
+    def __init__(self, damage=None, rules=None, negates=False, name="Spell", game_rules=0):
+        self.damage, self.spell, self.negates, self.name = damage, rules, negates, name
+        self.rules = game_rules  # the companion's rule changes (game.RULE_*)
 
     def spell_damage(self, spell):
         return self.damage
 
     def spell_rules(self, spell):
-        return self.rules
+        return self.spell
 
     def save_negates_damage(self, spell):
         return self.negates
@@ -47,6 +48,15 @@ class TextTests(unittest.TestCase):
         self.assertEqual(spellbook.save_text(gd, 27, rec, True),
                          "petrification/polymorph, d20 doubled (against fire); saving halves the damage")
         self.assertEqual(spellbook.lasts_text(gd, 27, rec), "")  # instant
+
+    def test_spell_save_rule(self):
+        """Kind 5, what almost every spell has: petrification/polymorph, or with the companion's
+        rule the spell save. Kind 1 stays paralysis/poison/death."""
+        rec = record(save=(5 << 5) | 1)
+        self.assertEqual(spellbook.save_text(StubGame(), 1, rec, False), "petrification/polymorph")
+        self.assertEqual(spellbook.save_text(StubGame(game_rules=game.RULE_SPELL_SAVE), 1, rec, False), "spell")
+        self.assertEqual(spellbook.save_text(StubGame(game_rules=game.RULE_SPELL_SAVE), 1,
+                                             record(save=(1 << 5) | 1), False), "paralysis/poison/death")
 
     def test_durations_and_charges(self):
         gd = StubGame(SpellDamage(0, 0, 0, 1, 0, 0))

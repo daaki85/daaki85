@@ -8,7 +8,7 @@ from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dscompanion import dicelog, game
+from dscompanion import dicelog, game, names
 from dscompanion.dicelog import AcDetail, DiceLog, Entry, KIND_AC, KIND_ROLL, KIND_SAVE
 from dscompanion.textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, DialogueEntry, TextBuffer
 from dscompanion.tracker import PartyTracker
@@ -90,6 +90,10 @@ def make_game():
     m[hp + 0x10 + 9], m[hp + 4:hp + 7], m[hp + 0x38 + 21] = 1, bytes((10, 9, 3)), 3
     # DSCLOG's text buffer
     struct.pack_into("<HHHH", m, HDR + 126, 0, 0x800, 256, 0)
+    # DSCLOG's names after the game's own, in the table it noted
+    m[HDR + names.TSR_NAMES_PTR:HDR + names.TSR_NAMES_PTR + 4] = far(NAMES + 3)
+    for entry, name in names.NAMES.items():
+        m[NAMES + 3 + entry * 25:NAMES + 3 + entry * 25 + len(name)] = name
     log = DiceLog(guest)
     log.rand_addr = LOAD_SEG * 16 + dicelog.RAND_IP
     log.tsr_hdr = HDR
@@ -138,6 +142,22 @@ def locals_at(size, **at):
 def raw_for(face, sides):
     """A rand() result that gives `face` (1-based) on a die with `sides` sides."""
     return (face - 1) * 0x8000 // sides + 1
+
+
+def two_hands(m):
+    """Dag's items 5 (type 9) and 6 (type 11) as melee weapons (class 1), the long sword in
+    the right hand and item 6 in the left."""
+    for typ in (9, 11):
+        m[ITEM_TYPES + typ * game.ITEM_TYPE_SIZE + 0x0A] = 1
+    m[ITEMS + 5 * game.ITEM_SIZE + game.ITEM_SLOT] = 3
+    m[ITEMS + 6 * game.ITEM_SIZE + game.ITEM_SLOT] = 10
+    struct.pack_into("<H", m, ITEMS + 6 * game.ITEM_SIZE + game.ITEM_TYPE, 11)
+    # in Dag's first list (object 400): item 5, then 6
+    things = (LOAD_SEG + game.COMBATANTS_SEG) * 16 + game.COMBATANTS_OFF
+    struct.pack_into("<Bh", m, things + 400 * 3, game.THING_ITEM, 5)
+    struct.pack_into("<h", m, CREATURES + 8, 400)
+    struct.pack_into("<h", m, ITEMS + 5 * game.ITEM_SIZE + game.ITEM_NEXT, 6)
+    struct.pack_into("<H", m, ITEMS + 6 * game.ITEM_SIZE + game.ITEM_NEXT, game.NO_ITEM)
 
 
 class AttackTests(unittest.TestCase):
@@ -189,6 +209,33 @@ class AttackTests(unittest.TestCase):
         lines = log.describe(self.attack(18, 9, 4, 5, 9, after_f1=10, hit_bonus=1, m16=2))
         self.assertEqual(lines[1], "    THAC0 16, +6 STR, +1 weapon = 9")
 
+    def test_two_weapons_adnd(self):
+        """With the companion's rule: -2 main hand, -4 off hand, the DEX reaction adjustment
+        (the game's initiative table) added, never above 0."""
+        log = make_game()
+        log.set_rules(game.RULE_TWO_WEAPONS)
+        self.addCleanup(setattr, game, "RULES_IN_FORCE", 0)
+        m = log.guest.mem
+        dex = CREATURES + game.CREATURE_ABILITIES + 1
+        m[dex], m[DS * 16 + game.DEX_INITIATIVE + 17] = 17, 2
+        two_hands(m)
+        m[ITEMS + 5 * game.ITEM_SIZE + game.ITEM_SLOT] = 3  # the right hand: no penalty at DEX 17
+        lines = log.describe(self.attack(18, 9, 4, 5, 9, after_f1=10, hit_bonus=1, m16=2))
+        self.assertEqual(lines[1], "    THAC0 16, +6 STR, +1 weapon = 9")
+        m[ITEMS + 5 * game.ITEM_SIZE + game.ITEM_SLOT] = 10  # the left hand: -4 + 2
+        m[ITEMS + 6 * game.ITEM_SIZE + game.ITEM_SLOT] = 3
+        lines = log.describe(self.attack(18, 11, 4, 5, 9, after_f1=10, hit_bonus=-1, m16=2))
+        self.assertEqual(lines[1], "    THAC0 16, +6 STR, +1 weapon, -2 two weapons, off hand at DEX 17 = 11")
+        m[dex], m[DS * 16 + game.DEX_INITIATIVE + 4] = 4, 0xFE  # DEX 4: -2 makes it worse
+        lines = log.describe(self.attack(18, 15, 4, 5, 9, after_f1=10, hit_bonus=-5, m16=2))
+        self.assertEqual(lines[1], "    THAC0 16, +6 STR, +1 weapon, -6 two weapons, off hand at DEX 4 = 15")
+        # a shield in the other hand: no penalty (whatever the game's count said)
+        m[ITEMS + 5 * game.ITEM_SIZE + game.ITEM_SLOT] = 3
+        m[ITEMS + 6 * game.ITEM_SIZE + game.ITEM_SLOT] = 10
+        m[ITEM_TYPES + 11 * game.ITEM_TYPE_SIZE + 0x0A] = 0
+        lines = log.describe(self.attack(18, 9, 4, 5, 9, after_f1=10, hit_bonus=1, m16=2))
+        self.assertEqual(lines[1], "    THAC0 16, +6 STR, +1 weapon = 9")
+
     def test_monster_natural_attack(self):
         log = make_game()
         lines = log.describe(self.attack(20, 11, 1, -1, -1, after_f1=11, hit_bonus=0, attacker=STALKER,
@@ -215,9 +262,9 @@ class AttackTests(unittest.TestCase):
                                parent_code=dicelog.WEAPON_DAMAGE_RETURN))
         log.describe(self.attack(3, 8, 4, 5, 9, after_f1=9, hit_bonus=1))  # and misses
         short = "Dag attacks Mountain Stalker: 18 vs 4+ HIT, 20 damage; 3 vs 4+ miss"
-        self.assertEqual(log.turn_summary(0, detail=False), short)
+        self.assertEqual(log.turn_summary(0, dicelog.POPUP_SHORT), short)
         # anyone's attacks during a turn go in its summary (a guarding character striking back...)
-        self.assertEqual(log.turn_summary(1, detail=False), short)
+        self.assertEqual(log.turn_summary(1, dicelog.POPUP_SHORT), short)
         # in detail: the dice log's lines, the damage under the hit it belongs to
         lines = log.turn_summary(0).split("\n")
         self.assertEqual(len(lines), 5)
@@ -225,7 +272,9 @@ class AttackTests(unittest.TestCase):
         self.assertTrue(lines[1].startswith("THAC0"))
         self.assertEqual(lines[2], "Dag hits Mountain Stalker for 20: 2d8 = [2 + 5] +1 weapon +12 STR 24")
         self.assertTrue(lines[3].endswith("-> miss"))
-        log.popup_detail = False
+        # at the least: what came of it
+        self.assertEqual(log.turn_summary(0, dicelog.POPUP_MINIMAL), "Dag hits Mountain Stalker for 20, misses")
+        log.popup_level = dicelog.POPUP_SHORT
         # DSCLOG's side: it counts the turn's end (Dag's, combatant 0) and waits for the text
         m = log.guest.mem
         struct.pack_into("<H", m, HDR + dicelog.TSR_HDR_OFF, 0)
@@ -239,6 +288,25 @@ class AttackTests(unittest.TestCase):
         self.assertEqual(bytes(m[HDR + 0x400:HDR + 0x400 + 68]).split(b"\0")[0],
                          b"Dag attacks Mountain Stalker: 18 vs 4+ HIT, 20 damage; 3 vs 4+ miss")
         self.assertEqual(log.turn_summary(0), "")  # a new turn starts afresh
+
+    def test_minimal_spells(self):
+        """At the least, a spell's damage taken and healing, without its dice or saves."""
+        log = make_game()
+        log._turn_log += ["Fireball damage: 9d6 = [3 + 2 + 3 + 4 + 5 + 4 + 1 + 2 + 2] = 26",
+                          "Red Slaad saves vs Fireball from Daaki (petrification/polymorph): d20 = 6 -> saved",
+                          "  Red Slaad takes 13 from Fireball, now 47/60 HP",
+                          "  Dag regains 7 HP from Cure Light Wounds, now 30/40 HP"]
+        self.assertEqual(log.turn_summary(0, dicelog.POPUP_MINIMAL),
+                         "Red Slaad takes 13 from Fireball. Dag regains 7 HP from Cure Light Wounds")
+
+    def test_popup_settings(self):
+        """Off unless ticked; the level as saved, or from an earlier version's detail switch."""
+        log = make_game()
+        log.use_settings({})
+        self.assertEqual((log.popups, log.popup_level), (False, dicelog.POPUP_DETAIL))
+        self.assertEqual(dicelog.popup_level({"turn_popups_detail": False}), dicelog.POPUP_SHORT)
+        self.assertEqual(dicelog.popup_level({"turn_popups_level": "minimal", "turn_popups_detail": True}),
+                         dicelog.POPUP_MINIMAL)
 
     def test_look_box_describes_the_monster(self):
         log = make_game()
@@ -297,7 +365,7 @@ class AttackTests(unittest.TestCase):
         self.assertIn("needs 12 -> saved", text[1])  # the chance to save left out too
         self.assertEqual(text[2], "Dag takes 8 from Fireball, now 16/24 HP")
         self.assertEqual(len(text), 3)  # nor unlabelled dice
-        self.assertEqual(log.turn_summary(0, detail=False).split(". ")[0], "Fireball damage: 5d6 = [2 + 5 + 3 + 6 + 1] = 17")
+        self.assertEqual(log.turn_summary(0, dicelog.POPUP_SHORT).split(". ")[0], "Fireball damage: 5d6 = [2 + 5 + 3 + 6 + 1] = 17")
 
     def test_detailed_summary_in_the_game(self):
         log = make_game()
@@ -385,6 +453,24 @@ class SaveTests(unittest.TestCase):
         self.assertEqual(log.describe(self.probe(18, needed=14, spell=FIREBALL)),
                          ["Mountain Stalker saves vs Fireball from Dag (spell): d20 = 9, doubled against fire = 18, "
                           "needs 14 (70% to save) -> saved: half damage, 7 of 15"])
+
+    def test_save_not_doubled_with_the_rule(self):
+        """With the companion's rule the game doesn't double the d20, and neither does the log;
+        the target's DEX defensive adjustment counts instead (DEX 16: +2)."""
+        log = make_game()
+        log.set_rules(game.RULE_NO_DOUBLE)
+        self.addCleanup(setattr, game, "RULES_IN_FORCE", 0)
+        self.damage_formula(log, FIREBALL, 0x20, 0x01, 0x06)
+        for f in (6, 5, 4):
+            log.describe(entry(raw_for(f, 6), dicelog.DICE_SITE, words(0, 0, 3, 6), words(0, 0, FIREBALL, 3),
+                               parent_code=dicelog.SPELL_DAMAGE_RETURN), now=1.0)
+        log.describe(self.save_roll(log, 9, spell=FIREBALL), now=1.1)
+        self.assertEqual(log.describe(self.probe(11, needed=14, spell=FIREBALL)),
+                         ["Mountain Stalker saves vs Fireball from Dag (spell): d20 = 9 +2 DEX 16 dodging = 11, "
+                          "needs 14 (45% to save) -> failed: full damage, 15"])
+        log.set_rules(0)  # and the mark comes off again
+        rules = (LOAD_SEG + game.SPELLS_SEG) * 16 + game.SPELLS_OFF + FIREBALL * game.SPELL_SIZE
+        self.assertFalse(log.guest.mem[rules + 1] & game.CATEGORY_DODGE)
 
     def damage_formula(self, log, spell, b0, b1, b2):
         rules = (LOAD_SEG + game.SPELLS_SEG) * 16 + game.SPELLS_OFF + spell * game.SPELL_SIZE

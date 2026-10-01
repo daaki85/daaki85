@@ -86,10 +86,11 @@ def apply(root: tk.Tk) -> None:
     style.map("TButton", background=[("pressed", DEEP), ("active", STONE)],
               foreground=[("pressed", YELLOW), ("active", YELLOW)],
               lightcolor=[("pressed", SHADOW)], darkcolor=[("pressed", EDGE_LIT)])
-    style.configure("TCheckbutton", background=STONE, foreground=PALE, indicatorbackground=DEEP,
-                    indicatorforeground=YELLOW, focuscolor=FOCUS)
-    style.map("TCheckbutton", background=[("active", STONE)], foreground=[("active", YELLOW)],
-              indicatorbackground=[("active", DARK)])
+    for kind in ("TCheckbutton", "TRadiobutton"):
+        style.configure(kind, background=STONE, foreground=PALE, indicatorbackground=DEEP,
+                        indicatorforeground=YELLOW, focuscolor=FOCUS)
+        style.map(kind, background=[("active", STONE)], foreground=[("active", YELLOW)],
+                  indicatorbackground=[("active", DARK)])
     style.configure("TEntry", fieldbackground=DEEP, foreground=YELLOW, insertcolor=PALE)
     style.configure("TCombobox", fieldbackground=DEEP, foreground=YELLOW, background=BUTTON,
                     arrowcolor=PALE)

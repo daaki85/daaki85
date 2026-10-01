@@ -41,6 +41,14 @@ VEC_WEAPON equ 0xFA   ; PROBE_WEAPON
 VEC_MOVE   equ 0xFB   ; PROBE_MOVE
 VEC_PICK   equ 0xFC   ; PROBE_PICK
 VEC_USE_ITEM equ 0xFD ; PROBE_USE_ITEM
+VEC_TWO    equ 0xFE   ; PROBE_TWO
+VEC_DOUBLE equ 0xF0   ; PROBE_DOUBLE
+VEC_GRACE_CAST equ 0xED    ; PROBE_GRACE_CAST
+VEC_GRACE_EFFECT equ 0xEE  ; PROBE_GRACE_EFFECT
+VEC_GRACE_ABILITY equ 0xEF ; PROBE_GRACE_ABILITY
+VEC_NAMES_SIZE equ 0xEC    ; PROBE_NAMES_SIZE
+VEC_NAMES_FILL equ 0xEB    ; PROBE_NAMES_FILL
+VEC_STEALTH equ 0xEA       ; PROBE_STEALTH
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -69,7 +77,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvH'          ; +0
+sig      db 'DSCLOGvM'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -138,13 +146,21 @@ use_seq    dw 0                 ; +180 an item used on something on the map (PRO
 use_reply  dw 0                 ; +182 ... and set to it by the companion once it has had its say
 use_who    dw 0                 ; +184 the object it was used on
 use_taken  dw 0                 ; +186 the companion sets 1 when it was one of its own (the thieving
-                                ;      tools): the game then does nothing more, and PICK_TEXT is shown
+                                ;      tools): the game then does nothing more, and PICK_TEXT is shown;
+                                ;      2 when it is used up as well (the cooked vulture, eaten)
 use_item   dw 0                 ; +188 the item used (FFFFh: none)
 swap_on    dw 0                 ; +190 the companion sets 1 to have the next dialogue text that
                                 ;      starts with SWAP_MATCH shown as SWAP_TEXT instead (once)
 swap_seq   dw 0                 ; +192 counted up when it has been
 swap_off   dw swap_match        ; +194 offset of SWAP_MATCH (SWAP_SIZE bytes, NUL-terminated),
                                 ;      then SWAP_TEXT (TSIZE_SWAP bytes)
+names_off  dw extra_names       ; +196 offset of EXTRA_NAMES: the names past the game's own (NAMES_EXTRA
+                                ;      of NAME_SIZE bytes), copied into the game's table each time it loads
+names_count dw NAMES_EXTRA      ; +198 how many
+names_ptr  dd 0                 ; +200 the game's name table, as last loaded with them (0: not yet)
+stealth    dw 0                 ; +204 the companion sets bit N when party member N is hidden and
+                                ;      unheard (RULE_STEALTH): their next attack is from behind
+stealth_used dw 0               ; +206 counted up each time one is (the bit cleared)
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -580,6 +596,17 @@ probe_char:
         mov al, [fs:di + 0x1F]
         mov bx, c_cells_top
         call c_cells_saves
+        ; the DEX reaction adjustment (the game's table for initiative holds the same numbers),
+        ; worked out now, so a change of DEX shows the next time the panel is drawn
+        mov byte [cs:c_react], NO_REACT
+        movzx bx, byte [fs:di + 0x23]
+        cmp bx, 26
+        jae .thieves
+        mov al, [bx + DEX_REACTION]
+        mov [cs:c_react], al
+        mov al, [bx + DEX_DEFENCE]   ; and the defensive adjustment (on AC; on saves against
+        mov [cs:c_defence], al       ; what can be dodged, the other way round)
+.thieves:
         ; thief skills, for a character with thief levels
         xor cx, cx
         mov bx, 0x21
@@ -589,9 +616,45 @@ probe_char:
         inc cx
         cmp cx, 3
         jb .cls
-        jmp .done
+        jmp .react
 .thief: mov al, [es:si + bx + 3]  ; the thief level (levels follow the classes)
         call c_thief
+.react: mov al, [cs:c_react]      ; right of SP in the saves: "REAC +4"
+        cmp al, NO_REACT
+        je .done
+        mov di, c_num
+        test al, al
+        jle .sign
+        mov byte [cs:di], '+'
+        inc di
+.sign:  call c_itoa_s
+        push word REACT_Y
+        push word 0x113
+        push cs
+        push word l_react
+        call c_draw_line
+        push word REACT_Y
+        push word REACT_VALUE_X
+        push cs
+        push word c_num
+        call c_draw_line
+        mov al, [cs:c_defence]    ; right of the AC line: "DEF -4"
+        mov di, c_num
+        test al, al
+        jle .dsign
+        mov byte [cs:di], '+'
+        inc di
+.dsign: call c_itoa_s
+        push word DEF_Y
+        push word 0x113
+        push cs
+        push word l_defence
+        call c_draw_line
+        push word DEF_Y
+        push word DEF_VALUE_X
+        push cs
+        push word c_num
+        call c_draw_line
 .done:
         pop gs
         pop fs
@@ -891,6 +954,17 @@ l_trap  db 'TRAP', 0
 l_move  db 'MOVE', 0
 l_hear  db 'HEAR', 0
 l_clmb  db 'CLMB', 0
+l_react db 'REAC', 0
+l_defence db 'DEF', 0
+c_react db 0
+c_defence db 0
+DEX_DEFENCE equ 0x07F6          ; DS: the DEX defensive adjustment (bytes, by score: on AC)
+DEF_Y   equ 0x72                ; the AC line's y
+DEF_VALUE_X equ 0x12D           ; (under the thief skills' values, as REAC's)
+NO_REACT equ 0x80
+DEX_REACTION equ 0x07DC         ; DS: the DEX reaction adjustment (bytes, by score)
+REACT_Y equ 0x25                ; the saves' last row, right of SP (where BW and RSW are above)
+REACT_VALUE_X equ 0x130         ; (a little right of the thief skills' values: REAC is the longer label)
 c_vals  times 8 db 0
 c_num   db 0, 0, 0, 0
 c_draw  dd 0
@@ -1048,6 +1122,7 @@ pick_show:
 
 PICK_SIZE equ 240
 pick_text times PICK_SIZE db 0
+drop_call dw DROP_OFF, 0
 
 ; PROBE_USE_ITEM: INT VEC_USE_ITEM replaces "cmp si,-1 / jne +3" (5 bytes: INT + 3 NOPs) in the
 ; routine that uses the item on the pointer on whatever is under it on the map (SI: that
@@ -1062,6 +1137,10 @@ USE_DONE  equ 0x7371D - 0x73617 ; the routine's end
 USE_HELD_SEG equ 0x73A15 - 0x73617 ; the routine's "mov dx,<segment>" for the pointer's items,
                                 ;   whose operand the game fixes up when it loads the code
 HELD      equ 0x17A0            ; DS: the pointer's item (in that segment at HELD * 10 + 44h)
+HELD_LIST equ 0x179E            ; DS: the object whose item list is the pointer's
+DGROUP_SEG equ 0x4356           ; the game's DS, less its load segment
+DROP_SEG  equ 0x1A0A            ; and the resident routine (21134h in DSUN.EXE) that empties an
+DROP_OFF  equ 0x1C94            ;   object's item list, putting the items back on the free list
 probe_use_item:
         sti
         pushad
@@ -1103,6 +1182,20 @@ probe_use_item:
         jmp .go                 ; no answer: the companion isn't reading
 .ready: cmp word [cs:use_taken], 0
         je .go
+        cmp word [cs:use_taken], 2
+        jne .kept
+        ; 2: the item is used up (the cooked vulture, eaten): let go of the pointer's items the
+        ; way the game does once it has counted coins picked up, and hold nothing
+        push bx
+        mov ax, ds
+        sub ax, DGROUP_SEG - DROP_SEG
+        mov [cs:drop_call + 2], ax
+        push word [HELD_LIST]
+        call far [cs:drop_call]
+        add sp, 2
+        mov word [HELD], -1
+        pop bx
+.kept:
         mov dx, USE_DONE
         add [ss:bx + 34], dx
         cmp byte [cs:pick_text], 0
@@ -1636,6 +1729,8 @@ THINGS     equ 0xC36            ; the things table (3 bytes each: kind, index) i
 NO_THING   equ 0x270F
 CREATURES  equ 0x1665           ; DS: far pointer to the creature records (3Ah bytes each)
 ITEMS      equ 0x165D           ; DS: far pointer to the item records (15h bytes each)
+ITEM_TYPES equ 0x1669           ; DS: far pointer to the item types (14h bytes each; +0Ah: 1 melee)
+WS_MELEE   equ 0xFFFE           ; WS_TYPE: any melee weapon
 
 ; PROBE_RING_AC: INT VEC_RING_AC replaces "mov al,es:[bx+0Fh] / cbw" (5 bytes: INT + 3 NOPs)
 ; in the AC function, where ES:BX is a worn item's type and CX its number; bit 80h of AX
@@ -1740,7 +1835,20 @@ worn_scan:
         mov ax, [cs:ws_type]
         cmp ax, 0xFFFF
         je .match
+        cmp ax, WS_MELEE
+        je .melee
         cmp [es:bx+0x0A], ax
+        jne .on
+        jmp .match
+.melee: push es               ; WS_MELEE: a melee weapon (its type's class 1)
+        push bx
+        mov ax, [es:bx+0x0A]
+        imul ax, ax, 0x14
+        les bx, [ITEM_TYPES]
+        add bx, ax
+        cmp byte [es:bx+0x0A], 1
+        pop bx
+        pop es
         jne .on
 .match: inc word [cs:ws_count]
         mov al, [es:bx+0x14]    ; the plus
@@ -1770,6 +1878,11 @@ ws_plus    dw 0
 ; in a fight
 RULE_HELMS equ 1
 RULE_BOOTS equ 2
+RULE_TWO_WEAPONS equ 4
+RULE_SPELL_SAVE equ 8           ; (the companion writes the game's save table for this one)
+RULE_NO_DOUBLE equ 16
+RULE_CATS_GRACE equ 32          ; (the companion also gives Flaming Sphere Strength's record and the name)
+RULE_STEALTH equ 64             ; (the companion rolls the hiding and moving silently, and sets STEALTH)
 FOOT       equ 13               ; the item's slot byte while worn on the feet
 THINGS_SEG equ 0x3972 - 0x4356  ; the things table's segment, relative to DS
 
@@ -1801,6 +1914,281 @@ probe_move:
         add ax, 10
 .store: mov [es:bx+0x22B], ax
         iret
+
+; PROBE_TWO: INT VEC_TWO replaces "neg ax / mov dx,ax / or dx,dx / jge +2 / xor dx,dx" (10
+; bytes: INT + 8 NOPs) in the routine that gives an attack's to-hit adjustment for two weapons
+; ready, after the call that reads the attacker's DEX in the game's initiative table (AX), for
+; a non-ranger; [BP+0Ah] is the attack's item, CX the attacker's object. Leaves the
+; adjustment in DX: the game's, -AX and no less than 0; with RULE_TWO_WEAPONS, AD&D's: -2 (the
+; item in the right hand) or -4 (in the left) plus AX (the same numbers as the reaction
+; adjustment), no more than 0, and only with a melee weapon in the other hand too (else 0:
+; a two-handed weapon, a shield, a sling or bow in the missile slot don't count).
+RIGHT_HAND equ 3
+LEFT_HAND  equ 10
+probe_two:
+        test byte [cs:rules], RULE_TWO_WEAPONS
+        jnz .rule
+        neg ax
+        mov dx, ax
+        or dx, dx
+        jge .done
+        xor dx, dx
+.done:  iret
+.rule:  push bx
+        push es
+        push cx
+        mov [cs:t_adjust], ax
+        xor dx, dx
+        mov bx, [bp+0x0A]
+        cmp bx, NO_THING
+        jae .out
+        imul bx, bx, 0x15
+        mov ax, bx
+        les bx, [ITEMS]
+        add bx, ax
+        mov al, [es:bx+0x11]    ; the attack's hand, and the other
+        mov dx, -2
+        mov ah, LEFT_HAND
+        cmp al, RIGHT_HAND
+        je .hand
+        mov dx, -4
+        mov ah, RIGHT_HAND
+        cmp al, LEFT_HAND
+        je .hand
+        xor dx, dx
+        jmp .out
+.hand:  mov [cs:t_base], dx
+        mov [cs:ws_slot], ah
+        mov byte [cs:ws_slot+1], 0
+        mov word [cs:ws_type], WS_MELEE
+        mov ax, ds
+        add ax, THINGS_SEG
+        mov [cs:r_things], ax
+        mov es, ax
+        mov bx, cx
+        imul bx, bx, 3
+        xor dx, dx
+        cmp byte [es:bx+THINGS], 2
+        jne .out                ; not a creature
+        mov ax, [es:bx+THINGS+1]
+        call worn_scan
+        xor dx, dx
+        cmp word [cs:ws_count], 0
+        je .out                 ; nothing to fight with in the other hand
+        mov dx, [cs:t_base]
+        add dx, [cs:t_adjust]
+        jle .out
+        xor dx, dx
+.out:   pop cx
+        pop es
+        pop bx
+        iret
+t_base   dw 0
+t_adjust dw 0
+
+; PROBE_DOUBLE: INT VEC_DOUBLE replaces "shl al,1" (2 bytes), where the saving throw doubles
+; its d20 against fire, cold and electricity spells; not with RULE_NO_DOUBLE.
+probe_double:
+        test byte [cs:rules], RULE_NO_DOUBLE
+        jnz .done
+        shl al, 1
+.done:  iret
+
+; CAT'S GRACE (RULE_CATS_GRACE): Flaming Sphere (spell 14), given Strength's record and the
+; name by the companion, works as Strength does but for DEX: its own effect (54, a number the
+; game leaves unused) holds the 1d6, which the routine that works out a creature's abilities
+; adds to DEX, keeping it between 3 and 24.
+GRACE_SPELL    equ 14
+STRENGTH_SPELL equ 23
+GRACE_EFFECT   equ 54
+ADRENALIN      equ 0x94         ; the psionic Adrenalin Control, which Strength's code also serves
+
+; PROBE_GRACE_CAST: INT VEC_GRACE_CAST replaces "mov ax,[bp+0Eh] / mov [bp-1Ah],ax" (6 bytes:
+; INT + 4 NOPs) where the code for spells with handlers of their own picks the handler by the
+; spell's number: Cat's Grace goes to Strength's.
+probe_grace_cast:
+        mov ax, [bp+0x0E]
+        test byte [cs:rules], RULE_CATS_GRACE
+        jz .store
+        cmp ax, GRACE_SPELL
+        jne .store
+        mov ax, STRENGTH_SPELL
+.store: mov [bp-0x1A], ax
+        iret
+
+; PROBE_GRACE_EFFECT: INT VEC_GRACE_EFFECT replaces Strength's handler choosing its effect
+; (19 bytes: INT + 17 NOPs): Adrenalin Control 42h, Strength 43h, and Cat's Grace its own.
+probe_grace_effect:
+        mov word [bp-0x14], 0x43
+        cmp word [bp+0x0E], ADRENALIN
+        jne .grace
+        mov word [bp-0x14], 0x42
+        iret
+.grace: test byte [cs:rules], RULE_CATS_GRACE
+        jz .out
+        cmp word [bp+0x0E], GRACE_SPELL
+        jne .out
+        mov word [bp-0x14], GRACE_EFFECT
+.out:   iret
+
+; PROBE_GRACE_ABILITY: INT VEC_GRACE_ABILITY replaces "mov [bp-0Ah],ax / mov cx,7" (6 bytes:
+; INT + 4 NOPs) in the routine that works out a creature's abilities, as it looks at one of its
+; effects (AX its number; ES:BX the effect, its amount at +10Fh): Cat's Grace adds the amount
+; to DEX in its sums (words from [BP-342h], STR first), as Strength's adds to STR.
+probe_grace_ability:
+        mov [bp-0x0A], ax
+        mov cx, 7
+        cmp ax, GRACE_EFFECT
+        jne .out
+        push ax
+        mov al, [es:bx+0x10F]
+        cbw
+        add ax, [bp-0x340]
+        cmp ax, 24
+        jle .low
+        mov ax, 24
+.low:   cmp ax, 3
+        jge .set
+        mov ax, 3
+.set:   mov [bp-0x340], ax
+        pop ax
+.out:   iret
+
+; NAMES: the game's name table (GPLDATA's NAME chunk: 322 names of 25 bytes, which items name
+; by number) gets NAMES_EXTRA more, for the companion's own items (the Ring of Protection, the
+; Thieves' Tools...). Where the game reserves memory for the chunk (as it starts, and as a game
+; is loaded) PROBE_NAMES_SIZE makes the room for them; once it has read the chunk in,
+; PROBE_NAMES_FILL copies EXTRA_NAMES after the game's own. Nothing in the game limits the
+; numbers to its own 322.
+NAMES_OWN    equ 0x142
+NAME_SIZE    equ 25
+NAMES_EXTRA  equ 32
+NAMES_PTR    equ 0x166D         ; DS: far pointer to the name table
+
+; PROBE_NAMES_SIZE: INT VEC_NAMES_SIZE replaces "push dword 1" (3 bytes: INT + NOP) just before
+; the game reserves memory for the NAME chunk, its size the dword at [BP-4]: adds the room,
+; then does the push (under the interrupt's return frame).
+probe_names_size:
+        add word [bp-4], NAMES_EXTRA * NAME_SIZE
+        adc word [bp-2], 0
+        pop word [cs:n_ip]
+        pop word [cs:n_cs]
+        pop word [cs:n_fl]
+        push dword 1
+        push word [cs:n_fl]
+        push word [cs:n_cs]
+        push word [cs:n_ip]
+        iret
+
+; PROBE_NAMES_FILL: INT VEC_NAMES_FILL replaces "add sp,0Ch" (3 bytes: INT + NOP) after the call
+; that reads the NAME chunk into the table (AX 0: read). Does the add, then, if it was read,
+; copies EXTRA_NAMES after the game's names and notes the table in NAMES_PTR.
+probe_names_fill:
+        pop word [cs:n_ip]
+        pop word [cs:n_cs]
+        pop word [cs:n_fl]
+        add sp, 0x0C
+        push word [cs:n_fl]
+        push word [cs:n_cs]
+        push word [cs:n_ip]
+        or ax, ax
+        jnz .out
+        push cx
+        push si
+        push di
+        push ds
+        push es
+        les di, [NAMES_PTR]
+        mov [cs:names_ptr], di
+        mov [cs:names_ptr+2], es
+        add di, NAMES_OWN * NAME_SIZE
+        push cs
+        pop ds
+        mov si, extra_names
+        mov cx, NAMES_EXTRA * NAME_SIZE
+        cld
+        rep movsb
+        pop es
+        pop ds
+        pop di
+        pop si
+        pop cx
+.out:   iret
+n_ip    dw 0
+n_cs    dw 0
+n_fl    dw 0
+; the names, numbered from NAMES_OWN (322): the companion's items' (the same as the companion's
+; NAMES in dscompanion/names.py), the rest blank until it writes more
+extra_names:
+        db "Ring/Protection"
+        times NAME_SIZE - 15 db 0
+        db "Thieves' Tools"
+        times NAME_SIZE - 14 db 0
+        times (NAMES_EXTRA - 2) * NAME_SIZE db 0
+
+; STEALTH (RULE_STEALTH): a thief who starts a turn with no enemy next to them may hide in
+; shadows and move silently up to someone; the companion rolls both and, when both succeed,
+; sets the thief's bit in STEALTH. Their next attack then counts as one from behind, and so
+; as a backstab when the game's own conditions for one hold; the bit is cleared (attacking
+; gives the thief away).
+;
+; PROBE_STEALTH: INT VEC_STEALTH replaces "push word [bp-1Ah]" (3 bytes: INT + NOP) in the
+; routine that sets up an attack, straight after it has worked out whether the attacker (SI)
+; is behind the target (DI) and whether that makes a backstab: [BP-1Ah] from behind (+2 to
+; hit, the target's DEX and shield don't count), [BP-24h] a backstab (+2 more, and the damage
+; multiplied), [BP-20h] the THAC0 they lower; [BP-1Ch] set when the target is an object, which
+; has no back. Does the push (under the interrupt's return frame).
+probe_stealth:
+        pop word [cs:s_ip]
+        pop word [cs:s_cs]
+        pop word [cs:s_fl]
+        test byte [cs:rules], RULE_STEALTH
+        jz .push
+        cmp si, 3
+        ja .push
+        btr word [cs:stealth], si
+        jnc .push
+        inc word [cs:stealth_used]
+        cmp word [bp-0x1C], 0
+        jne .push
+        push ax
+        push bx
+        push es
+        cmp word [bp-0x1A], 0
+        jne .stab
+        mov word [bp-0x1A], 1
+        sub word [bp-0x20], 2
+.stab:  cmp word [bp-0x24], 0
+        jne .done
+        ; the game's own conditions: a thief (the sheet's word +12h, bit 400h), in melee
+        ; ([BP+0Eh] 1), with a weapon whose type weighs 40 or less (the type's word +4)
+        mov ax, [bp-0x12]
+        imul ax, ax, 0x47
+        les bx, [0x1661]
+        add bx, ax
+        test word [es:bx+0x12], 0x400
+        jz .done
+        cmp word [bp+0x0E], 1
+        jne .done
+        mov ax, [bp-4]
+        imul ax, ax, 0x14
+        les bx, [0x1669]
+        add bx, ax
+        cmp word [es:bx+4], 0x28
+        jg .done
+        sub word [bp-0x20], 2
+        mov word [bp-0x24], 1
+.done:  pop es
+        pop bx
+        pop ax
+.push:  push word [bp-0x1A]
+        push word [cs:s_fl]
+        push word [cs:s_cs]
+        push word [cs:s_ip]
+        iret
+s_ip    dw 0
+s_cs    dw 0
+s_fl    dw 0
 
 L_LINE_SIZE equ 24
 LOOK_SIZE   equ 80
@@ -1852,7 +2240,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 19
+        mov cx, 27
 .check:
         lodsb
         mov ah, 35h
@@ -1925,6 +2313,30 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_USE_ITEM
         mov dx, probe_use_item
         int 21h
+        mov ax, 2500h + VEC_TWO
+        mov dx, probe_two
+        int 21h
+        mov ax, 2500h + VEC_DOUBLE
+        mov dx, probe_double
+        int 21h
+        mov ax, 2500h + VEC_GRACE_CAST
+        mov dx, probe_grace_cast
+        int 21h
+        mov ax, 2500h + VEC_GRACE_EFFECT
+        mov dx, probe_grace_effect
+        int 21h
+        mov ax, 2500h + VEC_GRACE_ABILITY
+        mov dx, probe_grace_ability
+        int 21h
+        mov ax, 2500h + VEC_NAMES_SIZE
+        mov dx, probe_names_size
+        int 21h
+        mov ax, 2500h + VEC_NAMES_FILL
+        mov dx, probe_names_fill
+        int 21h
+        mov ax, 2500h + VEC_STEALTH
+        mov dx, probe_stealth
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -1940,8 +2352,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or F1h-FDh are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM
+busy    db 'DSCLOG: interrupts 60h-65h or EAh-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH
 
         align 16, db 0
 image_len equ $ - $$

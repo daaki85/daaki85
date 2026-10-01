@@ -165,16 +165,6 @@ class ToolsTests(unittest.TestCase):
         self.clock(90000)
         self.assertEqual(tools.give_tools(self.gd, {"Dag|Dag"}), [])
 
-    def test_name(self):
-        """Written over the game's "Rest icon" (which no item has), and over nothing else."""
-        at = NAMES + 3 + tools.NAME_ENTRY * game.ITEM_NAME_SIZE
-        m = self.pick.m
-        m[at:at + game.ITEM_NAME_SIZE] = b"Rest icon".ljust(game.ITEM_NAME_SIZE, b"\0")
-        self.assertTrue(tools.name_tools(self.gd))
-        self.assertEqual(self.gd.item_name(tools.NAME_ENTRY), "Thieves' Tools")
-        m[at:at + game.ITEM_NAME_SIZE] = b"Something".ljust(game.ITEM_NAME_SIZE, b"\0")
-        self.assertFalse(tools.name_tools(self.gd))
-
     def test_earlier_tools_renamed(self):
         """Tools an earlier version gave (named "pick") get today's name entry."""
         tools.give_tools(self.gd, set(), now=True)
