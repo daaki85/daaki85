@@ -685,9 +685,11 @@ can try anyone's, two ways, with the thief as the party's leader (keys 1-4):
   backpack (the log says so); a thief who joins later, or one in a game
   started before this version, gets a set once too. **Give thieving tools
   now** on the Options tab gives a set at once to each thief in the party
-  without one (lost or sold ones included). The tools: an item with a key's picture, called **pick** (the
-  game's name table has no room for a name of its own, so it borrows the
-  game's word). On the inventory screen, pick the tools up, go back to the
+  without one (lost or sold ones included). They are called **Thieves'
+  Tools**: the game's name table has no free entry, so the name goes over
+  "Rest icon", an internal label of the game's that no item has (without the
+  Ledger running, that is what they're called). Tools an earlier version gave,
+  called "pick", are renamed. On the inventory screen, pick the tools up, go back to the
   game with them on the pointer, and click someone in sight: the result comes
   up in the game's message window, and the tools stay on the pointer for the
   next one. (Clicking open ground drops them, as with anything carried.)

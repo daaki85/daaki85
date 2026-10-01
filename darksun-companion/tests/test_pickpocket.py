@@ -165,6 +165,26 @@ class ToolsTests(unittest.TestCase):
         self.clock(90000)
         self.assertEqual(tools.give_tools(self.gd, {"Dag|Dag"}), [])
 
+    def test_name(self):
+        """Written over the game's "Rest icon" (which no item has), and over nothing else."""
+        at = NAMES + 3 + tools.NAME_ENTRY * game.ITEM_NAME_SIZE
+        m = self.pick.m
+        m[at:at + game.ITEM_NAME_SIZE] = b"Rest icon".ljust(game.ITEM_NAME_SIZE, b"\0")
+        self.assertTrue(tools.name_tools(self.gd))
+        self.assertEqual(self.gd.item_name(tools.NAME_ENTRY), "Thieves' Tools")
+        m[at:at + game.ITEM_NAME_SIZE] = b"Something".ljust(game.ITEM_NAME_SIZE, b"\0")
+        self.assertFalse(tools.name_tools(self.gd))
+
+    def test_earlier_tools_renamed(self):
+        """Tools an earlier version gave (named "pick") get today's name entry."""
+        tools.give_tools(self.gd, set(), now=True)
+        m = self.pick.m
+        struct.pack_into("<H", m, ITEMS + 90 * game.ITEM_SIZE + game.ITEM_NAME, 0xAD)
+        self.assertTrue(tools.is_tools(ring.Items(self.gd).item(90)))
+        tools.repaint(self.gd)
+        self.assertEqual(struct.unpack_from("<H", m, ITEMS + 90 * game.ITEM_SIZE + game.ITEM_NAME)[0],
+                         tools.NAME_ENTRY)
+
     def test_tools_on_someone(self):
         """Used on the Guard (creature 5): the same as P in a conversation with him."""
         struct.pack_into("<h", self.pick.m, (LOAD_SEG + game.TALK_SEG) * 16 + game.TALK_TARGET, -1)

@@ -822,6 +822,8 @@ class DiceLog:
             ring.name_ring(self.game)
             ring.name_items(self.game, self.rules)
             if self.pickpockets:
+                tools.name_tools(self.game)
+                tools.repaint(self.game)
                 before = set(self.tools_given)
                 out += tools.give_tools(self.game, self.tools_given, session=self._tools_session)
                 self._tools_new += sorted(self.tools_given - before)
