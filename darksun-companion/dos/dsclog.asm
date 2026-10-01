@@ -69,7 +69,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvG'          ; +0
+sig      db 'DSCLOGvH'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -140,6 +140,11 @@ use_who    dw 0                 ; +184 the object it was used on
 use_taken  dw 0                 ; +186 the companion sets 1 when it was one of its own (the thieving
                                 ;      tools): the game then does nothing more, and PICK_TEXT is shown
 use_item   dw 0                 ; +188 the item used (FFFFh: none)
+swap_on    dw 0                 ; +190 the companion sets 1 to have the next dialogue text that
+                                ;      starts with SWAP_MATCH shown as SWAP_TEXT instead (once)
+swap_seq   dw 0                 ; +192 counted up when it has been
+swap_off   dw swap_match        ; +194 offset of SWAP_MATCH (SWAP_SIZE bytes, NUL-terminated),
+                                ;      then SWAP_TEXT (TSIZE_SWAP bytes)
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -416,10 +421,36 @@ gpl_hook:
 ; replaced instructions for the routine.
 probe_text:
         call text_enter         ; SS:BP+16 = the routine's arguments
+        cmp word [cs:swap_on], 0
+        je .record
+        cmp byte [bp+16], 2     ; text for the window
+        jne .record
+        lds si, [bp+18]
+        mov ax, ds
+        or ax, si
+        jz .record
+        mov bx, swap_match
+.same:  mov al, [cs:bx]
+        or al, al
+        jz .swap                ; all of SWAP_MATCH matched
+        cmp al, [si]
+        jne .record
+        inc si
+        inc bx
+        jmp .same
+.swap:  mov word [bp+18], swap_text  ; the routine is given ours instead
+        mov [bp+20], cs
+        mov word [cs:swap_on], 0
+        inc word [cs:swap_seq]
+.record:
         mov cl, [bp+16]
         lds si, [bp+18]
         mov dx, [bp+22]
         jmp text_leave
+
+SWAP_SIZE equ 64
+swap_match times SWAP_SIZE db 0
+swap_text  times 240 db 0
 
 ; PROBE_MSG: the same for the game's message box routine (far pointer to the
 ; message), recorded as kind 16.

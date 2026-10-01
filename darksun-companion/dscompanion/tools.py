@@ -7,10 +7,11 @@ joins) gets a set once. Picked up on
 the inventory screen and taken back to the game, the pointer carries them; clicked on someone,
 the patched game's routine for using an item on something (DSCLOG's PROBE_USE_ITEM) has the
 Ledger try that person's pockets with the leader's hand (pickpocket.py), and shows what came
-of it. The item is a small one of the game's "misc" type, with a key's picture. The game's
-name table has no free entry left (the Ring of Protection has the one there was), so it uses
-the game's own name "pick" (the pickaxe's), and is told apart by that name, the key's picture
-and the type together, which no item of the game's has.
+of it. The item is a small one of the game's "misc" type. The game's name table has no free
+entry left (the Ring of Protection has the one there was), so the tools' name, "Thieves'
+Tools", goes in the entry of an internal label no item has ("Rest icon", the rest button's),
+written whenever the Ledger looks (the game reads the table afresh each time it starts); the
+tools are told apart by that name, their picture and their type together.
 """
 
 import struct
@@ -19,18 +20,58 @@ from typing import List, Optional
 from . import game, pickpocket, ring
 from .game import GameData
 
-NAME_ENTRY = 0xAD  # "pick"
+NAME_ENTRY = 0x60  # the game's "Rest icon"
+NAME, OWN_NAME = b"Thieves' Tools", b"Rest icon"
+OLD_NAME_ENTRIES = (0xAD,)  # what earlier versions named them ("pick", the pickaxe's): renamed
 NEW_GAME = 3600  # game seconds: a game this young, in the arena, has just started
 ARENA = 0x2A  # the region every game starts in
-PICTURE, TYPE = 0x8AB0, 60  # a Slavepen key's picture; small things carried (weight 1, worn nowhere)
-# a Slavepen key's record, as the game has it, with that name, not in a slot
+PICTURE, TYPE = 0xFBD4, 60  # the tools' picture (a leather satchel); small things carried (weight 1, worn nowhere)
+OLD_PICTURES = (0x8AB0,)  # what earlier versions gave them (a Slavepen key's): changed to PICTURE
+PICTURE_CACHE = 0x0C  # in an item: the game keeps the picture it loaded here (0: load it again)
+# a Slavepen key's record, as the game has it, with that name and picture, not in a slot
 ITEM = struct.pack("<HH", PICTURE, 0) + bytes.fromhex("0f27" "0100" "0f27") + struct.pack("<H", TYPE) + \
     bytes.fromhex("00000000" "05" "ff") + struct.pack("<Hb", NAME_ENTRY, 0)
 
 
+def name_tools(gd: GameData) -> bool:
+    """The tools' name in the game's name table (over its "Rest icon", which no item has).
+    True if the entry holds it."""
+    at = game.far_pointer(gd.guest, gd.ds, game.ITEM_NAMES_PTR) + NAME_ENTRY * game.ITEM_NAME_SIZE
+    entry = gd.guest.read(at, game.ITEM_NAME_SIZE).split(b"\0", 1)[0]
+    if entry == NAME:
+        return True
+    if entry != OWN_NAME:
+        return False  # not the table expected: leave it be
+    gd.guest.write(at, NAME.ljust(game.ITEM_NAME_SIZE, b"\0"))
+    return True
+
+
 def is_tools(rec: bytes) -> bool:
-    return len(rec) == game.ITEM_SIZE and struct.unpack_from("<H", rec, game.ITEM_NAME)[0] == NAME_ENTRY \
-        and struct.unpack_from("<H", rec, 0)[0] == PICTURE and struct.unpack_from("<H", rec, game.ITEM_TYPE)[0] == TYPE
+    return len(rec) == game.ITEM_SIZE \
+        and struct.unpack_from("<H", rec, game.ITEM_NAME)[0] in (NAME_ENTRY,) + OLD_NAME_ENTRIES \
+        and struct.unpack_from("<H", rec, 0)[0] in (PICTURE,) + OLD_PICTURES \
+        and struct.unpack_from("<H", rec, game.ITEM_TYPE)[0] == TYPE
+
+
+def repaint(gd: GameData) -> None:
+    """Tools an earlier version gave get today's name entry and picture (the game's cache of
+    the picture it loaded cleared, so it loads the new one)."""
+    it = ring.Items(gd)
+    for member in range(game.PARTY_SIZE):
+        rec = gd.creature(member)
+        if len(rec) < game.CREATURE_SIZE:
+            continue
+        for offset in game.CREATURE_ITEM_LISTS:
+            thing, = struct.unpack_from("<h", rec, offset)
+            for item, data in it.chain(thing):
+                if not is_tools(data):
+                    continue
+                at = it.items + item * game.ITEM_SIZE
+                if struct.unpack_from("<H", data, game.ITEM_NAME)[0] != NAME_ENTRY:
+                    gd.guest.write(at + game.ITEM_NAME, struct.pack("<H", NAME_ENTRY))
+                if struct.unpack_from("<H", data, 0)[0] != PICTURE:
+                    gd.guest.write(at, struct.pack("<H", PICTURE))
+                    gd.guest.write(at + PICTURE_CACHE, bytes(4))
 
 
 def new_game(gd: GameData) -> bool:
@@ -47,12 +88,30 @@ def carries_tools(gd: GameData, it: ring.Items, member: int) -> bool:
     return False
 
 
-def give_tools(gd: GameData, given: set) -> List[str]:
-    """A set of tools for each thief in the party that should have one: in a new game, each
-    without a set; later, each not given one before (GIVEN: whom, updated)."""
-    fresh = new_game(gd)
+HELD, HELD_TABLE, HELD_SIZE, HELD_ITEM = 0x17A0, 0x9962, 10, 0x44  # DS: on the inventory
+# screen, the item on the pointer (HELD: its number in that table, -1 for none)
+
+
+def held_tools(gd: GameData, it: ring.Items) -> bool:
+    """Tools on the pointer (being moved on the inventory screen: in no one's lists meanwhile)."""
+    held, = struct.unpack("<h", gd.guest.read(gd.ds * 16 + HELD, 2))
+    if held < 0:
+        return False
+    item, = struct.unpack("<H", gd.guest.read(gd.ds * 16 + HELD_TABLE + held * HELD_SIZE + HELD_ITEM, 2))
+    return item < game.NO_ITEM and is_tools(it.item(item))
+
+
+def give_tools(gd: GameData, given: set, now: bool = False, session: Optional[set] = None) -> List[str]:
+    """A set of tools for each thief in the party that should have one: in a new game (or
+    NOW, the Ledger's button), each without a set, but in a new game only once while the
+    Ledger runs (SESSION: whom); later, each not given one before (GIVEN: whom). Both are
+    updated."""
+    fresh = now or new_game(gd)
+    session = set() if session is None else session
     out = []
     it = ring.Items(gd)
+    if held_tools(gd, it) and not now:
+        return []  # someone's being moved: whose isn't known
     for member in range(game.PARTY_SIZE):
         rec = gd.creature(member)
         if len(rec) < game.CREATURE_SIZE or not rec[game.CREATURE_NAME]:
@@ -60,7 +119,7 @@ def give_tools(gd: GameData, given: set) -> List[str]:
         key = f"{gd.creature_name(0)}|{gd.creature_name(member)}"
         if gd.thief_skill_parts(member, pickpocket.PICK_POCKETS) is None:
             continue
-        if carries_tools(gd, it, member) or (key in given and not fresh):
+        if carries_tools(gd, it, member) or (key in given and not fresh) or (key in session and not now):
             given.add(key)
             continue
         cell = pickpocket.free_cell(gd, it, member)
@@ -72,7 +131,8 @@ def give_tools(gd: GameData, given: set) -> List[str]:
         if not pickpocket.give(gd, ring.Items(gd), member, item, cell):
             continue
         given.add(key)
-        out.append(f"{gd.creature_name(member)} has thieving tools in the backpack (a 'pick' with a key's picture): "
-                   "pick them up, take them back to the game and click someone to try their pockets.")
+        session.add(key)
+        out.append(f"{gd.creature_name(member)} has Thieves' Tools in the backpack: pick them up, take them "
+                   "back to the game and click someone to try their pockets.")
         it = ring.Items(gd)
     return out

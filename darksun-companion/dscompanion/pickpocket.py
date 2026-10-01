@@ -19,7 +19,7 @@ from . import game, ring
 from .game import GameData
 
 PICK_POCKETS, MOVE_SILENTLY = 0, 3  # thief skill numbers
-BACKPACK = range(13, 27)  # the backpack's cells (0-12 are what's worn or held)
+BACKPACK = range(14, 26)  # the backpack's 12 cells, as the inventory screen shows them (0-13: the body's)
 TYPE_WEIGHT, TYPE_WORN = 0x04, 0x09  # in an item type's record: its weight; where it's worn
 MAX_WEIGHT = 10  # a bag, a quiver of arrows: pocket-sized (a long sword is 30, a helm 15)
 # where on the body (TYPE_WORN) things can't be lifted from: chest, belt, arms, feet, head,
@@ -185,6 +185,6 @@ def attempt(gd: GameData, tried: set, roll: Callable[[], int] = lambda: random.r
         text = f"{thief} fumbles {npc}'s pockets, but slips away unnoticed."
         lines.append("  " + text)
         return Attempt(text, lines)  # free to try again
-    text = f"{npc} catches {thief}'s hand! {npc} won't let {thief} near again."
+    text = f"{npc} catches {thief}'s hand! {npc} will be too wary for {thief} to try again."
     lines.append("  " + text)
     return Attempt(text, lines, key)

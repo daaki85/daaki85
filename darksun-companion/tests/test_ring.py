@@ -1,4 +1,4 @@
-"""The Ring +1: put on the Tied-up Prisoner's body in the arena, named, and counted on saving throws."""
+"""The Ring +1: found on the Tied-up Prisoner's body in the arena, named, and counted on saving throws."""
 
 import os
 import struct
@@ -12,29 +12,19 @@ from dscompanion import game, ring
 from test_dicelog import CREATURES, DS, ITEM_TYPES, ITEMS, LOAD_SEG, NAMES, make_game
 
 THINGS = (LOAD_SEG + game.COMBATANTS_SEG) * 16 + game.COMBATANTS_OFF
-BODY, BODY_THING = 62, 217
-
-
-def arena(dead=True):
-    """The arena, the Tied-up Prisoner dead: his body (item 62, object 217) where his script
-    puts it, a Dead Slave of the scenery type; item 60 first on the free item list, object 505
-    first on the free object list."""
+def arena():
+    """The arena, the ring still to be found; item 60 first on the free item list, object 505
+    first on the free object list; Dag (creature 0) leads."""
     log = make_game()
     m = log.guest.mem
     struct.pack_into("<H", m, DS * 16 + ring.REGION, ring.ARENA)
-    if dead:
-        struct.pack_into("<Bh", m, THINGS + BODY_THING * 3, game.THING_ITEM, BODY)
-        struct.pack_into("<HH", m, DS * 16 + ring.POSITIONS + BODY_THING * ring.POSITION_SIZE, *ring.BODY_AT)
-        body = ITEMS + BODY * game.ITEM_SIZE
-        struct.pack_into("<HHH", m, body + game.ITEM_NEXT, game.NO_ITEM, 1, game.NO_ITEM)
-        struct.pack_into("<H", m, body + game.ITEM_TYPE, ring.SCENERY_TYPE)
-        struct.pack_into("<H", m, body + game.ITEM_NAME, ring.DEAD_SLAVE_NAME)
     struct.pack_into("<HH", m, DS * 16 + ring.FREE_ITEMS, 60, 0)
     struct.pack_into("<h", m, ITEMS + 60 * game.ITEM_SIZE + game.ITEM_NEXT, 61)
     struct.pack_into("<H", m, DS * 16 + ring.FREE_THINGS, 505)
     struct.pack_into("<Bh", m, THINGS + 505 * 3, 0, 504)
     struct.pack_into("<H", m, DS * 16 + ring.THINGS_USED, 15)
-    # (the fake's other creatures' lists: none)
+    struct.pack_into("<H", m, DS * 16 + game.WHOSE_TURN, 0)
+    # (the fake's creatures' lists: none)
     for index in range(8):
         struct.pack_into("<hhh", m, CREATURES + index * game.CREATURE_SIZE + 8, *(game.NO_ITEM,) * 3)
     return log
@@ -44,30 +34,21 @@ def word(m, addr):
     return struct.unpack_from("<H", m, addr)[0]
 
 
-class PlaceTests(unittest.TestCase):
-    def test_dead_prisoner(self):
-        """His body becomes a container, the ring in it."""
+class SearchTests(unittest.TestCase):
+    def test_found_on_the_body(self):
+        """Looked for on the body: into the leader's backpack (its first cell), and then no
+        more is needed."""
         log = arena()
         m = log.guest.mem
-        self.assertEqual(ring.place_ring(log.game), ring.MESSAGE)
-        body = ITEMS + BODY * game.ITEM_SIZE
-        self.assertEqual((word(m, body + game.ITEM_TYPE), word(m, body + ring.ITEM_CONTENTS)), (ring.BODY_TYPE, 505))
-        self.assertEqual(struct.unpack_from("<Bh", m, THINGS + 505 * 3), (game.THING_ITEM, 60))
-        self.assertEqual(bytes(m[ITEMS + 60 * game.ITEM_SIZE:ITEMS + 61 * game.ITEM_SIZE]), ring.RING)
-        self.assertEqual((word(m, DS * 16 + ring.FREE_ITEMS), word(m, DS * 16 + ring.FREE_THINGS),
-                          word(m, DS * 16 + ring.THINGS_USED)), (61, 504, 16))
-        self.assertIsNone(ring.place_ring(log.game))  # once only: it's there now
-
-    def test_taken(self):
-        """Once his body is a container, it gets no second ring after the party takes it (and
-        sells it, say)."""
-        log = arena()
-        ring.place_ring(log.game)
-        struct.pack_into("<H", log.guest.mem, ITEMS + BODY * game.ITEM_SIZE + ring.ITEM_CONTENTS, game.NO_ITEM)
-        self.assertIsNone(ring.place_ring(log.game))
-
-    def test_alive(self):
-        self.assertIsNone(ring.place_ring(arena(dead=False).game))
+        self.assertTrue(ring.ring_needed(log.game))
+        self.assertEqual(ring.give_ring(log.game), ring.MESSAGE.format(who=log.game.creature_name(0)))
+        thing, = struct.unpack_from("<h", m, CREATURES + 8)
+        self.assertEqual(struct.unpack_from("<Bh", m, THINGS + thing * 3), (game.THING_ITEM, 60))
+        rec = bytearray(ring.RING)
+        rec[game.ITEM_SLOT] = 14
+        struct.pack_into("<H", rec, game.ITEM_NEXT, game.NO_ITEM)
+        self.assertEqual(bytes(m[ITEMS + 60 * game.ITEM_SIZE:ITEMS + 61 * game.ITEM_SIZE]), bytes(rec))
+        self.assertFalse(ring.ring_needed(log.game))
 
     def test_party_has_it(self):
         """Dag carries a Ring +1 already (his list starting at object 401)."""
@@ -76,12 +57,12 @@ class PlaceTests(unittest.TestCase):
         struct.pack_into("<Bh", m, THINGS + 401 * 3, game.THING_ITEM, 70)
         struct.pack_into("<h", m, CREATURES + 8, 401)
         m[ITEMS + 70 * game.ITEM_SIZE:ITEMS + 71 * game.ITEM_SIZE] = ring.RING
-        self.assertIsNone(ring.place_ring(log.game))
+        self.assertFalse(ring.ring_needed(log.game))
 
     def test_elsewhere(self):
         log = arena()
         struct.pack_into("<H", log.guest.mem, DS * 16 + ring.REGION, 0x2B)
-        self.assertIsNone(ring.place_ring(log.game))
+        self.assertFalse(ring.ring_needed(log.game))
 
 
 class NameTests(unittest.TestCase):

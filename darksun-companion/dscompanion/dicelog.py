@@ -30,7 +30,7 @@ from .guestmem import GuestMemory
 from .textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGvG"
+HDR_SIG = b"DSCLOGvH"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
 MSG_SIZE = 900
@@ -50,6 +50,7 @@ BIOS_TIMER = 0x46C
 TSR_RULES = 170
 TSR_PICK_SEQ, TSR_PICK_REPLY, TSR_PICK_OFF, TSR_PICK_ON, PICK_SIZE = 172, 174, 176, 178, 240
 TSR_USE_SEQ, TSR_USE_REPLY, TSR_USE_WHO, TSR_USE_TAKEN, TSR_USE_ITEM = 180, 182, 184, 186, 188
+TSR_SWAP_ON, TSR_SWAP_SEQ, TSR_SWAP_OFF, SWAP_SIZE, SWAP_TEXT_SIZE = 190, 192, 194, 64, 240
 RULE_HELMS, RULE_BOOTS = game.RULE_HELMS, game.RULE_BOOTS
 SLOT_KINDS = {"Wizard": "WIZ", "Priest": "PRI"}
 RAND_PATCHED = b"\xcd\x60"  # INT 60h at the start of rand() in DSUNLOG.EXE
@@ -311,6 +312,8 @@ class DiceLog:
         self.picked: set = set()  # the pockets tried already (each person gets one try)
         self._picked_new: List[str] = []
         self.tools_given: set = set()  # the thieves given thieving tools (tools.py)
+        self._tools_session: set = set()  # ... while this runs
+        self._swap_seq = 0  # DSCLOG's text swaps seen (the arena ring's search, ring.py)
         self._tools_new: List[str] = []
         self.rules = 0  # RULE_HELMS | RULE_BOOTS: rule changes DSCLOG makes (set_rules)
         self._ring_check = 0.0
@@ -377,6 +380,7 @@ class DiceLog:
         self.set_pickpockets(self.pickpockets)
         self._turn_seq = struct.unpack("<H", self.guest.read(hdr + TSR_TURN_SEQ, 2))[0]
         self._look_seq = struct.unpack("<H", self.guest.read(hdr + TSR_LOOK_SEQ, 2))[0]
+        self._swap_seq = struct.unpack("<H", self.guest.read(hdr + TSR_SWAP_SEQ, 2))[0]
         self.last_seq = struct.unpack("<H", self.guest.read(hdr + 8, 2))[0]
         self._effects = None
         return "Dice log attached."
@@ -406,6 +410,18 @@ class DiceLog:
         each person gets one try."""
         new, self._picked_new = self._picked_new, []
         return new
+
+    def give_tools_now(self) -> List[str]:
+        """Thieving tools for each thief in the party not carrying a set (the Ledger's button)."""
+        if self.game is None:
+            return []
+        before = set(self.tools_given)
+        try:
+            out = tools.give_tools(self.game, self.tools_given, now=True, session=self._tools_session)
+        except (struct.error, IndexError, ValueError):
+            return []
+        self._tools_new += sorted(self.tools_given - before)
+        return out or ["Every thief in the party has thieving tools already."]
 
     def take_tools_given(self) -> List[str]:
         """The thieves given tools since the last call, for the caller to remember."""
@@ -806,13 +822,40 @@ class DiceLog:
             ring.name_ring(self.game)
             ring.name_items(self.game, self.rules)
             if self.pickpockets:
+                tools.name_tools(self.game)
+                tools.repaint(self.game)
                 before = set(self.tools_given)
-                out += tools.give_tools(self.game, self.tools_given)
+                out += tools.give_tools(self.game, self.tools_given, session=self._tools_session)
                 self._tools_new += sorted(self.tools_given - before)
-            placed = ring.place_ring(self.game) if self.arena_ring else None
+            out += self._ring_search()
         except (struct.error, IndexError, ValueError):
             return out
-        return out + ([placed] if placed else [])
+        return out
+
+    def _ring_search(self) -> List[str]:
+        """While the arena's ring is still to be found: have DSCLOG show ring.SEARCH_TEXT instead
+        of the arena script's "There is nothing on the body.", and once it has, put the ring
+        in the leader's backpack."""
+        if self.tsr_hdr is None:
+            return []
+        needed = self.arena_ring and ring.ring_needed(self.game)
+        seq, = struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_SWAP_SEQ, 2))
+        fired, self._swap_seq = seq != self._swap_seq, seq
+        out = []
+        if needed and fired:
+            given = ring.give_ring(self.game)
+            out.append(given or "No one in the party has room for the ring: make room and look at the body again.")
+            needed = given is None
+        on = struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_SWAP_ON, 2))[0]
+        if needed and not on:
+            offset, = struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_SWAP_OFF, 2))
+            base = self.tsr_hdr - struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_HDR_OFF, 2))[0] + offset
+            self.guest.write(base, ring.NOTHING.encode("cp437").ljust(SWAP_SIZE, b"\0")[:SWAP_SIZE])
+            self.guest.write(base + SWAP_SIZE, ring.SEARCH_TEXT.encode("cp437")[:SWAP_TEXT_SIZE - 1] + b"\0")
+            self.guest.write(self.tsr_hdr + TSR_SWAP_ON, struct.pack("<H", 1))
+        elif not needed and on:
+            self.guest.write(self.tsr_hdr + TSR_SWAP_ON, struct.pack("<H", 0))
+        return out
 
     def psp_changes(self) -> List[str]:
         """The party's PSP going down (a psionic power used, or kept up another round: the game

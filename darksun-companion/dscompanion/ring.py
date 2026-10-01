@@ -2,10 +2,12 @@
 
 The game has a plain "Ring" item type that nothing in it has a plus on. The dice log's
 patched game makes a worn ring's plus better AC and saving throws (DSCLOG's PROBE_RING_AC
-and PROBE_RING_SAVE), and once the Tied-up Prisoner has died this makes his body a container
-with one Ring +1 in it, the way the game fills a container: an item and an object ("thing")
-from the game's free lists. Once the party has it, the game keeps and saves it like any other
-item.
+and PROBE_RING_SAVE). When the Tied-up Prisoner dies (cut from his bonds, or killed where he
+hangs), the game leaves his body, which can't be opened: looking at it, the arena's script
+says "There is nothing on the body." While the ring is still to be found, the Ledger has
+DSCLOG show SEARCH_TEXT instead of that line (its text swap), and then puts the ring in the
+leader's backpack (give_ring): an item record from the game's free list. Once the party has
+it, the game keeps and saves it like any other item.
 """
 
 import struct
@@ -16,14 +18,9 @@ from .game import GameData
 
 REGION = 0x117C  # DS: the region the party is in (its RGNxx.GFF)
 ARENA = 0x2A
-# When the Tied-up Prisoner dies (cut from his bonds, or killed where he hangs), his script
-# frees his creature and everything on it and puts two new items where he was: "Stakes" and
-# his body, a "Dead Slave" of the game's scenery type, which can't be opened.
-DEAD_SLAVE_NAME = 0xBB  # its name table entry
-SCENERY_TYPE = 61
-BODY_AT = (696, 392)  # where it lies
-NEAR = 16  # pixels
-BODY_TYPE = 108  # the type of a "Dead Body", a container: +08h the object its contents start at
+NOTHING = "There is nothing on the body."  # the arena script's line for his body
+SEARCH_TEXT = ("Searching the body, you find a ring sewn into his loincloth: a Ring of Protection +1 "
+               "(+1 AC, +1 on saves).")
 POSITIONS, POSITION_SIZE = 0x669D, 32  # DS: each object's x, y first
 THING_COUNT = 0x208  # objects 0-519; 320-519 are handed out from a free list
 FREE_THINGS, THINGS_USED = 0x4D72, 0x4C48  # DS: that list's first, and how many are out
@@ -48,7 +45,7 @@ RULE_NAMES = ((6, "Helm", game.RULE_HELMS, " (AC 1)"), (145, "Dapartea's Helm", 
 # the game's own record for a Ring (from SEGOBJEX), not worn (slot 255), with a plus of 1
 RING = bytes.fromhex("1cfa0000" "0f27" "f401" "0f27" "6600" "00000000" "06" "ff") + \
     struct.pack("<Hb", NAME_ENTRY, 1)
-MESSAGE = "The Tied-up Prisoner's body holds a Ring of Protection +1 (+1 AC, +1 on saves)."
+MESSAGE = "{who} takes the Ring of Protection +1 (+1 AC, +1 on saves) from the Tied-up Prisoner's body."
 MAX_ITEMS = 200  # items followed before giving up (a damaged list)
 
 
@@ -121,45 +118,34 @@ def name_items(gd: GameData, rules: int) -> None:
             gd.guest.write(at, want.encode("cp437").ljust(game.ITEM_NAME_SIZE, b"\0"))
 
 
-def place_ring(gd: GameData) -> Optional[str]:
-    """In the arena, once the Tied-up Prisoner has died (freed, or killed where he hangs), make
-    his body a container with a Ring +1 in it, unless there is a Ring +1 already (with the
-    party or anywhere else in the region). Returns a line for the log if it did."""
+def ring_needed(gd: GameData) -> bool:
+    """In the arena, with no Ring +1 there yet (with the party or anywhere else in the region)."""
     it = Items(gd)
     if it.word(REGION) != ARENA:
-        return None
-    body = None
+        return False
     for thing in range(THING_COUNT):
-        kind, index = it.thing(thing)
-        if kind != game.THING_ITEM:
+        if it.thing(thing)[0] == game.THING_ITEM and any(is_ring(rec) for _, rec in it.chain(thing)):
+            return False
+    return True
+
+
+def give_ring(gd: GameData) -> Optional[str]:
+    """The ring, into the leader's backpack (or the first in the party with room). A line for
+    the log, or None if there was no room or no item record to be had."""
+    from . import pickpocket
+    it = Items(gd)
+    leader = gd.whose_turn()
+    order = ([leader] if leader is not None and 0 <= leader < game.PARTY_SIZE else []) + list(range(game.PARTY_SIZE))
+    for member in order:
+        rec = gd.creature(member)
+        if len(rec) < game.CREATURE_SIZE or not rec[game.CREATURE_NAME]:
             continue
-        for _, rec in it.chain(thing):
-            if is_ring(rec):
-                return None
-        if not 0 <= index < game.NO_ITEM:
+        cell = pickpocket.free_cell(gd, it, member)
+        item = it.word(FREE_ITEMS)
+        if cell is None or item >= game.NO_ITEM:
             continue
-        rec = it.item(index)
-        name, = struct.unpack_from("<H", rec, game.ITEM_NAME)
-        kind_of, = struct.unpack_from("<H", rec, game.ITEM_TYPE)
-        contents, = struct.unpack_from("<H", rec, ITEM_CONTENTS)
-        if name == DEAD_SLAVE_NAME and kind_of == SCENERY_TYPE and contents >= THING_COUNT:
-            x, y = struct.unpack("<HH", gd.guest.read(gd.ds * 16 + POSITIONS + thing * POSITION_SIZE, 4))
-            if abs(x - BODY_AT[0]) <= NEAR and abs(y - BODY_AT[1]) <= NEAR:
-                body = index
-    if body is None:
-        return None  # he's alive still (or his body is a container already)
-    # an item record and an object for it, as the game's allocators hand them out
-    ring, free_thing = it.word(FREE_ITEMS), it.word(FREE_THINGS)
-    if ring >= game.NO_ITEM or free_thing >= THING_COUNT:
-        return None
-    ds = gd.ds * 16
-    _, after = it.thing(free_thing)
-    gd.guest.write(ds + FREE_ITEMS, it.item(ring)[game.ITEM_NEXT:game.ITEM_NEXT + 2])
-    gd.guest.write(it.items + ring * game.ITEM_SIZE, RING)
-    gd.guest.write(ds + FREE_THINGS, struct.pack("<H", after & 0xFFFF))
-    gd.guest.write(ds + THINGS_USED, struct.pack("<H", it.word(THINGS_USED) + 1))
-    gd.guest.write(it.things + free_thing * 3, struct.pack("<BH", game.THING_ITEM, ring))
-    rec = it.items + body * game.ITEM_SIZE
-    gd.guest.write(rec + ITEM_CONTENTS, struct.pack("<H", free_thing))
-    gd.guest.write(rec + game.ITEM_TYPE, struct.pack("<H", BODY_TYPE))
-    return MESSAGE
+        gd.guest.write(gd.ds * 16 + FREE_ITEMS, it.item(item)[game.ITEM_NEXT:game.ITEM_NEXT + 2])
+        gd.guest.write(it.items + item * game.ITEM_SIZE, RING)
+        if pickpocket.give(gd, Items(gd), member, item, cell):
+            return MESSAGE.format(who=gd.creature_name(member))
+    return None
