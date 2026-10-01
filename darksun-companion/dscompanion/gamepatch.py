@@ -149,8 +149,8 @@ PATCHES = (
     # points are a roll or the fixed gain, "cmp al,es:[bx+1]" where CON's bonus is counted
     Patch("hd_roll", 0x872DE, bytes.fromhex("268a870100"), _interrupt(VEC_HD_ROLL, 5)),
     # the thief skills' equipment penalty: the list of slots where anything brings it (words,
-    # ended by 13) without the legs and the quiver, leaving the hands
-    Patch("thief_slots", 0x44F70, bytes.fromhex("060001000a0003000d00"), bytes.fromhex("0a0003000d000d000d00")),
+    # ended by 13: the legs, the quiver and both hands) made empty, so nothing does
+    Patch("thief_slots", 0x44F70, bytes.fromhex("060001000a0003000d00"), bytes.fromhex("0d000d000d000d000d00")),
     Patch("hd_con", 0x87779, bytes.fromhex("263a870100"), _interrupt(VEC_HD_CON, 5)),
     # (not changed: DSCLOG reads the segment this "mov dx,<segment>" loads, the pointer's items')
     Patch("use_item_seg", 0x73A14, bytes.fromhex("ba8003"), bytes.fromhex("ba8003")),

@@ -466,8 +466,8 @@ THIEF_TABLE_SEG = 0x3FAA
 THIEF_BASE, THIEF_RACE, THIEF_DEX_LOW, THIEF_DEX_HIGH, THIEF_DEX_TOP, THIEF_ARMOUR = 0, 8, 0x90, 0x98, 0xA0, 0xA8
 THIEF_PER_LEVEL = 4
 # The equipment the thief routine checks for its penalty (anything at all in these slots): a
-# list of words at the thief table's +D0h, ended by 13. The game's has the legs and the quiver
-# too; the dice log's copy of the game leaves those out (gamepatch.py), so the Ledger reads it
+# list of words at the thief table's +D0h, ended by 13: the legs, the quiver and both hands. The
+# dice log's copy of the game empties it (gamepatch.py), so the Ledger reads it
 THIEF_PENALTY_LIST, PENALTY_LIST_END = 0xD0, 13
 THIEF_PENALTY_SLOTS = tuple(EQUIP_SLOTS.index(s) for s in ("legs", "ammo", "left hand", "right hand"))
 # AD&D's ranger: hide in shadows and move silently by ranger level (1-10), the Ledger's own

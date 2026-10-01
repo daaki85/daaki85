@@ -388,11 +388,11 @@ the chance out as:
   game's own check: it doesn't look at what the item is (leather or metal) and
   ignores chest and arm armour and helmets, so a thief holding any weapon pays
   it. (The manual's "anything other than leather-type armor" is AD&D's rule,
-  not what the code does.) In games started with the dice log the legs and the
-  quiver no longer count, only the hands: the slots are a list in the game's
-  data (DSUN.EXE 44F70h: legs, quiver, left hand, right hand), and the dice
-  log's copy of the game has the hands alone. The Ledger reads the list from
-  the running game, so its numbers match whichever game it is.
+  not what the code does.) In games started with the dice log there is no
+  equipment penalty at all: the slots are a list in the game's data
+  (DSUN.EXE 44F70h: legs, quiver, left hand, right hand), and the dice log's
+  copy of the game empties it. The Ledger reads the list from the running
+  game, so its numbers match whichever game it is.
 - plus the situation's bonus or penalty (a hard lock, say).
 
 Only characters with thief levels have the skills; everyone else's chance is 0.
@@ -457,7 +457,7 @@ twice and STR once.
 each (spoilers).
 
 The **Characters** tab shows each thief's chances as they stand, with the
-equipment penalty and effects (but not the situation's bonus or penalty), for
+equipment penalty (none in games started with the dice log) and effects (but not the situation's bonus or penalty), for
 the five skills the game rolls (pick pockets, open locks, find/remove traps,
 hear noise, climb walls) and move silently (which the Ledger rolls when a
 pocket isn't picked, see [Picking pockets](#picking-pockets)), as the game's
@@ -961,8 +961,7 @@ the other underground or roofed places aren't. Three maps have both, buildings
 with floors of their own standing on open ground: there it goes by the floor
 under the thief (from the game's map of the region in memory), so a thief in
 a building is out of the sun and one in a roofless ruin isn't. The chances
-are the thief's own as they stand (level, race, DEX, the equipment penalty,
-and effects: Invisibility makes hiding certain, Fire Shield and Mirror Image
+are the thief's own as they stand (level, race, DEX, and effects: Invisibility makes hiding certain, Fire Shield and Mirror Image
 rule it out).
 
 **Rangers** hide and move silently too, with the same box ticked. The game
@@ -1114,8 +1113,8 @@ change.
   spell or its caster (WIS against mind spells, Protection from Fire, a
   doubled d20 against fire...) is left out; the dice log shows it on each
   save. A 1 always fails and a 20 always saves, so they show between 2 and 20.
-- **Thief skills**: as they stand, with the equipment penalty (anything in
-  either hand, in games started with the dice log: see Thief skills), 0 for a skill an effect rules out or when the thief isn't Okay,
+- **Thief skills**: as they stand (with no equipment penalty in games started
+  with the dice log: see Thief skills), 0 for a skill an effect rules out or when the thief isn't Okay,
   and 100 for one an effect makes certain (Detect Traps). Only the situation's
   bonus or penalty (a hard lock) is left out: the dice log shows it on each
   roll (see Thief skills).

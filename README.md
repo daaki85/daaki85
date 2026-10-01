@@ -74,9 +74,9 @@ launcher runs a patched copy of the game that it keeps in its own folder.
   target's DEX and shield, but is no backstab.
 
 **Changed**
-- **Thief skills: only what's in the hands brings the equipment penalty.**
-  The game also counted anything in the legs slot or the quiver; it no
-  longer does in games started with the dice log.
+- **Thief skills: no equipment penalty.** The game took 5 to 10 off some
+  thief skills for anything in the legs slot, the quiver or either hand
+  (whatever it was); it no longer does in games started with the dice log.
 - **The inventory screen shows hide in shadows** in hear noise's place (which
   one script check uses); the Ledger's own screens show both.
 - **Pick pockets lifts a short sword** too, though it weighs more than other
