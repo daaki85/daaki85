@@ -57,6 +57,8 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   [Picking pockets](#picking-pockets)).
 - **A use for the cooked vulture:** take it to Dinos in the slave pens, and he
   cooks it properly for the party (see [The cooked vulture](#the-cooked-vulture)).
+- **Gear for the slave pens' bosses:** Kurzak, Legcrusher and Pehtucl carry
+  things worth taking from them (see [The slave pens' gear](#the-slave-pens-gear)).
 
 Nothing in the game folder or your save files is changed, except that a game
 you save keeps what the Ledger has handed out: the Ring +1, a thief's Thieves'
@@ -732,6 +734,33 @@ Ledger first (`INT FDh`, as for the Thieves' Tools). For the cooked vulture
 party, and the helper lets go of the pointer's item the way the game does with
 coins once it has counted them, so the item goes back to the game's free list.
 
+### The slave pens' gear
+
+With the Ledger running, the first time the party is in the slave pens the
+three who run them get things of the Ledger's own (the log says who gets what):
+
+| Who | Gear | Can a thief lift it? |
+|---|---|---|
+| **Kurzak**, the guards' leader | a metal **Short Sword** (1d6, in his pack) and a leather **Helm** (worn) | the sword, yes |
+| **Legcrusher**, the half-giant | **Leather Chest Armor +1** (worn) | no |
+| **Pehtucl**, the head templar (the Templar in the pens' south-west corner with the Obsidian Bloodwrath) | a **Cloak of Protection +1** (worn) and a **Ring of Protection +1** (worn) | the ring, yes; not the cloak |
+
+The Cloak of Protection works as the [Ring +1](#the-ring-1) does, from the
+cloak slot: +1 AC and +1 on every saving throw. Kill them, or pick their
+pockets, to have it. Each item is given once a game, and not to anyone already
+dead.
+
+How: the game has no short sword, and no cloak whose plus counts, so the helper
+adds two item types after the game's 115 each time the game reads its type
+table in (the short sword a copy of the metal long sword's with a d6; the cloak
+a copy of the game's Cloak, its plus counting for AC), and two names after the
+game's (see [New item names](#new-item-names)). Where it adds up saving throws
+it counts a worn Cloak of Protection like a ring. The Ledger puts each item in
+its owner's things (from the game's free list, worn where the slot is free,
+else in a backpack cell), and the game keeps and saves them like its own. In
+the original game, the sword and cloak are items of types it doesn't have:
+don't load a save that has them without the dice log.
+
 ### Picking pockets
 
 The game has one pocket to pick, in the Trustee's conversation (his key). With
@@ -760,7 +789,8 @@ it stands now (armour and effects counted, as in the thief rows):
 - **Success:** one small thing goes into the thief's backpack (its first free
   cell): something weighing 10 or less (a bag or arrows are 10, a helm 15, a
   long sword 30) that isn't worn on the body (armour, a belt, boots, a helm, a
-  cloak). A dagger, a ring, an amulet, a gem or food can be lifted. Keys stay,
+  cloak). A dagger, a ring, an amulet, a gem or food can be lifted, and so can
+  Kurzak's short sword (see [The slave pens' gear](#the-slave-pens-gear)). Keys stay,
   as scripts may look for them. People outside the party keep all they own in
   their pack, so this goes by what each thing is.
 - **Failure:** a move silently roll. Made, the thief slips away unnoticed;

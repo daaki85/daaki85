@@ -21,6 +21,7 @@ from .game import GameData
 PICK_POCKETS, MOVE_SILENTLY = 0, 3  # thief skill numbers
 BACKPACK = range(14, 26)  # the backpack's 12 cells, as the inventory screen shows them (0-13: the body's)
 TYPE_WEIGHT, TYPE_WORN = 0x04, 0x09  # in an item type's record: its weight; where it's worn
+LIFTABLE_TYPES = (game.SHORT_SWORD_TYPE,)  # lifted whatever their weight: Kurzak's short sword
 MAX_WEIGHT = 10  # a bag, a quiver of arrows: pocket-sized (a long sword is 30, a helm 15)
 # where on the body (TYPE_WORN) things can't be lifted from: chest, belt, arms, feet, head,
 # cloak, legs (a pair of boots weighs 1). Hands (a dagger), fingers, neck and ammunition can.
@@ -59,8 +60,9 @@ def _carried(gd: GameData, it: ring.Items, creature: int) -> List[Tuple[int, int
         for item, data in _chain(it, thing):
             typ = gd.item_type_record(data)
             name = gd.item_name(struct.unpack_from("<H", data, game.ITEM_NAME)[0])
+            liftable = struct.unpack_from("<H", data, game.ITEM_TYPE)[0] in LIFTABLE_TYPES
             if len(typ) == game.ITEM_TYPE_SIZE and typ[TYPE_WORN] not in ON_THE_BODY \
-                    and struct.unpack_from("<H", typ, TYPE_WEIGHT)[0] <= MAX_WEIGHT \
+                    and (struct.unpack_from("<H", typ, TYPE_WEIGHT)[0] <= MAX_WEIGHT or liftable) \
                     and typ[0x08] & SCENERY != SCENERY and "key" not in name.lower():
                 out.append((list_no, item, before))
             before = item

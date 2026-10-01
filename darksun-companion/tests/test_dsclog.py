@@ -16,7 +16,8 @@ from dscompanion.dicelog import FILTERS, HDR_SIG, Entry
 from dscompanion.textlog import TextBuffer
 from dscompanion.gamepatch import (VEC_AC, VEC_DOUBLE, VEC_MSG, VEC_NEXT, VEC_RAND, VEC_RING_AC, VEC_USE_ITEM,
                                   VEC_RING_SAVE, VEC_SAVE, VEC_TEXT, VEC_TWO, VEC_GRACE_CAST, VEC_GRACE_EFFECT,
-                                  VEC_GRACE_ABILITY, VEC_NAMES_FILL, VEC_NAMES_SIZE, VEC_STEALTH)
+                                  VEC_GRACE_ABILITY, VEC_NAMES_FILL, VEC_NAMES_SIZE, VEC_STEALTH, VEC_TYPES_FILL,
+                                  VEC_TYPES_SIZE)
 
 try:
     from unicorn import Uc, UC_ARCH_X86, UC_HOOK_INTR, UC_HOOK_MEM_WRITE, UC_MODE_16
@@ -419,6 +420,20 @@ class RingTests(unittest.TestCase):
     def test_saves_not_a_creature(self):
         self.assertEqual(self.save(10), 0)
 
+    def test_saves_count_a_cloak_of_protection(self):
+        """Item 7 made a cloak of protection (+2, the second of DSCLOG's types) worn on the back:
+        counted once the types are in (TYPES_FIRST, the header's +212), with ring 4's +1."""
+        mu = self.mu
+        rec = self.ITEMS * 16 + 7 * 21
+        mu.mem_write(rec + 0x0A, struct.pack("<H", 116))
+        mu.mem_write(rec + 0x11, bytes([12]))
+        hdr = TSR * 16 + load_image().find(HDR_SIG)
+        self.assertEqual(self.save(3), 1)  # no types yet: the ring alone
+        mu.mem_write(hdr + 212, struct.pack("<H", 115))
+        self.assertEqual(self.save(3), 3)
+        mu.mem_write(rec + 0x11, bytes([0xFF]))  # only carried
+        self.assertEqual(self.save(3), 1)
+
     def test_ac_counts_rings(self):
         """AX gets the type's flags (sign-extended); bit 80h is set for the ring type."""
         mu = self.mu
@@ -667,6 +682,55 @@ class StealthTests(unittest.TestCase):
     def test_rule_off(self):
         self.mu.mem_write(TSR * 16 + 170, struct.pack("<H", 0))
         self.assertEqual(self.attack(), (0, 0, 15, 0, 0b0100, 0))
+
+
+@unittest.skipIf(Uc is None, "unicorn not installed")
+class TypesTests(unittest.TestCase):
+    """The game's item type table: room for TYPES_EXTRA more, and DSCLOG's copied in after."""
+    TYPES_SEG = 0x5000
+
+    def setUp(self):
+        image = load_image()
+        self.mu = mu = Uc(UC_ARCH_X86, UC_MODE_16)
+        mu.mem_map(0, 0x100000)
+        mu.mem_write(TSR * 16, image)
+        size = image.find(bytes.fromhex("8146fca000" "8356fe00"))  # 8 types of 20 bytes: A0h
+        names_fill = image.find(bytes.fromhex("83c40c" "2eff36"))
+        fill = image.find(bytes.fromhex("83c40c" "2eff36"), names_fill + 1) - 15
+        self.assertGreater(min(size, fill - names_fill), 0)
+        mu.mem_write(VEC_TYPES_SIZE * 4, struct.pack("<HH", size, TSR))
+        mu.mem_write(VEC_TYPES_FILL * 4, struct.pack("<HH", fill, TSR))
+        mu.hook_add(UC_HOOK_INTR, real_mode_interrupt)
+        mu.mem_write(GAME_DS * 16 + 0x1669, struct.pack("<HH", 0, self.TYPES_SEG))
+        self.hdr = TSR * 16 + image.find(HDR_SIG)
+
+    def interrupt(self, vector, **regs):
+        mu = self.mu
+        mu.mem_write(CALLER * 16 + 0x600, bytes((0xCD, vector, 0x90)))
+        for name, value in dict(cs=CALLER, ds=GAME_DS, ss=SS, esp=0x800, ebp=BP, eflags=IF | 2, **regs).items():
+            mu.reg_write(getattr(r, "UC_X86_REG_" + name.upper()), value)
+        mu.emu_start(CALLER * 16 + 0x600, CALLER * 16 + 0x602)
+        return mu.reg_read(r.UC_X86_REG_SP)
+
+    def test_room_and_filled(self):
+        """The game's 115 types (2300 bytes): 160 bytes more reserved, and after the read
+        DSCLOG's types at 115 on, the number noted."""
+        from dscompanion import npcitems
+        self.mu.mem_write(SS * 16 + BP - 4, struct.pack("<I", 2300))
+        self.assertEqual(self.interrupt(VEC_TYPES_SIZE), 0x7FC)
+        self.assertEqual(struct.unpack("<I", self.mu.mem_read(SS * 16 + BP - 4, 4))[0], 2460)
+        self.mu.mem_write(SS * 16 + 0x7FC, bytes(4))
+        self.assertEqual(self.interrupt(VEC_TYPES_FILL, eax=0), 0x80C)
+        at = self.TYPES_SEG * 16 + 115 * 20
+        self.assertEqual(bytes(self.mu.mem_read(at, 40)), b"".join(npcitems.TYPES))
+        first, off, seg = struct.unpack("<HHH", self.mu.mem_read(self.hdr + 212, 6))
+        self.assertEqual((first, off, seg), (115, 0, self.TYPES_SEG))
+        self.assertEqual([self.mu.reg_read(x) for x in (r.UC_X86_REG_AX, r.UC_X86_REG_DS)], [0, GAME_DS])
+
+    def test_not_read(self):
+        self.mu.mem_write(SS * 16 + BP - 4, struct.pack("<I", 2460))
+        self.assertEqual(self.interrupt(VEC_TYPES_FILL, eax=1), 0x80C)
+        self.assertEqual(bytes(self.mu.mem_read(self.hdr + 212, 6)), bytes(6))
 
 
 if __name__ == "__main__":

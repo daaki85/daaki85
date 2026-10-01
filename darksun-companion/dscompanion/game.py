@@ -68,10 +68,16 @@ EQUIP_SLOTS = ("arm", "ammo", "missile", "right hand", "finger", "waist", "legs"
 FINGERS = tuple(n for n, s in enumerate(EQUIP_SLOTS) if s == "finger")
 FINGER = FINGERS[0]
 FOOT = EQUIP_SLOTS.index("foot")
+CLOAK_SLOT = EQUIP_SLOTS.index("cloak")
 # The plain "Ring" item type. With the dice log's patched game, a worn one's plus betters AC
 # and saving throws (DSCLOG's PROBE_RING_AC and PROBE_RING_SAVE); the game has no such ring of
 # its own, and the companion can put a Ring +1 in the arena (ring.py).
 RING_TYPE = 102
+# Item types of the companion's own, which DSCLOG adds after the game's 115 (npcitems.py): a
+# metal short sword, and a cloak of protection, whose plus counts for AC and, worn (CLOAK),
+# on saves as a ring's does
+GAME_TYPES = 115
+SHORT_SWORD_TYPE, CLOAK_TYPE = GAME_TYPES, GAME_TYPES + 1
 # The companion's rule changes (DSCLOG's RULES): helms count AC 1, boots add a move in a fight;
 # AD&D's two-weapon penalties; spells saved against with the spell save; no doubled d20
 RULE_HELMS, RULE_BOOTS, RULE_TWO_WEAPONS, RULE_SPELL_SAVE, RULE_NO_DOUBLE = 1, 2, 4, 8, 16
@@ -1187,11 +1193,13 @@ class GameData:
         return any(item[ITEM_SLOT] == FOOT for _, item, _ in self._worn(creature))
 
     def ring_plus(self, creature: int) -> int:
-        """The pluses of the rings a creature wears (see RING_TYPE)."""
+        """The pluses of the rings a creature wears (see RING_TYPE), and of a cloak of
+        protection (CLOAK_TYPE)."""
         total = 0
         for _, item, _ in self._worn(creature):
             plus = struct.unpack("b", item[ITEM_PLUS:ITEM_PLUS + 1])[0]
-            if struct.unpack_from("<H", item, ITEM_TYPE)[0] == RING_TYPE and item[ITEM_SLOT] in FINGERS and plus > 0:
+            kind, slot = struct.unpack_from("<H", item, ITEM_TYPE)[0], item[ITEM_SLOT]
+            if plus > 0 and (kind == RING_TYPE and slot in FINGERS or kind == CLOAK_TYPE and slot == CLOAK_SLOT):
                 total += plus
         return total
 

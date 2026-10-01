@@ -49,6 +49,8 @@ VEC_GRACE_ABILITY equ 0xEF ; PROBE_GRACE_ABILITY
 VEC_NAMES_SIZE equ 0xEC    ; PROBE_NAMES_SIZE
 VEC_NAMES_FILL equ 0xEB    ; PROBE_NAMES_FILL
 VEC_STEALTH equ 0xEA       ; PROBE_STEALTH
+VEC_TYPES_SIZE equ 0xE9    ; PROBE_TYPES_SIZE
+VEC_TYPES_FILL equ 0xE8    ; PROBE_TYPES_FILL
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -77,7 +79,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvM'          ; +0
+sig      db 'DSCLOGvN'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -161,6 +163,11 @@ names_ptr  dd 0                 ; +200 the game's name table, as last loaded wit
 stealth    dw 0                 ; +204 the companion sets bit N when party member N is hidden and
                                 ;      unheard (RULE_STEALTH): their next attack is from behind
 stealth_used dw 0               ; +206 counted up each time one is (the bit cleared)
+types_off  dw extra_types       ; +208 offset of EXTRA_TYPES: item types past the game's own
+                                ;      (TYPES_EXTRA of TYPE_SIZE bytes), copied in as it loads them
+types_count dw TYPES_EXTRA      ; +210 how many
+types_first dw 0                ; +212 the number the first of them gets (the game's own count)
+types_ptr  dd 0                 ; +214 the game's item type table, as last loaded with them
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -1725,6 +1732,7 @@ HELM_METAL   equ 89             ; Contemplation; and a leather one no object use
 HELM_OTHER   equ 109            ; Might, made by a script)
 FINGER     equ 4                ; the item's slot byte while worn on a finger (the left
 FINGER2    equ 11               ; hand's, then the right's)
+CLOAK      equ 12               ; ... and on the back
 THINGS     equ 0xC36            ; the things table (3 bytes each: kind, index) in its segment
 NO_THING   equ 0x270F
 CREATURES  equ 0x1665           ; DS: far pointer to the creature records (3Ah bytes each)
@@ -1796,6 +1804,15 @@ ring_plus:                      ; DS = the game's, AX = the things table's segme
         add si, [cs:ws_plus]
         mov ax, [cs:r_who]
         mov word [cs:ws_slot], FINGER2
+        call worn_scan
+        add si, [cs:ws_plus]
+        mov ax, [cs:types_first]  ; and a cloak of protection's (the second of TYPES), worn
+        or ax, ax
+        jz .done
+        inc ax
+        mov [cs:ws_type], ax
+        mov word [cs:ws_slot], CLOAK
+        mov ax, [cs:r_who]
         call worn_scan
         add si, [cs:ws_plus]
 .done:  ret
@@ -2117,6 +2134,84 @@ probe_names_fill:
 n_ip    dw 0
 n_cs    dw 0
 n_fl    dw 0
+
+; TYPES: the game's item types (GPLDATA's IT1R chunk, 20 bytes each, which items name by
+; number), read in just before the names, get TYPES_EXTRA more in the same way: for the
+; companion's own items that no type of the game's fits (a metal short sword, a cloak of
+; protection). Nothing in the game limits the numbers to its own.
+TYPE_SIZE   equ 20
+TYPES_EXTRA equ 8
+TYPES_PTR   equ 0x1669          ; DS: far pointer to the item types
+
+; PROBE_TYPES_SIZE: INT VEC_TYPES_SIZE replaces "push dword 1" (3 bytes: INT + NOP) before the
+; game reserves memory for the IT1R chunk, its size the dword at [BP-4]: adds the room.
+probe_types_size:
+        add word [bp-4], TYPES_EXTRA * TYPE_SIZE
+        adc word [bp-2], 0
+        pop word [cs:n_ip]
+        pop word [cs:n_cs]
+        pop word [cs:n_fl]
+        push dword 1
+        push word [cs:n_fl]
+        push word [cs:n_cs]
+        push word [cs:n_ip]
+        iret
+
+; PROBE_TYPES_FILL: INT VEC_TYPES_FILL replaces "add sp,0Ch" (3 bytes: INT + NOP) after the
+; call that reads the chunk in (AX 0: read). Does the add, then, if it was read, copies
+; EXTRA_TYPES after the game's own (the room made, [BP-4], less theirs) and notes where.
+probe_types_fill:
+        pop word [cs:n_ip]
+        pop word [cs:n_cs]
+        pop word [cs:n_fl]
+        add sp, 0x0C
+        push word [cs:n_fl]
+        push word [cs:n_cs]
+        push word [cs:n_ip]
+        or ax, ax
+        jnz .out
+        push ax
+        push cx
+        push dx
+        push si
+        push di
+        push ds
+        push es
+        les di, [TYPES_PTR]
+        mov [cs:types_ptr], di
+        mov [cs:types_ptr+2], es
+        mov ax, [bp-4]
+        sub ax, TYPES_EXTRA * TYPE_SIZE
+        add di, ax              ; after the game's own
+        xor dx, dx
+        mov cx, TYPE_SIZE
+        div cx
+        mov [cs:types_first], ax
+        push cs
+        pop ds
+        mov si, extra_types
+        mov cx, TYPES_EXTRA * TYPE_SIZE
+        cld
+        rep movsb
+        pop es
+        pop ds
+        pop di
+        pop si
+        pop dx
+        pop cx
+        pop ax
+.out:   iret
+; the types, numbered from the game's count (115): the companion's (the same as TYPES in
+; dscompanion/npcitems.py), the rest unused
+extra_types:
+        ; a metal short sword: the metal long sword's type (63), 1d6
+        db 0x01, 0x00, 0x30, 0x00, 0x1E, 0x00, 0xFA, 0x00, 0x04, 0x05, 0x01, 0x01
+        db 0x06, 0x01, 0x00, 0x00, 0x72, 0x16, 0x00, 0x01
+        ; a cloak of protection: the Cloak's type (65), no material shown, its plus counting
+        ; for AC (bit 80h of +0Fh, as armour's) with an AC of its own of 0
+        db 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x0A, 0x00, 0x40, 0x08, 0x00, 0x00
+        db 0x00, 0x00, 0x00, 0x80, 0xFF, 0x1F, 0x00, 0x01
+        times (TYPES_EXTRA - 2) * TYPE_SIZE db 0
 ; the names, numbered from NAMES_OWN (322): the companion's items' (the same as the companion's
 ; NAMES in dscompanion/names.py), the rest blank until it writes more
 extra_names:
@@ -2124,7 +2219,11 @@ extra_names:
         times NAME_SIZE - 15 db 0
         db "Thieves' Tools"
         times NAME_SIZE - 14 db 0
-        times (NAMES_EXTRA - 2) * NAME_SIZE db 0
+        db "Short Sword"                ; (Kurzak's, of type TYPES' first)
+        times NAME_SIZE - 11 db 0
+        db "Cloak/Protectn"             ; (Pehtucl's, the game's way of shortening)
+        times NAME_SIZE - 14 db 0
+        times (NAMES_EXTRA - 4) * NAME_SIZE db 0
 
 ; STEALTH (RULE_STEALTH): a thief who starts a turn with no enemy next to them may hide in
 ; shadows and move silently up to someone; the companion rolls both and, when both succeed,
@@ -2240,7 +2339,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 27
+        mov cx, 29
 .check:
         lodsb
         mov ah, 35h
@@ -2337,6 +2436,12 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_STEALTH
         mov dx, probe_stealth
         int 21h
+        mov ax, 2500h + VEC_TYPES_SIZE
+        mov dx, probe_types_size
+        int 21h
+        mov ax, 2500h + VEC_TYPES_FILL
+        mov dx, probe_types_fill
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -2352,8 +2457,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or EAh-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH
+busy    db 'DSCLOG: interrupts 60h-65h or E8h-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL
 
         align 16, db 0
 image_len equ $ - $$

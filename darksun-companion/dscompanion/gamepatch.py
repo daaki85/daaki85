@@ -38,6 +38,7 @@ VEC_TWO, VEC_DOUBLE = 0xFE, 0xF0
 VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY = 0xED, 0xEE, 0xEF
 VEC_NAMES_SIZE, VEC_NAMES_FILL = 0xEC, 0xEB
 VEC_STEALTH = 0xEA
+VEC_TYPES_SIZE, VEC_TYPES_FILL = 0xE9, 0xE8
 
 
 class Patch(NamedTuple):
@@ -134,6 +135,11 @@ PATCHES = (
     Patch("names_fill_load", 0x6A5D6, bytes.fromhex("83c40c"), _interrupt(VEC_NAMES_FILL, 3)),
     # where an attack is worked out from behind / a backstab: a hidden thief's is (RULE_STEALTH)
     Patch("stealth", 0x58353, bytes.fromhex("ff76e6"), _interrupt(VEC_STEALTH, 3)),
+    # the item types (IT1R), read in just before the names: room for the companion's own
+    Patch("types_size_start", 0x56618, bytes.fromhex("666a01"), _interrupt(VEC_TYPES_SIZE, 3)),
+    Patch("types_size_load", 0x6A54A, bytes.fromhex("666a01"), _interrupt(VEC_TYPES_SIZE, 3)),
+    Patch("types_fill_start", 0x56647, bytes.fromhex("83c40c"), _interrupt(VEC_TYPES_FILL, 3)),
+    Patch("types_fill_load", 0x6A579, bytes.fromhex("83c40c"), _interrupt(VEC_TYPES_FILL, 3)),
     # (not changed: DSCLOG reads the segment this "mov dx,<segment>" loads, the pointer's items')
     Patch("use_item_seg", 0x73A14, bytes.fromhex("ba8003"), bytes.fromhex("ba8003")),
     # The data path is argv[0] cut after its last \ or :, kept at DS:4B81h. The
