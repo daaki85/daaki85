@@ -68,6 +68,8 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   cooks it properly for the party (see [The cooked vulture](#the-cooked-vulture)).
 - **Gear for the slave pens' bosses:** Kurzak, Legcrusher and Pehtucl carry
   things worth taking from them (see [The slave pens' gear](#the-slave-pens-gear)).
+- **Icons of their own** for the Ledger's magic items and the Short Sword,
+  made from the game's (see [Item icons](#item-icons)).
 
 Nothing in the game folder or your save files is changed, except that a game
 you save keeps what the Ledger has handed out or changed in play: the Ring +1,
@@ -78,7 +80,8 @@ item types the original game doesn't have, so a save with them should be
 loaded with the dice log.
 Apart from those and what it hands the dice log's helper, the Ledger only
 reads the game's memory. For the dice log, the launcher
-runs a patched copy of the game that it keeps in its own folder (see
+runs a patched copy of the game, and a copy of its objects file with the new
+icons, that it keeps in its own folder (see
 [How the dice log works](#how-the-dice-log-works)).
 
 The window is dressed in the game's own colours: its grey stone panels, the
@@ -727,8 +730,10 @@ the table (GPLDATA's 322 names, 25 letters each) in as it starts and as a game
 is loaded, and none of it is free to take, so in games started with the dice
 log the helper makes room for 32 more each time and copies its own names into
 them, from number 322 on: the Ring of Protection's (322), the Thieves'
-Tools' (323), the Short Sword's (324) and the Cloak of Protection's (325,
-"Cloak/Protectn"), the rest for items to come. Nothing in the game checks the
+Tools' (323), the Short Sword's (324), the Cloak of Protection's (325,
+"Cloak/Protectn") and Pehtucl's ring's (326, "Ring/Protection" as the arena's:
+an entry of its own tells the two rings apart, for their icons), the rest for
+items to come. Nothing in the game checks the
 numbers against its own 322 (its inventory, list, Look and View Character
 screens all read the name the same way), and the names are there before
 anything shows them, Ledger running or not.
@@ -787,6 +792,38 @@ its owner's things (from the game's free list, worn where the slot is free,
 else in a backpack cell), and the game keeps and saves them like its own. In
 the original game, the sword and cloak are items of types it doesn't have:
 don't load a save that has them without the dice log.
+
+### Item icons
+
+The Ledger's items have icons of their own on the inventory screen, made from
+the plain item's the way the game makes its own magic items' (the Obsidian
+Bloodwrath's is the obsidian long sword's with a few pixels in the colours the
+game cycles, so they flicker like fire):
+
+| Item | Icon |
+|---|---|
+| **Short Sword** | the metal long sword's, its blade four steps shorter, centred in the cell |
+| **Leather Chest Armor +1** | the leather's brightest pixels in the cycling fire colours |
+| **Cloak of Protection +1** | every other pixel of its lightest folds violet |
+| **Ring of Protection +1**, Pehtucl's | its gold band violet |
+| **Ring of Protection +1**, the arena's | its gold band in the cycling fire colours |
+
+![Dream's backpack: under a long sword, the Short Sword, Leather Chest Armor +1, the Cloak of Protection +1, and Pehtucl's and the arena's Rings of Protection +1](docs/icons.png)
+
+On the map, dropped, each looks like the plain item. The violet is one no
+region's palette changes: the colours after it, violet in the game's own
+palette file, are each region's to set (red in the slave pens).
+
+How: the game reads its objects' pictures from `SEGOBJEX.GFF`. When it starts
+the game, the launcher writes `dos\SEGOBJEX.GFF`: the game's file (only read)
+with five objects and their pictures added at its end, its index grown to
+list them (in order of number, as the game looks them up) and a new table of
+contents after them (`dscompanion/icons.py`). The helper has the game open
+that copy instead of its own (its `INT 21h` hook: it opens the copy when the
+game opens `SEGOBJEX.GFF`, and notes that it has), and the Ledger gives the
+Ledger's items those objects' pictures. In a game without the copy, the Ledger
+puts the plain pictures back; a save with the new pictures loaded in the
+original game shows those items without an icon.
 
 ### Picking pockets
 
@@ -1366,7 +1403,8 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    `INT EBh` (for [new item names](#new-item-names)), and its item type table
    `INT E9h` and `INT E8h` (for [the slave pens' gear](#the-slave-pens-gear)), and
    the copy looks for its data files in the current
-   folder rather than next to itself. DOSBox runs it from the game folder, so
+   folder rather than next to itself. The helper also hooks DOS's `INT 21h`, to
+   open the launcher's copy of `SEGOBJEX.GFF` (see [Item icons](#item-icons)). DOSBox runs it from the game folder, so
    it uses your saves as usual.
 2. `dos\DSCLOG.EXE` (source in `dos\dsclog.asm`) is a tiny DOS program loaded
    into upper memory before the game, so the game loses no memory. It answers
@@ -1644,6 +1682,6 @@ After changing `dos/dsclog.asm`, rebuild the helper with
 nasm -f bin -o dos/DSCLOG.EXE dos/dsclog.asm
 ```
 
-The header's signature (`DSCLOGvQ` now) goes up whenever the helper and the
+The header's signature (`DSCLOGvR` now) goes up whenever the helper and the
 Ledger must change together (`HDR_SIG` in `dscompanion/dicelog.py`), so a
 Ledger never talks to an older helper.

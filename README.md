@@ -31,7 +31,8 @@ game itself, in the game's own lettering and windows:
   - class levels up to 10 (the game stops at 9).
 - **New items and thief play:** a Ring of Protection +1 to find in the arena;
   gear for Kurzak, Legcrusher and Pehtucl in the slave pens (a short sword
-  and a Cloak of Protection among it); Thieves' Tools for every thief;
+  and a Cloak of Protection among it), with icons of their own; Thieves'
+  Tools for every thief;
   picking anyone's pockets; and no more thief skill penalty for what a thief
   holds.
 - **A mini-quest:** the cooked vulture, at last good for something (Dinos
@@ -79,6 +80,11 @@ folder.
   target's DEX and shield, but is no backstab. Their two chances show on the
   inventory screen where a thief's MOVE and HIDE go, and on the Characters
   tab.
+- **Item icons of their own** for the Short Sword (a shorter blade), Leather
+  Chest Armor +1 (fire), the Cloak of Protection +1 (violet) and the two Rings
+  of Protection +1 (Pehtucl's violet, the arena's fire), made from the game's
+  plain ones. The launcher writes a copy of the game's objects file with them
+  in its own folder; the game folder is untouched.
 
 **Changed**
 - **Thief skills: no equipment penalty.** The game took 5 to 10 off some

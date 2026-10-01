@@ -12,10 +12,11 @@ the game folder is changed.
 import json
 import os
 import string
+import struct
 import subprocess
 from typing import Dict, List, Optional, Tuple
 
-from . import gamepatch
+from . import gamepatch, gff, icons
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOS_DIR = os.path.join(HERE, "dos")
@@ -168,11 +169,19 @@ def write_conf(game_dir: str, path: str = CONF, dice_log: bool = True) -> str:
 
 
 def prepare_patched_game(game_dir: str) -> Optional[str]:
-    """Write DSUNLOG.EXE next to DSCLOG.EXE. Returns why it couldn't, or None."""
+    """Write DSUNLOG.EXE next to DSCLOG.EXE, and the copy of SEGOBJEX.GFF with the companion's
+    item icons (icons.py; without it the items keep the plain icons). Returns why the game
+    can't be patched, or None."""
     try:
         gamepatch.write_patched(_find_file(game_dir, "DSUN.EXE"), os.path.join(DOS_DIR, PATCHED_EXE))
     except (gamepatch.PatchError, OSError) as e:
         return str(e)
+    try:
+        objects = _find_file(game_dir, icons.OBJECTS_FILE)
+        if objects:
+            icons.write_objects(objects, os.path.join(DOS_DIR, icons.OBJECTS_FILE))
+    except (gff.GffError, OSError, KeyError, struct.error, ValueError):
+        pass  # no icons of our own: the game's plain ones
     return None
 
 

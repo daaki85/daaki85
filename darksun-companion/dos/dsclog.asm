@@ -82,7 +82,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvQ'          ; +0
+sig      db 'DSCLOGvR'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -171,6 +171,8 @@ types_off  dw extra_types       ; +208 offset of EXTRA_TYPES: item types past th
 types_count dw TYPES_EXTRA      ; +210 how many
 types_first dw 0                ; +212 the number the first of them gets (the game's own count)
 types_ptr  dd 0                 ; +214 the game's item type table, as last loaded with them
+objects_on dw 0                 ; +218 1 once the game has opened the companion's copy of
+                                ;      SEGOBJEX.GFF (its icons: see PROBE_DOS_OPEN)
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -2089,6 +2091,75 @@ probe_hd_con:
         pop dx
         retf 2
 
+; PROBE_DOS_OPEN: the DOS services (INT 21h), hooked. Opening a file (AH=3Dh) whose name ends in
+; SEGOBJEX.GFF, the game's objects and their pictures, opens the companion's copy instead
+; (D:\SEGOBJEX.GFF, which the launcher writes with the companion's item icons added; the game
+; folder is never changed); with no copy there, the game's own. Everything else goes on to DOS.
+OBJ_NAME_LEN equ 12
+probe_dos_open:
+        cmp ah, 3Dh
+        jne .chain
+        push ax
+        push cx
+        push si
+        push di
+        mov si, dx
+        mov cx, 128
+.end:   cmp byte [si], 0
+        je .at_end
+        inc si
+        loop .end
+        jmp .no
+.at_end:
+        mov ax, si
+        sub ax, dx
+        cmp ax, OBJ_NAME_LEN
+        jb .no
+        sub si, OBJ_NAME_LEN
+        mov di, obj_name
+        mov cx, OBJ_NAME_LEN
+.cmp:   mov al, [si]
+        cmp al, 'a'
+        jb .upper
+        cmp al, 'z'
+        ja .upper
+        sub al, 20h
+.upper: cmp al, [cs:di]
+        jne .no
+        inc si
+        inc di
+        loop .cmp
+        pop di
+        pop si
+        pop cx
+        pop ax
+        sti                     ; (RETF 2 keeps these flags: interrupts on, as the game had them)
+        push ax                 ; (the game's AX, for its own file if there's no copy)
+        push ds
+        push dx
+        push cs
+        pop ds
+        mov dx, obj_copy
+        pushf
+        call far [cs:old21]
+        pop dx
+        pop ds
+        jc .own
+        pop word [cs:obj_scratch]  ; (POP keeps the flags: CF clear, AX the handle)
+        mov word [cs:objects_on], 1
+        retf 2
+.own:   pop ax
+        jmp .chain
+.no:    pop di
+        pop si
+        pop cx
+        pop ax
+.chain: jmp far [cs:old21]
+old21       dd 0
+obj_scratch dw 0
+obj_name    db 'SEGOBJEX.GFF'
+obj_copy    db 'D:\SEGOBJEX.GFF', 0
+
 ; CAT'S GRACE (RULE_CATS_GRACE): Flaming Sphere (spell 14), given Strength's record and the
 ; name by the companion, works as Strength does but for DEX: its own effect (54, a number the
 ; game leaves unused) holds the 1d6, which the routine that works out a creature's abilities
@@ -2301,7 +2372,9 @@ extra_names:
         times NAME_SIZE - 11 db 0
         db "Cloak/Protectn"             ; (Pehtucl's, the game's way of shortening)
         times NAME_SIZE - 14 db 0
-        times (NAMES_EXTRA - 4) * NAME_SIZE db 0
+        db "Ring/Protection"            ; (Pehtucl's ring: the arena's is the first; their icons differ)
+        times NAME_SIZE - 15 db 0
+        times (NAMES_EXTRA - 5) * NAME_SIZE db 0
 
 ; STEALTH (RULE_STEALTH): a thief who starts a turn with no enemy next to them may hide in
 ; shadows and move silently up to someone; the companion rolls both and, when both succeed,
@@ -2528,6 +2601,13 @@ install:                        ; DS = ES = PSP, CS = the image
         int 21h
         mov ax, 2500h + VEC_HD_CON
         mov dx, probe_hd_con
+        int 21h
+        mov ax, 3521h           ; DOS itself last: opening the objects file (PROBE_DOS_OPEN)
+        int 21h
+        mov [old21], bx
+        mov [old21 + 2], es
+        mov ax, 2521h
+        mov dx, probe_dos_open
         int 21h
         mov byte [hooked], 1
 

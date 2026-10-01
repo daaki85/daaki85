@@ -24,14 +24,14 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Callable, Dict, List, NamedTuple, Optional, Tuple
 
-from . import game, monsters, names, npcitems, pickpocket, ring, stealth, tools, vulture
+from . import game, icons, monsters, names, npcitems, pickpocket, ring, stealth, tools, vulture
 from .game import (CONVENTIONAL_AND_UPPER, CREATURE_ABILITIES, CREATURE_SIDE, CREATURE_THAC0, EFFECT_NAMES,
                    EFFECT_RULES, MATERIAL_TO_HIT, MATERIALS, SAVE_NAMES, STR_DAMAGE, GameData)
 from .guestmem import GuestMemory
 from .textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGvQ"
+HDR_SIG = b"DSCLOGvR"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
 MSG_SIZE = 900
@@ -894,6 +894,7 @@ class DiceLog:
                 out += tools.give_tools(self.game, self.tools_given, session=self._tools_session)
                 self._tools_new += sorted(self.tools_given - before)
             out += self._ring_search()
+            icons.repaint(self.game, icons.ready(self.game, self.tsr_hdr))  # the items' own icons
         except (struct.error, IndexError, ValueError):
             return out
         return out

@@ -20,8 +20,10 @@ from . import game, pickpocket, ring
 from .game import GameData
 
 REGION = 0x29  # the slave pens
-SHORT_SWORD, CLOAK = 0x144, 0x145  # name entries DSCLOG adds
-NAMES = {SHORT_SWORD: b"Short Sword", CLOAK: b"Cloak/Protectn"}  # as DSCLOG's EXTRA_NAMES has them
+SHORT_SWORD, CLOAK, RING = 0x144, 0x145, 0x146  # name entries DSCLOG adds
+# as DSCLOG's EXTRA_NAMES has them. Pehtucl's ring is named as the arena's, in an entry of its own
+# so that each keeps its own icon (icons.py)
+NAMES = {SHORT_SWORD: b"Short Sword", CLOAK: b"Cloak/Protectn", RING: ring.NAME}
 GAME_TYPES, SHORT_SWORD_TYPE, CLOAK_TYPE = game.GAME_TYPES, game.SHORT_SWORD_TYPE, game.CLOAK_TYPE
 TYPES = (  # as DSCLOG's EXTRA_TYPES has them
     bytes.fromhex("010030001e00fa00040501010601000072160001"),  # the metal long sword's (63), 1d6
@@ -52,13 +54,14 @@ SWORD = _item("0afc00000000f40100003f000000000006ff1c0000", type_=SHORT_SWORD_TY
 HELM = _item("03fc000000000500000005000000000004ff060000")
 CHEST_ARMOR = _item("02fc000000000a00000006000000000004ff070000", plus=1)
 CLOAK_ITEM = _item("e3fb000000001400000041003500000003ff0e0000", plus=1, type_=CLOAK_TYPE, name=CLOAK)
+RING_ITEM = ring.RING[:game.ITEM_NAME] + struct.pack("<H", RING) + ring.RING[game.ITEM_NAME + 2:]
 # each one's: (item, where it goes: worn in that slot, or None for a backpack cell). Worn
 # things go on the body (and still a backpack cell if that slot is taken)
 SLOT = {name: game.EQUIP_SLOTS.index(name) for name in ("head", "chest", "cloak")}
 ITEMS_FOR: Dict[str, List[Tuple[bytes, Optional[int]]]] = {
     "Kurzak": [(SWORD, None), (HELM, SLOT["head"])],
     "Legcrusher": [(CHEST_ARMOR, SLOT["chest"])],
-    "Pehtucl": [(CLOAK_ITEM, SLOT["cloak"]), (ring.RING, game.FINGER)],
+    "Pehtucl": [(CLOAK_ITEM, SLOT["cloak"]), (RING_ITEM, game.FINGER)],
 }
 
 

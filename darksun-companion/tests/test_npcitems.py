@@ -80,7 +80,7 @@ class NpcItemTests(unittest.TestCase):
         self.assertEqual(sword[1:], (npcitems.SHORT_SWORD, game.SHORT_SWORD_TYPE, 0))
         self.assertGreaterEqual(sword[0], 0x0E)  # in a backpack cell
         self.assertEqual(self.carried(LEGCRUSHER)[0], (chest, 7, 6, 1))
-        self.assertEqual(self.carried(PEHTUCL)[:2], [(game.FINGER, ring.NAME_ENTRY, game.RING_TYPE, 1),
+        self.assertEqual(self.carried(PEHTUCL)[:2], [(game.FINGER, npcitems.RING, game.RING_TYPE, 1),
                                                      (cloak, npcitems.CLOAK, game.CLOAK_TYPE, 1)])
         self.assertEqual(len(given), 5)
         self.assertEqual(npcitems.place(self.gd, given), [])  # once a game
@@ -115,7 +115,7 @@ class NpcItemTests(unittest.TestCase):
                                  for _, i, _ in pickpocket._carried(self.gd, it, c))
         self.assertEqual(names(KURZAK), [npcitems.SHORT_SWORD])
         self.assertEqual(names(LEGCRUSHER), [0])  # (the fake's club, weight 0)
-        self.assertIn(ring.NAME_ENTRY, names(PEHTUCL))
+        self.assertIn(npcitems.RING, names(PEHTUCL))
         self.assertNotIn(npcitems.CLOAK, names(PEHTUCL))
 
     def test_cloak_on_saves(self):
