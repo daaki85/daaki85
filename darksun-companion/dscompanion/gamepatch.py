@@ -36,6 +36,7 @@ VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT = 0xF1, 0xF
 VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM = 0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD
 VEC_TWO, VEC_DOUBLE = 0xFE, 0xF0
 VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY = 0xED, 0xEE, 0xEF
+VEC_NAMES_SIZE, VEC_NAMES_FILL = 0xEC, 0xEB
 
 
 class Patch(NamedTuple):
@@ -122,6 +123,14 @@ PATCHES = (
     # ... and the routine working out a creature's abilities, at each of its effects:
     # mov [bp-0Ah],ax / mov cx,7 (DSCLOG adds Cat's Grace's amount to DEX)
     Patch("grace_ability", 0x7B7D7, bytes.fromhex("8946f6b90700"), _interrupt(VEC_GRACE_ABILITY, 6)),
+    # The name table (GPLDATA's NAME chunk), loaded as the game starts and as a game is loaded:
+    # the memory reserved for it, "push dword 1" before the size (DSCLOG adds room for more
+    # names) ...
+    Patch("names_size_start", 0x56676, bytes.fromhex("666a01"), _interrupt(VEC_NAMES_SIZE, 3)),
+    Patch("names_size_load", 0x6A5A2, bytes.fromhex("666a01"), _interrupt(VEC_NAMES_SIZE, 3)),
+    # ... and the "add sp,0Ch" after reading it in (DSCLOG copies its names after the game's)
+    Patch("names_fill_start", 0x566AD, bytes.fromhex("83c40c"), _interrupt(VEC_NAMES_FILL, 3)),
+    Patch("names_fill_load", 0x6A5D6, bytes.fromhex("83c40c"), _interrupt(VEC_NAMES_FILL, 3)),
     # (not changed: DSCLOG reads the segment this "mov dx,<segment>" loads, the pointer's items')
     Patch("use_item_seg", 0x73A14, bytes.fromhex("ba8003"), bytes.fromhex("ba8003")),
     # The data path is argv[0] cut after its last \ or :, kept at DS:4B81h. The

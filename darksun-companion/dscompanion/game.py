@@ -1015,7 +1015,7 @@ class GameData:
         if len(typ) == ITEM_TYPE_SIZE and typ[0x08] & NO_MATERIAL and not material:
             material = len(MATERIALS)  # a ring, a body...: no material to name
         plus = struct.unpack("b", item[ITEM_PLUS:ITEM_PLUS + 1])[0]
-        name = self.item_name(item[ITEM_NAME])
+        name = self.item_name(struct.unpack_from("<H", item, ITEM_NAME)[0])
         if plus and not name.endswith(f"{plus:+d}"):  # (a name such as "Sling +2" has it)
             name += f" {plus:+d}"
         return (f"{MATERIALS[material]} " if material < len(MATERIALS) else "") + name
@@ -1264,7 +1264,7 @@ class GameData:
                               ITEM_TYPE_SIZE)
         if len(rec) < ITEM_SIZE or len(typ) < ITEM_TYPE_SIZE:
             return None
-        return Weapon(self.item_name(rec[0x12]), typ[0x0D], typ[0x0C], struct.unpack("b", typ[0x0E:0x0F])[0],
+        return Weapon(self.item_name(struct.unpack_from("<H", rec, ITEM_NAME)[0]), typ[0x0D], typ[0x0C], struct.unpack("b", typ[0x0E:0x0F])[0],
                       struct.unpack("b", rec[0x14:0x15])[0], typ[0x08] & 0x0F, bool(typ[0x08] & 0x80))
 
     def weapon_name(self, w: Weapon) -> str:

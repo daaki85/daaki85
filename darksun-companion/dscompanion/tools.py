@@ -7,11 +7,9 @@ joins) gets a set once. Picked up on
 the inventory screen and taken back to the game, the pointer carries them; clicked on someone,
 the patched game's routine for using an item on something (DSCLOG's PROBE_USE_ITEM) has the
 Ledger try that person's pockets with the leader's hand (pickpocket.py), and shows what came
-of it. The item is a small one of the game's "misc" type. The game's name table has no free
-entry left (the Ring of Protection has the one there was), so the tools' name, "Thieves'
-Tools", goes in the entry of an internal label no item has ("Rest icon", the rest button's),
-written whenever the Ledger looks (the game reads the table afresh each time it starts); the
-tools are told apart by that name, their picture and their type together.
+of it. The item is a small one of the game's "misc" type. Its name, "Thieves' Tools", is the
+second of the entries DSCLOG adds after the game's own (names.py); the tools are told apart by
+that name, their picture and their type together.
 """
 
 import struct
@@ -20,9 +18,10 @@ from typing import List, Optional
 from . import game, pickpocket, ring
 from .game import GameData
 
-NAME_ENTRY = 0x60  # the game's "Rest icon"
-NAME, OWN_NAME = b"Thieves' Tools", b"Rest icon"
-OLD_NAME_ENTRIES = (0xAD,)  # what earlier versions named them ("pick", the pickaxe's): renamed
+NAME_ENTRY = 0x143
+NAME = b"Thieves' Tools"
+OLD_NAME_ENTRIES = (0xAD, 0x60)  # what earlier versions named them (the pickaxe's "pick", then the
+# rest button's "Rest icon"): renamed
 NEW_GAME = 3600  # game seconds: a game this young, in the arena, has just started
 ARENA = 0x2A  # the region every game starts in
 PICTURE, TYPE = 0xFBD4, 60  # the tools' picture (a leather satchel); small things carried (weight 1, worn nowhere)
@@ -31,19 +30,6 @@ PICTURE_CACHE = 0x0C  # in an item: the game keeps the picture it loaded here (0
 # a Slavepen key's record, as the game has it, with that name and picture, not in a slot
 ITEM = struct.pack("<HH", PICTURE, 0) + bytes.fromhex("0f27" "0100" "0f27") + struct.pack("<H", TYPE) + \
     bytes.fromhex("00000000" "05" "ff") + struct.pack("<Hb", NAME_ENTRY, 0)
-
-
-def name_tools(gd: GameData) -> bool:
-    """The tools' name in the game's name table (over its "Rest icon", which no item has).
-    True if the entry holds it."""
-    at = game.far_pointer(gd.guest, gd.ds, game.ITEM_NAMES_PTR) + NAME_ENTRY * game.ITEM_NAME_SIZE
-    entry = gd.guest.read(at, game.ITEM_NAME_SIZE).split(b"\0", 1)[0]
-    if entry == NAME:
-        return True
-    if entry != OWN_NAME:
-        return False  # not the table expected: leave it be
-    gd.guest.write(at, NAME.ljust(game.ITEM_NAME_SIZE, b"\0"))
-    return True
 
 
 def is_tools(rec: bytes) -> bool:

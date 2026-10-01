@@ -23,14 +23,14 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
-from . import game, monsters, pickpocket, ring, tools
+from . import game, monsters, names, pickpocket, ring, tools
 from .game import (CONVENTIONAL_AND_UPPER, CREATURE_ABILITIES, CREATURE_SIDE, CREATURE_THAC0, EFFECT_NAMES,
                    EFFECT_RULES, MATERIAL_TO_HIT, MATERIALS, SAVE_NAMES, STR_DAMAGE, GameData)
 from .guestmem import GuestMemory
 from .textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGvJ"
+HDR_SIG = b"DSCLOGvK"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
 MSG_SIZE = 900
@@ -417,6 +417,8 @@ class DiceLog:
             return []
         before = set(self.tools_given)
         try:
+            if not names.update(self.game, self.tsr_hdr):
+                return ["The game's name table has no room for the tools' name yet: load a game, then try again."]
             out = tools.give_tools(self.game, self.tools_given, now=True, session=self._tools_session)
         except (struct.error, IndexError, ValueError):
             return []
@@ -824,17 +826,18 @@ class DiceLog:
         return out
 
     def _arena_ring(self, now: float) -> List[str]:
-        """The Ring +1: its name (wherever it is by now), and in the arena, the ring itself; the
-        thieving tools' name, and a set for each thief who hasn't had one."""
+        """The helms' and boots' names for the rules; once the game's name table has DSCLOG's
+        names, the ring and tools from earlier versions named in them, and in the arena, the
+        ring itself, and a set of tools for each thief who hasn't had one."""
         if now < self._ring_check:
             return []
         self._ring_check = now + RING_INTERVAL
         out: List[str] = []
         try:
-            ring.name_ring(self.game)
             ring.name_items(self.game, self.rules)
+            if not names.update(self.game, self.tsr_hdr):
+                return out  # no names for them yet: none given
             if self.pickpockets:
-                tools.name_tools(self.game)
                 tools.repaint(self.game)
                 before = set(self.tools_given)
                 out += tools.give_tools(self.game, self.tools_given, session=self._tools_session)

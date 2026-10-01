@@ -669,8 +669,9 @@ the body lying below him, keep it there.
 
 How it works: the game has a plain "Ring" item that nothing in it has a plus
 on, and no item that betters saving throws. The Ledger adds a Ring with a plus
-of 1 to a backpack (an item record from the game's free list, and the ring's
-name in an unused entry of the game's name table); the patched game's routine
+of 1 to a backpack (an item record from the game's free list, its name one
+the helper adds to the game's name table: see
+[New item names](#new-item-names)); the patched game's routine
 that feeds the dialogue window (`INT 63h`) shows the search's line in place of
 the script's when the Ledger asks it to. The dice
 log's patched game does the rest (see
@@ -679,14 +680,32 @@ ring counts like armour does (its plus, on top of AC 0), and where it adds up
 a saving throw's modifiers, it starts from the pluses of the rings worn. So:
 
 - The ring works in games started with the dice log. In the original game
-  it is a plain ring, and without the Ledger running its name is blank (the
-  game reads the name table afresh each time it starts, and the Ledger writes
-  the name back within a few seconds).
+  it is a plain ring, without a name of its own (the game's table has no
+  name with that number).
 - The AC it gives shows on the View Character and inventory screens and in the
   Ledger's **AC: spells, rings, other** row; the +1 on saves in the saves those
   screens and the Characters tab show, and in the log.
 - A ring the original game has (the plain Ring and the Serpent Ring are the
   only kind the patch looks at) has no plus, so it plays as before.
+
+### New item names
+
+An item names its entry in the game's name table by number. The game reads
+the table (GPLDATA's 322 names, 25 letters each) in as it starts and as a game
+is loaded, and none of it is free to take, so in games started with the dice
+log the helper makes room for 32 more each time and copies its own names into
+them, from number 322 on: the Ring of Protection's (322) and the Thieves'
+Tools' (323), the rest for items to come. Nothing in the game checks the
+numbers against its own 322 (its inventory, list, Look and View Character
+screens all read the name the same way), and the names are there before
+anything shows them, Ledger running or not.
+
+Earlier versions borrowed two of the game's own entries instead: one nothing
+named (the ring's) and "Rest icon", the label of the rest button's picture
+(the tools'). Once the table has the new names, the Ledger gives those entries
+back and renames rings and tools that named them, carried or lying anywhere in
+the region. In the original game, the ring and tools have no name of their
+own.
 
 ### Picking pockets
 
@@ -700,10 +719,9 @@ can try anyone's, two ways, with the thief as the party's leader (keys 1-4):
   now** on the Options tab gives a set at once to each thief in the party
   without one (lost or sold ones included). Moving the tools about the inventory
   screen doesn't count as being without: no second set for that. They are called **Thieves'
-  Tools**: the game's name table has no free entry, so the name goes over
-  "Rest icon", an internal label of the game's that no item has (without the
-  Ledger running, that is what they're called). Tools an earlier version gave,
-  called "pick", are renamed. They look like a satchel (the game's own
+  Tools**, a name the helper adds to the game's (see
+  [New item names](#new-item-names)). Tools an earlier version gave, called
+  "pick" or named over the game's "Rest icon", are renamed. They look like a satchel (the game's own
   picture), and earlier sets that looked like a key change to it too. On the
   inventory screen, pick the tools up, go back to the
   game with them on the pointer, and click someone in sight: the result comes
@@ -778,7 +796,8 @@ the inventory screen and the Characters tab show them. (Dapartea's Helm,
 Helm/Contempltn, Helm of Might and Serpent Boots get the rule too, but keep
 their names: with the note they'd be too long for the game's Look box.) With the rule off they're the game's own names again. (Like the
 Ring of Protection's, the names are in the game's name table, which it reads
-afresh each time it starts; without the Ledger they're the game's own.)
+afresh each time it starts and a game is loaded; without the Ledger they're
+the game's own.)
 
 How: the helper sets the helm types' AC as the game's AC routine reads it
 (`INT F8h`, the Ring +1's place), and adds the move where the game sets a
@@ -1135,7 +1154,9 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    movement `INT FBh` (for boots), a key the conversation window doesn't know
    `INT FCh` and an item used on the map `INT FDh` (for
    [picking pockets](#picking-pockets)), the two-weapon adjustment `INT FEh`
-   and the doubling of a save's d20 `INT F0h`, and Cat's Grace `INT EDh`-`INT EFh` (for [rule changes](#rule-changes)), and
+   and the doubling of a save's d20 `INT F0h`, Cat's Grace `INT EDh`-`INT EFh` (for [rule changes](#rule-changes)), and
+   where the game makes room for its name table and reads it in `INT ECh` and
+   `INT EBh` (for [new item names](#new-item-names)), and
    the copy looks for its data files in the current
    folder rather than next to itself. DOSBox runs it from the game folder, so
    it uses your saves as usual.
@@ -1407,6 +1428,6 @@ After changing `dos/dsclog.asm`, rebuild the helper with
 nasm -f bin -o dos/DSCLOG.EXE dos/dsclog.asm
 ```
 
-The header's signature (`DSCLOGvJ` now) goes up whenever the helper and the
+The header's signature (`DSCLOGvK` now) goes up whenever the helper and the
 Ledger must change together (`HDR_SIG` in `dscompanion/dicelog.py`), so a
 Ledger never talks to an older helper.

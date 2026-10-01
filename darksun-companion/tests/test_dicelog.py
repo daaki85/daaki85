@@ -8,7 +8,7 @@ from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dscompanion import dicelog, game
+from dscompanion import dicelog, game, names
 from dscompanion.dicelog import AcDetail, DiceLog, Entry, KIND_AC, KIND_ROLL, KIND_SAVE
 from dscompanion.textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, DialogueEntry, TextBuffer
 from dscompanion.tracker import PartyTracker
@@ -90,6 +90,10 @@ def make_game():
     m[hp + 0x10 + 9], m[hp + 4:hp + 7], m[hp + 0x38 + 21] = 1, bytes((10, 9, 3)), 3
     # DSCLOG's text buffer
     struct.pack_into("<HHHH", m, HDR + 126, 0, 0x800, 256, 0)
+    # DSCLOG's names after the game's own, in the table it noted
+    m[HDR + names.TSR_NAMES_PTR:HDR + names.TSR_NAMES_PTR + 4] = far(NAMES + 3)
+    for entry, name in names.NAMES.items():
+        m[NAMES + 3 + entry * 25:NAMES + 3 + entry * 25 + len(name)] = name
     log = DiceLog(guest)
     log.rand_addr = LOAD_SEG * 16 + dicelog.RAND_IP
     log.tsr_hdr = HDR

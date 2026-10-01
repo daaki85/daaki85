@@ -46,6 +46,8 @@ VEC_DOUBLE equ 0xF0   ; PROBE_DOUBLE
 VEC_GRACE_CAST equ 0xED    ; PROBE_GRACE_CAST
 VEC_GRACE_EFFECT equ 0xEE  ; PROBE_GRACE_EFFECT
 VEC_GRACE_ABILITY equ 0xEF ; PROBE_GRACE_ABILITY
+VEC_NAMES_SIZE equ 0xEC    ; PROBE_NAMES_SIZE
+VEC_NAMES_FILL equ 0xEB    ; PROBE_NAMES_FILL
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -74,7 +76,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvJ'          ; +0
+sig      db 'DSCLOGvK'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -150,6 +152,10 @@ swap_on    dw 0                 ; +190 the companion sets 1 to have the next dia
 swap_seq   dw 0                 ; +192 counted up when it has been
 swap_off   dw swap_match        ; +194 offset of SWAP_MATCH (SWAP_SIZE bytes, NUL-terminated),
                                 ;      then SWAP_TEXT (TSIZE_SWAP bytes)
+names_off  dw extra_names       ; +196 offset of EXTRA_NAMES: the names past the game's own (NAMES_EXTRA
+                                ;      of NAME_SIZE bytes), copied into the game's table each time it loads
+names_count dw NAMES_EXTRA      ; +198 how many
+names_ptr  dd 0                 ; +200 the game's name table, as last loaded with them (0: not yet)
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -2023,6 +2029,78 @@ probe_grace_ability:
         pop ax
 .out:   iret
 
+; NAMES: the game's name table (GPLDATA's NAME chunk: 322 names of 25 bytes, which items name
+; by number) gets NAMES_EXTRA more, for the companion's own items (the Ring of Protection, the
+; Thieves' Tools...). Where the game reserves memory for the chunk (as it starts, and as a game
+; is loaded) PROBE_NAMES_SIZE makes the room for them; once it has read the chunk in,
+; PROBE_NAMES_FILL copies EXTRA_NAMES after the game's own. Nothing in the game limits the
+; numbers to its own 322.
+NAMES_OWN    equ 0x142
+NAME_SIZE    equ 25
+NAMES_EXTRA  equ 32
+NAMES_PTR    equ 0x166D         ; DS: far pointer to the name table
+
+; PROBE_NAMES_SIZE: INT VEC_NAMES_SIZE replaces "push dword 1" (3 bytes: INT + NOP) just before
+; the game reserves memory for the NAME chunk, its size the dword at [BP-4]: adds the room,
+; then does the push (under the interrupt's return frame).
+probe_names_size:
+        add word [bp-4], NAMES_EXTRA * NAME_SIZE
+        adc word [bp-2], 0
+        pop word [cs:n_ip]
+        pop word [cs:n_cs]
+        pop word [cs:n_fl]
+        push dword 1
+        push word [cs:n_fl]
+        push word [cs:n_cs]
+        push word [cs:n_ip]
+        iret
+
+; PROBE_NAMES_FILL: INT VEC_NAMES_FILL replaces "add sp,0Ch" (3 bytes: INT + NOP) after the call
+; that reads the NAME chunk into the table (AX 0: read). Does the add, then, if it was read,
+; copies EXTRA_NAMES after the game's names and notes the table in NAMES_PTR.
+probe_names_fill:
+        pop word [cs:n_ip]
+        pop word [cs:n_cs]
+        pop word [cs:n_fl]
+        add sp, 0x0C
+        push word [cs:n_fl]
+        push word [cs:n_cs]
+        push word [cs:n_ip]
+        or ax, ax
+        jnz .out
+        push cx
+        push si
+        push di
+        push ds
+        push es
+        les di, [NAMES_PTR]
+        mov [cs:names_ptr], di
+        mov [cs:names_ptr+2], es
+        add di, NAMES_OWN * NAME_SIZE
+        push cs
+        pop ds
+        mov si, extra_names
+        mov cx, NAMES_EXTRA * NAME_SIZE
+        cld
+        rep movsb
+        pop es
+        pop ds
+        pop di
+        pop si
+        pop cx
+.out:   iret
+n_ip    dw 0
+n_cs    dw 0
+n_fl    dw 0
+; the names, numbered from NAMES_OWN (322): the companion's items' (the same as the companion's
+; NAMES in dscompanion/names.py), the rest blank until it writes more
+extra_names:
+        db "Ring/Protection"
+        times NAME_SIZE - 15 db 0
+        db "Thieves' Tools"
+        times NAME_SIZE - 14 db 0
+        times (NAMES_EXTRA - 2) * NAME_SIZE db 0
+
 L_LINE_SIZE equ 24
 LOOK_SIZE   equ 80
 LOOK_FULL_SIZE equ 700
@@ -2073,7 +2151,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 24
+        mov cx, 26
 .check:
         lodsb
         mov ah, 35h
@@ -2161,6 +2239,12 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_GRACE_ABILITY
         mov dx, probe_grace_ability
         int 21h
+        mov ax, 2500h + VEC_NAMES_SIZE
+        mov dx, probe_names_size
+        int 21h
+        mov ax, 2500h + VEC_NAMES_FILL
+        mov dx, probe_names_fill
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -2176,8 +2260,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or EDh-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY
+busy    db 'DSCLOG: interrupts 60h-65h or EBh-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL
 
         align 16, db 0
 image_len equ $ - $$

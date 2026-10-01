@@ -16,7 +16,7 @@ from dscompanion.dicelog import FILTERS, HDR_SIG, Entry
 from dscompanion.textlog import TextBuffer
 from dscompanion.gamepatch import (VEC_AC, VEC_DOUBLE, VEC_MSG, VEC_NEXT, VEC_RAND, VEC_RING_AC, VEC_USE_ITEM,
                                   VEC_RING_SAVE, VEC_SAVE, VEC_TEXT, VEC_TWO, VEC_GRACE_CAST, VEC_GRACE_EFFECT,
-                                  VEC_GRACE_ABILITY)
+                                  VEC_GRACE_ABILITY, VEC_NAMES_FILL, VEC_NAMES_SIZE)
 
 try:
     from unicorn import Uc, UC_ARCH_X86, UC_HOOK_INTR, UC_HOOK_MEM_WRITE, UC_MODE_16
@@ -541,6 +541,58 @@ class GraceTests(RuleTests):
             self.run_at(bytes((0xCD, VEC_GRACE_ABILITY)), eax=effect, ebx=0, es=effects, ecx=0)
             self.assertEqual((self.word(-0x340), self.word(-0x342), self.word(-0x0A)), (want, 18, effect))
             self.assertEqual(self.mu.reg_read(r.UC_X86_REG_CX), 7)
+
+
+@unittest.skipIf(Uc is None, "unicorn not installed")
+class NamesTests(unittest.TestCase):
+    """The game's name table: room for NAMES_EXTRA more names, and DSCLOG's copied in."""
+    NAMES_SEG = 0x5000
+
+    def setUp(self):
+        self.image = image = load_image()
+        self.mu = mu = Uc(UC_ARCH_X86, UC_MODE_16)
+        mu.mem_map(0, 0x100000)
+        mu.mem_write(TSR * 16, image)
+        size = image.find(bytes.fromhex("8146fc2003" "8356fe00"))
+        fill = image.find(bytes.fromhex("83c40c" "2eff36")) - 15
+        self.assertGreater(min(size, fill), 0)
+        mu.mem_write(VEC_NAMES_SIZE * 4, struct.pack("<HH", size, TSR))
+        mu.mem_write(VEC_NAMES_FILL * 4, struct.pack("<HH", fill, TSR))
+        mu.hook_add(UC_HOOK_INTR, real_mode_interrupt)
+        mu.mem_write(GAME_DS * 16 + 0x166D, struct.pack("<HH", 4, self.NAMES_SEG))
+        self.hdr = TSR * 16 + image.find(HDR_SIG)
+
+    def interrupt(self, vector, **regs):
+        mu = self.mu
+        mu.mem_write(CALLER * 16 + 0x600, bytes((0xCD, vector, 0x90)))
+        for name, value in dict(cs=CALLER, ds=GAME_DS, ss=SS, esp=0x800, ebp=BP, eflags=IF | 2, **regs).items():
+            mu.reg_write(getattr(r, "UC_X86_REG_" + name.upper()), value)
+        mu.emu_start(CALLER * 16 + 0x600, CALLER * 16 + 0x602)
+        return mu.reg_read(r.UC_X86_REG_SP)
+
+    def test_room(self):
+        """In place of "push dword 1": the chunk's size (the dword at [BP-4]) gets the room."""
+        for size, want in ((8050, 8850), (0xFF00, 0xFF00 + 800)):
+            self.mu.mem_write(SS * 16 + BP - 4, struct.pack("<I", size))
+            self.assertEqual(self.interrupt(VEC_NAMES_SIZE), 0x7FC)
+            self.assertEqual(struct.unpack("<II", self.mu.mem_read(SS * 16 + 0x7FC, 4) +
+                                           self.mu.mem_read(SS * 16 + BP - 4, 4)), (1, want))
+
+    def test_filled(self):
+        """In place of "add sp,0Ch": with the chunk read (AX 0), DSCLOG's names after the game's."""
+        names = self.NAMES_SEG * 16 + 4 + 0x142 * 25
+        self.assertEqual(self.interrupt(VEC_NAMES_FILL, eax=0), 0x80C)
+        self.assertEqual(bytes(self.mu.mem_read(names, 50)),
+                         b"Ring/Protection".ljust(25, b"\0") + b"Thieves' Tools".ljust(25, b"\0"))
+        self.assertEqual(struct.unpack("<HH", self.mu.mem_read(self.hdr + 200, 4)), (4, self.NAMES_SEG))
+        self.assertEqual([self.mu.reg_read(x) for x in (r.UC_X86_REG_AX, r.UC_X86_REG_DS, r.UC_X86_REG_BP)],
+                         [0, GAME_DS, BP])
+
+    def test_not_read(self):
+        self.assertEqual(self.interrupt(VEC_NAMES_FILL, eax=1), 0x80C)
+        self.assertEqual(bytes(self.mu.mem_read(self.NAMES_SEG * 16 + 4 + 0x142 * 25, 4)), bytes(4))
+        self.assertEqual(bytes(self.mu.mem_read(self.hdr + 200, 4)), bytes(4))
+        self.assertEqual(self.mu.reg_read(r.UC_X86_REG_AX), 1)
 
 
 if __name__ == "__main__":
