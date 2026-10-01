@@ -42,7 +42,7 @@ def _query_bytes(text: str) -> bytes:
 
 
 # the game window's sizes (DOSBox scales the game's 320x200, with the aspect corrected)
-WINDOW_CHOICES = {"Double (640x480)": 2, "Triple (960x720)": 3, "Full screen": None}
+WINDOW_CHOICES = {"Double (640x480)": 2, "Triple (960x720)": 3, "Quadruple (1280x960)": 4, "Full screen": None}
 
 class Viewer:
     def __init__(self, root: tk.Tk, layout: Layout, connect: Callable[[], GuestMemory]):
@@ -58,6 +58,7 @@ class Viewer:
         self.ds: Optional[int] = None  # the game's data segment, once found
         self.dice: Optional[DiceLog] = None
         self.next_try = 0.0  # when to retry connecting / attaching
+        self.dosbox = None  # the game, when started from here (Start the game)
         # the game's portraits and font, from the player's own install (if it can be found)
         self.art = art.GameArt(launch.find_game_dir())
         self._images: List[tk.PhotoImage] = []  # Tk shows an image only while it's referenced
@@ -86,6 +87,9 @@ class Viewer:
         ttk.Button(top, text="Save layout", command=self.save_layout).pack(side="right")
         ttk.Button(top, text="Reload layout", command=self.reload_layout).pack(side="right", padx=4)
         ttk.Button(top, text="Reconnect", command=self.reconnect).pack(side="right")
+        # for when the Ledger was opened on its own: start the game (with the dice log) from here
+        self.start_button = ttk.Button(top, text="Start the game", command=self.start_game)
+        self.start_button.pack(side="left")
         # text size, also Ctrl + / Ctrl - / Ctrl 0
         ttk.Button(top, text="A+", width=3, command=lambda: self.zoom(1.15)).pack(side="right", padx=(4, 12))
         ttk.Button(top, text="A-", width=3, command=lambda: self.zoom(1 / 1.15)).pack(side="right")
@@ -296,10 +300,15 @@ class Viewer:
         self.boots_move = tk.BooleanVar(value=bool(settings.get("boots_move", True)))
         ttk.Checkbutton(rules, text="Boots give 1 more move in a fight", variable=self.boots_move,
                         command=self._popups_changed).pack(anchor="w", pady=(4, 0))
-        # the companion's own item: a Ring +1 on the dead prisoner in the arena (ring.py)
+        # the companion's own item: a Ring +1 on the Tied-up Prisoner in the arena (ring.py)
         self.arena_ring = tk.BooleanVar(value=bool(settings.get("arena_ring", True)))
-        ttk.Checkbutton(in_game, text="Put a Ring +1 (+1 AC, +1 on saves) on the dead prisoner in the arena",
+        ttk.Checkbutton(in_game, text="Put a Ring of Protection +1 (+1 AC, +1 on saves) on the arena's Tied-up Prisoner, "
+                        "found on his body once he's dead",
                         variable=self.arena_ring, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        self.pickpockets = tk.BooleanVar(value=bool(settings.get("pickpockets", True)))
+        ttk.Checkbutton(in_game, text="P in a conversation: the leader, a thief, tries the other's pockets "
+                        "(until caught)", variable=self.pickpockets,
+                        command=self._popups_changed).pack(anchor="w", pady=(4, 0))
 
     def _slot_box(self, parent) -> ttk.Combobox:
         box = ttk.Combobox(parent, width=3, state="readonly")
@@ -372,6 +381,40 @@ class Viewer:
             return
         self.status.set(f"Connected to DOSBox pid {self.guest.proc.pid}, "
                         f"guest RAM {self.guest.size // (1024 * 1024)} MB at host {self.guest.base:#x}")
+
+    def start_game(self) -> None:
+        """Start Shattered Lands with the dice log, as "Start Game with Dice Log.bat" does; the
+        Ledger attaches to it once DOSBox is up. The game folder is the remembered one, or asked
+        for (and then remembered)."""
+        if self.guest or (self.dosbox and self.dosbox.poll() is None):
+            return
+        game_dir = launch.find_game_dir()
+        if game_dir is None:
+            game_dir = filedialog.askdirectory(parent=self.root, title="Where is Dark Sun: Shattered Lands installed?")
+            if not game_dir:
+                return
+            if not launch.is_game_dir(game_dir):
+                messagebox.showerror("Start the game", f"{game_dir} has no DSUN.EXE and DOSBOX folder; "
+                                     "pick the GOG install folder of Shattered Lands.")
+                return
+            launch.save_settings(dict(launch.load_settings(), game_dir=game_dir))
+            self.art = art.GameArt(game_dir)
+        try:
+            self.dosbox, problem = launch.launch(game_dir)
+        except (launch.LaunchError, OSError) as e:
+            messagebox.showerror("Start the game", str(e))
+            return
+        if problem:
+            self.status.set(f"Starting the game without the dice log: it can't run with this copy ({problem}).")
+        else:
+            self.status.set(f"Starting Shattered Lands from {game_dir}...")
+        self.next_try = time.monotonic() + RETRY_SECONDS
+        self._start_state()
+
+    def _start_state(self) -> None:
+        """"Start the game" only while there's no game to attach to."""
+        running = self.guest is not None or (self.dosbox is not None and self.dosbox.poll() is None)
+        self.start_button.state(["disabled"] if running else ["!disabled"])
 
     def reload_layout(self) -> None:
         try:
@@ -482,6 +525,7 @@ class Viewer:
     def _tick(self) -> None:
         if not self.guest and time.monotonic() >= self.next_try:
             self.reconnect(quiet=True)
+        self._start_state()
         if self.guest:
             try:
                 self._auto_locate()
@@ -535,6 +579,9 @@ class Viewer:
                 self.dice.popup_detail = self.popup_detail.get()
                 self.dice.monster_info = self.monster_info.get()
                 self.dice.arena_ring = self.arena_ring.get()
+                self.dice.pickpockets = self.pickpockets.get()
+                self.dice.picked = launch.pickpocketed()
+                self.dice.tools_given = launch.tools_given()
                 self.dice.rules = self._rules()
             try:
                 self.dice_status.set(self.dice.attach())
@@ -551,6 +598,12 @@ class Viewer:
         if lines:
             self._append_dice(lines)
         self.round_line.set(self._round_text())
+        picked = self.dice.take_picked()
+        if picked:
+            launch.add_pickpocketed(picked)
+        given = self.dice.take_tools_given()
+        if given:
+            launch.add_tools_given(given)
         learned = self.dice.take_speakers()
         if learned:  # names worked out from conversations: keep them, and show them on earlier lines
             launch.add_learned_speakers(learned)
@@ -584,8 +637,8 @@ class Viewer:
     def _window_label(settings: dict) -> str:
         if settings.get("fullscreen"):
             return "Full screen"
-        scale = settings.get("window_scale", 2)
-        return next((label for label, v in WINDOW_CHOICES.items() if v == scale), "Double (640x480)")
+        scale = settings.get("window_scale", launch.DEFAULT_SCALE)
+        return next((label for label, v in WINDOW_CHOICES.items() if v == scale), "Triple (960x720)")
 
     def _window_chosen(self, _event=None) -> None:
         """Remember the game window's size; it applies the next time the game is started."""
@@ -607,6 +660,7 @@ class Viewer:
         settings["turn_popups_detail"] = self.popup_detail.get()
         settings["monster_info"] = self.monster_info.get()
         settings["arena_ring"] = self.arena_ring.get()
+        settings["pickpockets"] = self.pickpockets.get()
         settings["helm_ac"] = self.helm_ac.get()
         settings["boots_move"] = self.boots_move.get()
         launch.save_settings(settings)
@@ -615,6 +669,7 @@ class Viewer:
             self.dice.popup_detail = self.popup_detail.get()
             self.dice.set_monster_info(self.monster_info.get())
             self.dice.arena_ring = self.arena_ring.get()
+            self.dice.set_pickpockets(self.pickpockets.get())
             self.dice.set_rules(self._rules())
 
     def _rules(self) -> int:
@@ -784,13 +839,13 @@ class Viewer:
         per_member = [dict(m) for m in self._member_slots(slots)]
         rows = [(f"{kind} spells left", [game.slots_text(m.get(kind, [])) for m in per_member])
                 for kind, _ in game.MAGIC_KINDS]
-        if self.ds is not None:  # each thief's skills, before armour and the situation
+        if self.ds is not None:  # each thief's skills as they stand (equipment and effects)
             gd = game.GameData(self.guest, self.ds)
             table = game.far_pointer(self.guest, self.ds, game.CREATURES_PTR)
             cells = []
             for s in slots:
                 addr = s[1].get("creature")
-                skills = gd.thief_skills((addr - table) // game.CREATURE_SIZE) if addr is not None else []
+                skills = gd.thief_skills_now((addr - table) // game.CREATURE_SIZE) if addr is not None else []
                 cells.append(" ".join(f"{n}" for _, n in skills))
             rows.append(("Thief skills PP/OL/FT/HN/CW", cells))
             worn = []
@@ -853,7 +908,7 @@ class Viewer:
                     status += (", " if status else "") + ", ".join(names)
                 ac = self.dice.last_ac.get(index) if self.dice and self.dice.attached else None
             known = gd and addr is not None and table is not None
-            thief = gd.thief_skills(index) if known else []
+            thief = gd.thief_skills_now(index) if known else []
             equipment = gd.equipment(index) if known else []
             try:
                 hits = gd.weapon_hits(index) if known and index < game.PARTY_SIZE else []

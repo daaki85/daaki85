@@ -94,6 +94,28 @@ def learned_speakers() -> Dict[int, str]:
     return {int(k): v for k, v in names.items() if str(k).isdigit() and isinstance(v, str) and v}
 
 
+def pickpocketed() -> set:
+    """The pockets tried already (pickpocket.py): each person gets one try."""
+    return set(load_settings().get("pickpocketed", []))
+
+
+def add_pickpocketed(keys: List[str]) -> None:
+    settings = load_settings()
+    settings["pickpocketed"] = sorted(set(settings.get("pickpocketed", [])) | set(keys))
+    save_settings(settings)
+
+
+def tools_given() -> set:
+    """The thieves given thieving tools already (tools.py)."""
+    return set(load_settings().get("tools_given", []))
+
+
+def add_tools_given(keys: List[str]) -> None:
+    settings = load_settings()
+    settings["tools_given"] = sorted(set(settings.get("tools_given", [])) | set(keys))
+    save_settings(settings)
+
+
 def add_learned_speakers(learned: Dict[int, str]) -> None:
     settings = load_settings()
     settings.setdefault("speakers_learned", {}).update({str(k): v for k, v in learned.items()})
@@ -109,17 +131,23 @@ def find_game_dir(given: Optional[str] = None) -> Optional[str]:
 
 
 SCALERS = {2: "normal2x", 3: "normal3x"}
+DEFAULT_SCALE = 3
+WINDOW_SCALES = (1, 2, 3, 4)
 
 
 def display_lines(settings: dict) -> List[str]:
-    """DOSBox's display, over GOG's settings (full screen): a window, by default twice the
-    game's 320x200 (640x480 with the aspect correction GOG turns on); `window_scale` 3 makes it
-    three times, 1 leaves it at 320x240; `fullscreen` true keeps GOG's full screen. Alt+Enter
-    switches either way in DOSBox."""
+    """DOSBox's display, over GOG's settings (full screen): a window, by default three times the
+    game's 320x200 (960x720 with the aspect correction GOG turns on); `window_scale` 2 makes it
+    twice, 4 four times, 1 leaves it at 320x240; `fullscreen` true keeps GOG's full screen.
+    Alt+Enter switches either way in DOSBox. DOSBox 0.74 has no 4x scaler, so four times is
+    DOSBox scaling the window itself, which needs its OpenGL output."""
     if settings.get("fullscreen"):
         return []
-    scale = settings.get("window_scale", 2)
-    scale = scale if scale in (1, 2, 3) else 2
+    scale = settings.get("window_scale", DEFAULT_SCALE)
+    scale = scale if scale in WINDOW_SCALES else DEFAULT_SCALE
+    if scale == 4:
+        return ["[sdl]", "fullscreen=false", "output=opengl", "windowresolution=1280x960", "[render]",
+                "aspect=true", "scaler=normal2x", ""]
     return ["[sdl]", "fullscreen=false", "[render]", "aspect=true",
             "scaler=" + ("none" if scale == 1 else SCALERS[scale]), ""]
 

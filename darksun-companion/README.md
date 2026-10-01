@@ -30,8 +30,8 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
 - **Dialogue:** what characters say, the replies you're offered and the one
   you picked, kept in a tab you can scroll back through.
 - **In the game itself**, in the game's own lettering: the inventory screen
-  also shows each character's THAC0 (for each weapon too), saving throws as
-  they stand now and (for thieves) the thief skills the game rolls, and the
+  also shows each character's THAC0 (for each weapon too), saving throws and
+  (for thieves) the thief skills the game rolls, all as they stand now, and the
   View Character screen their THAC0 and saves
   (see [In the game](#in-the-game-thac0-saves-and-thief-skills)); the USE
   screen shows their spell slots left (see
@@ -44,8 +44,8 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   these additions and the Ledger's window start together.
 - **Spells:** a tab listing what every spell and psionic power really does,
   from the game's own records (see [the Spells tab](#the-spells-tab)).
-- **A Ring +1** (+1 AC, +1 on saving throws) to loot from the dead prisoner in
-  the arena, an item of the Ledger's own (see [The Ring +1](#the-ring-1)), and
+- **A Ring +1** (+1 AC, +1 on saving throws) to loot from the Tied-up
+  Prisoner's body in the arena, an item of the Ledger's own (see [The Ring +1](#the-ring-1)), and
   two optional rule changes: helms give AC 1, boots a move more in a fight (see
   [Rule changes](#rule-changes-helms-and-boots)).
 
@@ -113,18 +113,26 @@ slots on the USE screen. Your saves are the same ones the game normally uses.
 The first time, it looks for the game in the usual GOG folders; if it can't
 find it, it asks you where the game is installed and remembers the answer.
 
-DOSBox opens in a window twice the game's size (640x480), not full screen. To
-change that, pick **Game window** at the top of the Ledger: **Double
-(640x480)**, **Triple (960x720)** or **Full screen**. It's remembered, and
-used from the next time you start the game. Alt+Enter switches between window
-and full screen while playing. (From a command prompt: `--window-scale 3`,
-`--fullscreen` or `--windowed` after `launch` or `play` do the same.)
+DOSBox opens in a window three times the game's size (960x720), not full
+screen. To change that, pick **Game window** at the top of the Ledger:
+**Double (640x480)**, **Triple (960x720)**, **Quadruple (1280x960)** or **Full
+screen**. It's remembered, and used from the next time you start the game.
+Alt+Enter switches between window and full screen while playing. (From a
+command prompt: `--window-scale 2` to `4`, `--fullscreen` or `--windowed` after
+`launch` or `play` do the same.) GOG's DOSBox has no four-times scaler, so
+Quadruple has DOSBox stretch its window with OpenGL (`output=opengl`,
+`windowresolution=1280x960`); if your graphics driver doesn't take to that,
+pick Triple.
 
 Load your game. The party's stats fill in by themselves, and rolls appear in
 the **Dice log** tab as they happen.
 
-If you start the game the normal way instead, **`Start Templar's Ledger.bat`** still
-shows the party, but the dice log will say the game was started without it.
+**`Start Templar's Ledger.bat`** opens the Ledger on its own. If the game isn't
+running, its **Start the game** button (top left) starts it with the dice log,
+as `Start Game with Dice Log.bat` does (asking where the game is the first
+time), and the Ledger picks it up once DOSBox is up. With the game started the
+normal way instead, the Ledger still shows the party, but the dice log will
+say the game was started without it.
 
 **Just the game, with the in-game additions, no Ledger window:** double-click
 **`Play Dark Sun (in-game rolls).bat`**. The dice log runs unseen and stops
@@ -426,10 +434,13 @@ twice and STR once.
 `python -m dscompanion checks` lists them all with the script's text around
 each (spoilers).
 
-The **Characters** tab shows each thief's chances before equipment and the
-situation, for the five skills the game rolls (pick pockets, open locks,
-find/remove traps, hear noise, climb walls). **All fields** has them in a row
-in that order.
+The **Characters** tab shows each thief's chances as they stand, with the
+equipment penalty and effects (but not the situation's bonus or penalty), for
+the five skills the game rolls (pick pockets, open locks, find/remove traps,
+hear noise, climb walls) and move silently (which the Ledger rolls when a
+pocket isn't picked, see [Picking pockets](#picking-pockets)), as the game's
+inventory screen does. **All fields**
+has them in a row in that order.
 
 ### Psionics
 
@@ -613,26 +624,35 @@ Rules in the code that never come into play: a DEX adjustment and Cloak of
 Bravery's +4 against fear both apply only to a kind of spell that no spell in
 the game is marked as. And nothing in the game gives saves from items: there
 are no rings or cloaks of protection, which is why the Ledger adds
-[one](#the-ring-1). Its +1 is in the log's saving throws as `+1 Ring +1`.
+[one](#the-ring-1). Its +1 is in the log's saving throws as `+1 Ring of Protection`.
 
 ### The Ring +1
 
 A ring of protection the game never had: **+1 AC and +1 on every saving
-throw** for whoever wears it. With **Put a Ring +1 (+1 AC, +1 on saves) on the
-dead prisoner in the arena** ticked on the Options tab (it is by default),
-the Ledger puts one in the body lying just below the Tied-up Prisoner in the
-arena, the first time the party is there with the Ledger (or **Play Dark Sun
-(in-game rolls)**) running:
+throw** for whoever wears it, called a Ring of Protection. With **Put a Ring of
+Protection +1 (+1 AC, +1 on saves) on the arena's Tied-up Prisoner** ticked on
+the Options tab (it is by default), it is on the Tied-up Prisoner, the bound
+man beside the vulture in the arena: free him (he dies as he falls from his
+bonds), then look at his body (right-click until the cursor is the eye, then
+click it) to open it. The game makes him a "Dead Slave" that can't be opened;
+the Ledger (or **Play Dark Sun (in-game rolls)**) makes that body a container
+with the ring in it, and the log says so:
 
 ```
-A Ring +1 (+1 AC, +1 on saves) is on the dead prisoner in the arena, below the Tied-up Prisoner.
+The Tied-up Prisoner's body holds a Ring of Protection +1 (+1 AC, +1 on saves).
 ```
 
-Look at the body (right-click until the cursor is the eye, then click it) to
-open it, click the ring, then click a character to put it in their backpack;
-wear it on a finger from the inventory screen. The game calls it **RING +1**.
-The Ledger puts one there only while there is no Ring +1 in the arena or with
-the party, so taking it doesn't make another appear.
+(Killing him where he hangs leaves the same body, ring and all.) Click the
+ring, then a character to put it in their backpack, and wear it on a finger
+from the inventory screen. The game's names are at most 15 letters long, and
+longer ones run out of the Look box, so in the game it is **RING/PROTECTION**
+on the inventory screen and **Ring/Protection+1** in the box Look opens on it
+(shortened the way the game shortens its own "Helm/Contempltn"; the game puts
+an item's plus straight after its name there, as for any item with a plus).
+The Ledger's own screens and the log call it Ring of Protection.
+It happens once: a body already opened, or a Ring +1 with the party or
+anywhere in the arena, gets no other. Games saved with an earlier version,
+where the ring was in the body lying below him, keep it there.
 
 How it works: the game has a plain "Ring" item that nothing in it has a plus
 on, and no item that betters saving throws. The Ledger adds a Ring with a plus
@@ -653,6 +673,58 @@ a saving throw's modifiers, it starts from the pluses of the rings worn. So:
 - A ring the original game has (the plain Ring and the Serpent Ring are the
   only kind the patch looks at) has no plus, so it plays as before.
 
+### Picking pockets
+
+The game has one pocket to pick, in the Trustee's conversation (his key). With
+**P in a conversation** ticked on the Options tab (it is by default), a thief
+can try anyone's, two ways, with the thief as the party's leader (keys 1-4):
+
+- **Thieving tools.** Every thief starts a new game with a set in their
+  backpack (the log says so); a thief who joins later, or one in a game
+  started before this version, gets a set once too: an item with a key's picture, called **pick** (the
+  game's name table has no room for a name of its own, so it borrows the
+  game's word). On the inventory screen, pick the tools up, go back to the
+  game with them on the pointer, and click someone in sight: the result comes
+  up in the game's message window, and the tools stay on the pointer for the
+  next one. (Clicking open ground drops them, as with anything carried.)
+- **P in a conversation.** In a conversation, press **P**.
+
+Either way, the Ledger rolls the leader's pick pockets chance as
+it stands now (armour and effects counted, as in the thief rows):
+
+- **Success:** one small thing goes into the thief's backpack (its first free
+  cell): something weighing 10 or less (a bag or arrows are 10, a helm 15, a
+  long sword 30) that isn't worn on the body (armour, a belt, boots, a helm, a
+  cloak). A dagger, a ring, an amulet, a gem or food can be lifted. Keys stay,
+  as scripts may look for them. People outside the party keep all they own in
+  their pack, so this goes by what each thing is.
+- **Failure:** a move silently roll. Made, the thief slips away unnoticed;
+  missed, they're caught.
+
+With nothing like that left on them, the thief takes what's in their purse
+instead: a few ceramic pieces (2 to 5), added to the party's money. That is
+the last try on that person.
+
+A thief can go on trying the same person until **caught** (both rolls failed)
+or until they take the coins; after that, that person keeps a hand on their
+pockets for good. The Ledger remembers who in `settings.json`,
+for this party. The Trustee is left to his own conversation. What happens is
+added to the conversation's text (use its arrow to scroll down to it if the
+text is long) and to the dice log:
+
+```
+Daaki picks Kurzak's pocket: d100 = 71, needs 63 or less -> failed
+  Daaki moves silently to get away: d100 = 12, needs 55 or less -> success
+  Daaki fumbles Kurzak's pockets, but slips away unnoticed.
+```
+
+How: the patched game's conversation window sends a key it doesn't know to
+the helper (`INT FCh`), which has the Ledger roll and move the item, then adds
+the result to the window's text; and the routine that uses the item on the
+pointer on something on the map tells the helper what was used on what
+(`INT FDh`): for the thieving tools on someone, the Ledger does the same, and
+the helper shows the result instead of the game's "nothing happens".
+
 ### Rule changes: helms and boots
 
 Two small changes to the game's rules, both on the Options tab (on by default;
@@ -670,6 +742,14 @@ with **Play Dark Sun (in-game rolls)**, which uses the Options as last set):
   Slow still double and halve it). The game sets each round's movement when it
   rolls initiative, so boots put on mid-fight count from the next round. The
   Characters tab shows it: `Move: 12 (13 in a fight: boots)`.
+
+The game has no descriptions of items, only their names, so while a rule is on
+the Ledger names the items for it: **Helm (AC 1)** and **Boots (+1 Move)**, as
+the inventory screen and the Characters tab show them. (Dapartea's Helm,
+Helm/Contempltn, Helm of Might and Serpent Boots get the rule too, but keep
+their names: with the note they'd be too long for the game's Look box.) With the rule off they're the game's own names again. (Like the
+Ring of Protection's, the names are in the game's name table, which it reads
+afresh each time it starts; without the Ledger they're the game's own.)
 
 How: the helper sets the helm types' AC as the game's AC routine reads it
 (`INT F8h`, the Ring +1's place), and adds the move where the game sets a
@@ -695,11 +775,11 @@ right-hand panel, drawn by the game's text routine so they look like the rest:
   petrification/polymorph, `BW` breath weapon, `SP` spell;
 - at the right of each weapon's damage line, the THAC0 with that weapon
   (`T14`);
-- right of the abilities, level with STR to WIS, for a character with thief
-  levels, the five **thief skills** the game ever rolls: `PICK` pockets, open `LOCK`s,
-  find/remove `TRAP`s, `HEAR` noise, `CLMB` walls (move silently, hide in
-  shadows and read languages are never checked; see Where the game rolls
-  them). Not below the weapons: three weapons fill the panel down to its
+- right of the abilities, level with STR to CHA, for a character with thief
+  levels, the five **thief skills** the game ever rolls and move silently:
+  `PICK` pockets, open `LOCK`s, find/remove `TRAP`s, `MOVE` silently, `HEAR`
+  noise, `CLMB` walls (hide in shadows and read languages are never checked;
+  see Where the game rolls them). Not below the weapons: three weapons fill the panel down to its
   buttons.
 
 The **View Character** screen gets THAC0 and the saves too, under the item
@@ -730,7 +810,12 @@ change.
   spell or its caster (WIS against mind spells, Protection from Fire, a
   doubled d20 against fire...) is left out; the dice log shows it on each
   save. A 1 always fails and a 20 always saves, so they show between 2 and 20.
-- **Thief skills**: before armour and the situation (see Thief skills).
+- **Thief skills**: as they stand, with the equipment penalty (anything in
+  the legs slot, the quiver or either hand: 5 off picking pockets, 10 off
+  climbing), 0 for a skill an effect rules out or when the thief isn't Okay,
+  and 100 for one an effect makes certain (Detect Traps). Only the situation's
+  bonus or penalty (a hard lock) is left out: the dice log shows it on each
+  roll (see Thief skills).
 
 The Characters tab shows the same THAC0 with each weapon and saves. The
 game's own numbers (the character sheet's) come back on these screens when
@@ -804,7 +889,10 @@ hit did.
 
 Each turn gets its own window, monsters' included. (The game plays a
 monster's whole turn inside one call, so the helper is also called there, just
-before such a turn starts: `INT F7h`.)
+before such a turn starts: `INT F7h`.) Only fights the party is in get them:
+the fights the game stages without the party, such as the Defiler's show at
+the start of the arena, are run by scripts waiting on the same dialogue window,
+and a window of ours there would let the script go on before the fight ends.
 
 How: the patched game calls the helper (`INT F1h`) in its combat loop, right
 after the call that may pass the turn on. When whose turn it is has changed,
@@ -898,7 +986,9 @@ When several faces take turns in one conversation, nothing is learned from it,
 as it can't be told who is who. Names learned are shown on the lines already
 there too, and kept in `settings.json` (`speakers_learned`). A speaker not
 named yet shows as `Portrait 57`. Portrait 119 is named `The Announcer`, as the
-game itself calls him ("Yell something back at the Announcer?"). To name a
+game itself calls him ("Yell something back at the Announcer?"). That name isn't
+replaced by one learned (he calls out in the middle of fights, when the
+game's last script ran on a fighter). To name a
 speaker yourself (your name wins over a learned one), right-click the name
 line in the Dialogue tab, or press **Name speaker...** (it names the latest
 speaker). The name replaces the number on every line from that portrait,
@@ -926,10 +1016,15 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    combat loop `INT F1h`, the USE screen `INT F2h`, the View Character screen
    `INT F3h`, the end of the window redraw `INT F4h`, the Look box `INT F5h`
    and `INT F6h`, the start of a monster's turn `INT F7h` (see In the
-   game), and the places where AC and a saving throw's modifiers are added up
+   game; that one is in overlay code, which the game moves or unloads to load
+   the dialogue window's, so the helper puts its way back in a stack frame the
+   game's overlay manager fixes up, rather than returning to a stale address:
+   that used to restart a fight, or stop the game with "Stack overflow!"), and the places where AC and a saving throw's modifiers are added up
    `INT F8h` and `INT F9h` (for [the Ring +1](#the-ring-1) and helms), each
    weapon's line on the inventory screen `INT FAh`, and the start of a round's
-   movement `INT FBh` (for boots), and
+   movement `INT FBh` (for boots), a key the conversation window doesn't know
+   `INT FCh` and an item used on the map `INT FDh` (for
+   [picking pockets](#picking-pockets)), and
    the copy looks for its data files in the current
    folder rather than next to itself. DOSBox runs it from the game folder, so
    it uses your saves as usual.

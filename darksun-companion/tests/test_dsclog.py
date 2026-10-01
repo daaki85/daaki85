@@ -14,10 +14,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dscompanion.dicelog import FILTERS, HDR_SIG, Entry
 from dscompanion.textlog import TextBuffer
-from dscompanion.gamepatch import VEC_AC, VEC_MSG, VEC_RAND, VEC_RING_AC, VEC_RING_SAVE, VEC_SAVE, VEC_TEXT
+from dscompanion.gamepatch import VEC_AC, VEC_MSG, VEC_NEXT, VEC_RAND, VEC_RING_AC, VEC_USE_ITEM, VEC_RING_SAVE, VEC_SAVE, VEC_TEXT
 
 try:
-    from unicorn import Uc, UC_ARCH_X86, UC_HOOK_INTR, UC_MODE_16
+    from unicorn import Uc, UC_ARCH_X86, UC_HOOK_INTR, UC_HOOK_MEM_WRITE, UC_MODE_16
     from unicorn import x86_const as r
 except ImportError:  # optional dependency
     Uc = None
@@ -245,6 +245,117 @@ class StubTests(unittest.TestCase):
         # "show the replies" passes no pointer: whatever lies above its arguments is not text
         recs = call(VEC_TEXT, struct.pack("<HHHH", 3, 0x100, GAME_DS, 0), 0x130)
         self.assertEqual([(x.kind, x.text) for x in recs], [(3, "")])
+
+
+@unittest.skipIf(Uc is None, "unicorn is not installed")
+class NextTests(unittest.TestCase):
+    """PROBE_NEXT, in the game's overlaid combat routine: it goes on where the compare and the
+    JNE it replaces would have, by way of a frame the overlay manager can fix up while the
+    turn's summary is up."""
+    DLG = (GAME_DS + 0x42CA - 0x4356) & 0xFFFF  # the dialogue window's overlay stub
+    MOVED = (0x7777, 0x0100)  # where the fake overlay manager says the combat routine is now
+
+    def setUp(self):
+        image = load_image()
+        self.mu = mu = Uc(UC_ARCH_X86, UC_MODE_16)
+        mu.mem_map(0, 0x100000)
+        mu.mem_write(TSR * 16, image)
+        self.hdr = TSR * 16 + image.find(HDR_SIG)
+        handler = image.find(bytes.fromhex("fb66600689e3368b4722"))  # sti, pushad, push es, ...
+        self.assertGreater(handler, 0)
+        mu.mem_write(VEC_NEXT * 4, struct.pack("<HH", handler, TSR))
+        mu.hook_add(UC_HOOK_INTR, real_mode_interrupt)
+        mu.mem_write(GAME_DS * 16 + 0x4979, struct.pack("<H", 44))  # a monster's turn now
+        mu.mem_write(self.DLG * 16 + 0x25, b"\xCB")  # feeding the window: retf
+        # waiting for Continue: the combat routine is moved meanwhile, and the overlay manager
+        # fixes up the return address in the frame BP points at (push bp / mov bp,sp /
+        # mov bx,[bp] / mov word [ss:bx+2],IP / mov word [ss:bx+4],CS / pop bp / retf)
+        mu.mem_write(self.DLG * 16 + 0x34, bytes.fromhex("5589e58b5e00") + bytes.fromhex("36c74702") +
+                     struct.pack("<H", self.MOVED[1]) + bytes.fromhex("36c74704") +
+                     struct.pack("<H", self.MOVED[0]) + bytes.fromhex("5dcb"))
+
+    def run_next(self, local, popups, until):
+        """INT VEC_NEXT + 2 NOPs + the game's JNE +5 at CALLER:0600h, [BP-2] = LOCAL."""
+        mu = self.mu
+        mu.mem_write(CALLER * 16 + 0x600, bytes((0xCD, VEC_NEXT, 0x90, 0x90, 0x75, 0x05)))
+        mu.mem_write(SS * 16 + BP - 2, struct.pack("<H", local))
+        mu.mem_write(self.hdr + 140, struct.pack("<HH", 1, popups))  # the summary is ready
+        msg = TSR * 16 + struct.unpack("<H", mu.mem_read(self.hdr + 144, 2))[0]
+        mu.mem_write(msg, b"Slig attacks\0")
+        regs = dict(cs=CALLER, ds=GAME_DS, ss=SS, esp=0x800, ebp=BP, eflags=IF | 2, eax=0x1111, ebx=0x2222,
+                    ecx=0x3333, edx=0x4444, esi=0x5555, edi=0x6666, es=0x7070)
+        for name, value in regs.items():
+            mu.reg_write(getattr(r, "UC_X86_REG_" + name.upper()), value)
+        mu.emu_start(CALLER * 16 + 0x600, until[0] * 16 + until[1], count=200000)
+        self.assertEqual((mu.reg_read(r.UC_X86_REG_CS), mu.reg_read(r.UC_X86_REG_IP)), until)
+        kept = [name for name in regs if name not in ("cs", "eflags")]
+        self.assertEqual([mu.reg_read(getattr(r, "UC_X86_REG_" + name.upper())) for name in kept],
+                         [regs[name] for name in kept])
+
+    def test_no_summary_goes_on_as_the_jump_would(self):
+        self.run_next(0, popups=0, until=(CALLER, 0x606))  # [BP-2] = 0: past the JNE
+        self.run_next(3, popups=0, until=(CALLER, 0x60B))  # not 0: to its target
+
+    def test_back_where_the_overlay_manager_says(self):
+        """The summary shown, the way back is the one the overlay manager left in the frame."""
+        self.run_next(3, popups=1, until=self.MOVED)
+        self.assertEqual(self.mu.mem_read(self.hdr + 138, 2), struct.pack("<H", 1))  # the turn counted
+
+
+@unittest.skipIf(Uc is None, "unicorn is not installed")
+class UseItemTests(unittest.TestCase):
+    """PROBE_USE_ITEM, where the game uses the item on the pointer on what's under it: on as the
+    compare and JNE it replaces would go, or, for the Ledger's thieving tools, to the routine's
+    end (DSUN.EXE: 7361Ah, 7361Dh and 7371Dh, less the address after the INT)."""
+    NONE, SOME, DONE = 0x605, 0x608, 0x602 + 0x106
+
+    def setUp(self):
+        image = load_image()
+        self.mu = mu = Uc(UC_ARCH_X86, UC_MODE_16)
+        mu.mem_map(0, 0x100000)
+        mu.mem_write(TSR * 16, image)
+        self.hdr = TSR * 16 + image.find(HDR_SIG)
+        handler = image.find(bytes.fromhex("fb66600689e3ba0300"))  # sti, pushad, push es, mov bx,sp, mov dx,3
+        self.assertGreater(handler, 0)
+        mu.mem_write(VEC_USE_ITEM * 4, struct.pack("<HH", handler, TSR))
+        mu.hook_add(UC_HOOK_INTR, real_mode_interrupt)
+        self.taken = 0
+
+        def companion(uc, access, address, size, value, _):  # answers as soon as it's asked
+            if address == self.hdr + 180:
+                uc.mem_write(self.hdr + 182, struct.pack("<H", value))
+                uc.mem_write(self.hdr + 186, struct.pack("<H", self.taken))
+        mu.hook_add(UC_HOOK_MEM_WRITE, companion, begin=self.hdr + 180, end=self.hdr + 181)
+
+    def run_use(self, si, until, on=1):
+        mu = self.mu
+        mu.mem_write(CALLER * 16 + 0x600, bytes((0xCD, VEC_USE_ITEM, 0x90, 0x90, 0x90)))
+        mu.mem_write(self.hdr + 178, struct.pack("<H", on))
+        mu.mem_write(TSR * 16 + struct.unpack("<H", mu.mem_read(self.hdr + 176, 2))[0], b"\0")
+        for name, value in dict(cs=CALLER, ds=GAME_DS, ss=SS, esp=0x800, ebp=BP, eflags=IF | 2, esi=si).items():
+            mu.reg_write(getattr(r, "UC_X86_REG_" + name.upper()), value)
+        mu.emu_start(CALLER * 16 + 0x600, CALLER * 16 + until, count=100000)
+        self.assertEqual((mu.reg_read(r.UC_X86_REG_IP), mu.reg_read(r.UC_X86_REG_SP), mu.reg_read(r.UC_X86_REG_SI)),
+                         (until, 0x800, si))
+
+    def test_nothing_there(self):
+        self.run_use(0xFFFF, self.NONE)
+
+    def test_not_ours(self):
+        """The Ledger is told what was used on what: the pointer's item 1, item 231 in the
+        segment the routine's "mov dx,<segment>" (3FEh past the INT) loads."""
+        mu = self.mu
+        mu.mem_write(GAME_DS * 16 + 0x17A0, struct.pack("<h", 1))
+        mu.mem_write(CALLER * 16 + 0x602 + 0x3FE, struct.pack("<H", 0x9000))
+        mu.mem_write(0x9000 * 16 + 1 * 10 + 0x44, struct.pack("<H", 231))
+        self.run_use(300, self.SOME, on=0)
+        self.run_use(300, self.SOME)  # the Ledger says it's not its tools
+        self.assertEqual(struct.unpack("<HH", mu.mem_read(self.hdr + 184, 2) + mu.mem_read(self.hdr + 188, 2)),
+                         (300, 231))
+
+    def test_the_tools(self):
+        self.taken = 1
+        self.run_use(300, self.DONE)
 
 
 @unittest.skipIf(Uc is None, "unicorn is not installed")

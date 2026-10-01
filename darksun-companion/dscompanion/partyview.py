@@ -125,7 +125,7 @@ class Card(ttk.Frame):
         self.vars["attacks"].set(f"Attacks: {get('Attacks/round', '')} a round")
         self.vars["equipment"].set("\n".join(f"{slot.capitalize() if slot else 'Carried'}: {item}"
                                               for slot, item in equipment))
-        self.vars["thief"].set(("Thief skills (before armour): " + ", ".join(f"{name} {n}%" for name, n in thief))
+        self.vars["thief"].set(("Thief skills now: " + ", ".join(f"{name} {n}%" for name, n in thief))
                                if thief else "")
         self.vars["slots"].set("\n".join(f"{kind} spells left: {game.slots_text(levels)}" for kind, levels in slots))
         key = (number(get("Race", "")) or 0, number(get("Gender", "")) or 0)

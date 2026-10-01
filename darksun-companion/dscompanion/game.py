@@ -70,12 +70,18 @@ FOOT = EQUIP_SLOTS.index("foot")
 # and saving throws (DSCLOG's PROBE_RING_AC and PROBE_RING_SAVE); the game has no such ring of
 # its own, and the companion can put a Ring +1 in the arena (ring.py).
 RING_TYPE = 102
+# The companion's rule changes (DSCLOG's RULES): helms count AC 1, boots add a move in a fight
+RULE_HELMS, RULE_BOOTS = 1, 2
 EFFECTS_SEG, EFFECTS_OFF = 0x3BF6, 0x106  # 10 bytes per active effect
 # The game's clock and event queue: a far pointer to the time (a dword, divided by the byte at
 # GAME_TIME_SCALE); the first queue's entries (17 bytes: due time, kind, then the event's data),
 # sorted by time, with their count. An effect ending is kind 7, its data the owner and handle.
 GAME_TIME_PTR, GAME_TIME_SCALE = 0x9B72, 0x9B70
-WHOSE_TURN = 0x4979  # DS word: the combatant whose turn it is
+WHOSE_TURN = 0x4979  # DS word: the combatant whose turn it is (outside a fight: the leader)
+REGION = 0x117C  # DS word: the region the party is in
+# The party's money, in ceramic pieces (the inventory screen's bottom bar): a dword the game's
+# script command for giving money (0Ch) adds to
+MONEY_SEG, MONEY = 0x3781, 0x357
 # Speakers the game names in its own text (the dialogue window shows only a portrait):
 # 119 is asked about as "Yell something back at the Announcer?"
 SPEAKERS = {119: "The Announcer"}
@@ -386,13 +392,22 @@ HUMAN = 1
 # climbing, Detect Traps lets anyone find traps, Feeblemind stops reading languages.
 THIEF_SKILLS = ("pick pockets", "open locks", "find/remove traps", "move silently", "hide in shadows",
                 "hear noise", "climb walls", "read languages")
-ROLLED_SKILLS = (0, 1, 2, 5, 6)  # the ones the game ever rolls (no script asks for the other three)
+# the ones shown: those the game ever rolls (no script asks for the other three), and move
+# silently, which the Templar's Ledger rolls when a pocket isn't picked (pickpocket.py)
+ROLLED_SKILLS = (0, 1, 2, 3, 5, 6)
 THIEF = 17  # class number
 # Tables (a byte per skill): base; then 8 per race (race 1 first); DEX below which each point
 # costs 5, above which each gives 5, above which each costs 3 again; the armour penalty
 THIEF_TABLE_SEG = 0x3FAA
 THIEF_BASE, THIEF_RACE, THIEF_DEX_LOW, THIEF_DEX_HIGH, THIEF_DEX_TOP, THIEF_ARMOUR = 0, 8, 0x90, 0x98, 0xA0, 0xA8
 THIEF_PER_LEVEL = 4
+# The equipment the thief routine checks for its penalty (anything at all in these slots)
+THIEF_PENALTY_SLOTS = tuple(EQUIP_SLOTS.index(s) for s in ("legs", "ammo", "right hand", "left hand"))
+# Effects that rule skills out (the chance can't come up), and ones that make a skill certain
+THIEF_BLOCKED = {8: (0, 1, 2, 3, 4, 6, 7), 17: tuple(range(8)), 11: tuple(range(8)), 3: tuple(range(8)),
+                 34: tuple(range(8)), 47: (1, 2, 3, 4, 5, 6, 7), 20: (0, 4), 25: (4,), 49: (0, 1, 6), 19: (7,)}
+THIEF_CERTAIN = {14: (2,), 23: (4,)}  # Detect Traps, Invisible
+STATUS_OKAY = 1
 
 
 # The spell's damage kinds (its flags word): the saving throw doubles the d20 against fire,
@@ -481,6 +496,40 @@ class GameData:
         if not name or struct.unpack_from("<h", rec, 0)[0] <= 0:
             return None
         return name
+
+    def living_npc(self, index: int) -> bool:
+        """A creature outside the party, named and alive."""
+        rec = self.creature(index)
+        return index >= PARTY_SIZE and len(rec) >= CREATURE_SIZE and bool(rec[CREATURE_NAME]) \
+            and struct.unpack_from("<h", rec, 0)[0] > 0
+
+    def talk_target_creature(self) -> Optional[int]:
+        """The creature index of the person being talked to (see talk_target), or None."""
+        combatant, = struct.unpack("<h", self.guest.read((self.load_seg + TALK_SEG) * 16 + TALK_TARGET, 2))
+        if combatant < PARTY_SIZE:
+            return None
+        index = self.combatant_creature(combatant)
+        if index is None or index < PARTY_SIZE:
+            return None
+        rec = self.creature(index)
+        if not rec[CREATURE_NAME] or struct.unpack_from("<h", rec, 0)[0] <= 0:
+            return None
+        return index
+
+    def money(self) -> int:
+        return struct.unpack("<I", self.guest.read((self.load_seg + MONEY_SEG) * 16 + MONEY, 4))[0]
+
+    def add_money(self, amount: int) -> None:
+        self.guest.write((self.load_seg + MONEY_SEG) * 16 + MONEY,
+                         struct.pack("<I", max(0, self.money() + amount) & 0xFFFFFFFF))
+
+    def region(self) -> int:
+        """The region the party is in (its RGNxx.GFF)."""
+        return self._word(REGION)
+
+    def item_type_record(self, item: bytes) -> bytes:
+        types = far_pointer(self.guest, self.ds, ITEM_TYPES_PTR)
+        return self.guest.read(types + struct.unpack_from("<H", item, ITEM_TYPE)[0] * ITEM_TYPE_SIZE, ITEM_TYPE_SIZE)
 
     def combatant_name(self, combatant: int) -> str:
         index = self.combatant_creature(combatant)
@@ -668,7 +717,7 @@ class GameData:
         out: List[Tuple[int, str]] = []
         ring = self.ring_plus(ti)
         if ring:
-            out.append((ring, f"Ring +{ring}"))
+            out.append((ring, "Ring of Protection"))
         if EFFECT_SAVE_PENALTY in mine:
             out.append((-1, EFFECT_NAMES[EFFECT_SAVE_PENALTY]))
         if EFFECT_SPIRIT_ARMOR in mine and save != PPD_SAVE:
@@ -725,7 +774,8 @@ class GameData:
 
     def item_name(self, name_index: int) -> str:
         if 0 <= name_index < 0x400:
-            rec = self.guest.read(far_pointer(self.guest, self.ds, ITEM_NAMES_PTR) + name_index * ITEM_NAME_SIZE, 22)
+            rec = self.guest.read(far_pointer(self.guest, self.ds, ITEM_NAMES_PTR) + name_index * ITEM_NAME_SIZE,
+                                  ITEM_NAME_SIZE)
             name = rec.split(b"\0", 1)[0].decode("cp437", "replace")
             if name:
                 return name
@@ -831,7 +881,7 @@ class GameData:
 
     def thief_skills(self, creature: int) -> List[Tuple[str, int]]:
         """[(skill, chance before armour and the situation), ...] for a thief, else []: the skills
-        the game ever rolls (move silently, hide in shadows and read languages never are)."""
+        the game ever rolls, and move silently (hide in shadows and read languages never are)."""
         out = []
         for skill in ROLLED_SKILLS:
             name = THIEF_SKILLS[skill]
@@ -841,6 +891,31 @@ class GameData:
             out.append((name, sum(n for _, n in parts)))
         return out
 
+    def thief_skills_now(self, creature: int) -> List[Tuple[str, int]]:
+        """[(skill, chance), ...] for the skills the game rolls, as they stand now: with the
+        equipment penalty, 0 for a skill an effect rules out (or when the thief isn't Okay), 100
+        for one an effect makes certain. Not the situation's bonus (a hard lock...). [] for
+        someone without thief levels."""
+        rec = self.creature(creature)
+        if len(rec) < CREATURE_SIZE:
+            return []
+        table = self.guest.read((self.load_seg + THIEF_TABLE_SEG) * 16 + THIEF_ARMOUR, 8)
+        penalty = any(item[ITEM_SLOT] in THIEF_PENALTY_SLOTS for _, item, _ in self._worn(creature))
+        ids = {e.id for e in self._mine(creature, self.effects())}
+        okay = rec[CREATURE_STATUS] == STATUS_OKAY
+        out = []
+        for skill in ROLLED_SKILLS:
+            parts = self.thief_skill_parts(creature, skill)
+            if parts is None:
+                return []
+            chance = sum(n for _, n in parts) - (table[skill] if penalty and len(table) == 8 else 0)
+            if any(skill in THIEF_CERTAIN.get(e, ()) for e in ids):
+                chance = 100
+            elif not okay or any(skill in THIEF_BLOCKED.get(e, ()) for e in ids):
+                chance = 0
+            out.append((THIEF_SKILLS[skill], max(0, min(255, chance))))
+        return out
+
     def item_label(self, item: bytes, typ: bytes) -> str:
         """"Metal Long Sword +1": an item's material (when it has one), name and plus."""
         material = typ[0x08] & 0x0F if len(typ) == ITEM_TYPE_SIZE else len(MATERIALS)
@@ -848,7 +923,7 @@ class GameData:
             material = len(MATERIALS)  # a ring, a body...: no material to name
         plus = struct.unpack("b", item[ITEM_PLUS:ITEM_PLUS + 1])[0]
         name = self.item_name(item[ITEM_NAME])
-        if plus and not name.endswith(f"{plus:+d}"):  # (the Ring +1's name has it)
+        if plus and not name.endswith(f"{plus:+d}"):  # (a name such as "Sling +2" has it)
             name += f" {plus:+d}"
         return (f"{MATERIALS[material]} " if material < len(MATERIALS) else "") + name
 
@@ -916,7 +991,7 @@ class GameData:
         for save in range(1, 6):
             parts: List[Tuple[int, str]] = []
             if ring:
-                parts.append((ring, f"Ring +{ring}"))
+                parts.append((ring, "Ring of Protection"))
             if EFFECT_SAVE_PENALTY in ids:
                 parts.append((-1, EFFECT_NAMES[EFFECT_SAVE_PENALTY]))
             if EFFECT_SPIRIT_ARMOR in ids and save != PPD_SAVE:

@@ -33,7 +33,7 @@ GOG_SIZE = 611408  # DSUN.EXE of the GOG release (1.1)
 
 VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR = range(0x60, 0x66)  # as in dsclog.asm
 VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT = 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7  # not 66h-6Fh: the game calls those itself, looking for drivers
-VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE = 0xF8, 0xF9, 0xFA, 0xFB
+VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM = 0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD
 
 
 class Patch(NamedTuple):
@@ -65,9 +65,10 @@ PATCHES = (
     # (DSCLOG then shows the companion's summary of the turn that ended, if it wants to)
     Patch("turn", 0x1C953, bytes.fromhex("83c404"), _interrupt(VEC_TURN, 3)),
     # the combat routine that call runs, once it has passed the turn on and before it plays a
-    # turn the computer runs (a monster's) whole: cmp word [bp-2],0 (DSCLOG checks the turn
-    # there too, so the turn before gets its own summary, then does the compare)
-    Patch("next", 0x5734F, bytes.fromhex("837efe00"), _interrupt(VEC_NEXT, 4)),
+    # turn the computer runs (a monster's) whole: cmp word [bp-2],0 / jne +5 (DSCLOG checks
+    # the turn there too, so the turn before gets its own summary, then goes where the compare
+    # and the jump would have; the jump is left as it is, but DSCLOG relies on it being there)
+    Patch("next", 0x5734F, bytes.fromhex("837efe007505"), _interrupt(VEC_NEXT, 4) + bytes.fromhex("7505")),
     # the USE (cast spells) screen, after it labels its LEVEL button: add sp,0Ch
     # (DSCLOG then draws the character's spell slots under the spells)
     Patch("use", 0x70FBB, bytes.fromhex("83c40c"), _interrupt(VEC_USE, 3)),
@@ -95,6 +96,14 @@ PATCHES = (
     # where a creature's turn in a fight starts: mov es:[bx+22Bh],ax, its movement for the turn
     # (DSCLOG does it, adding 1 move for boots when the companion's rule is on)
     Patch("move", 0x57566, bytes.fromhex("2689872b02"), _interrupt(VEC_MOVE, 5)),
+    # the dialogue window's key handling, where a key it doesn't know goes: jmp <ignore it>
+    # (DSCLOG takes P as trying to pick the pocket of the person talked to)
+    Patch("pick", 0x7D9FD, bytes.fromhex("e97003"), _interrupt(VEC_PICK, 3)),
+    # the routine that uses the item on the pointer on what's under it on the map, once it has
+    # found that: cmp si,-1 / jne +3 (DSCLOG has the Ledger see to its thieving tools there)
+    Patch("use_item", 0x73615, bytes.fromhex("83feff7503"), _interrupt(VEC_USE_ITEM, 5)),
+    # (not changed: DSCLOG reads the segment this "mov dx,<segment>" loads, the pointer's items')
+    Patch("use_item_seg", 0x73A14, bytes.fromhex("ba8003"), bytes.fromhex("ba8003")),
     # The data path is argv[0] cut after its last \ or :, kept at DS:4B81h. The
     # code that finds the cut becomes: path = ".\", then on to "mov byte [si],0"
     # which ends it. (Not an empty path: the save list needs a \ in it.)
