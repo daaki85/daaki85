@@ -281,6 +281,9 @@ class Viewer:
                         ).pack(anchor="w", pady=(4, 0))
         in_game = ttk.LabelFrame(options, text="In the game (when started with the dice log)", padding=6)
         in_game.pack(fill="x", pady=(8, 0))
+        # long lines wrap to the window (as with larger text) instead of running out of it
+        options.bind("<Configure>", lambda e: ttk.Style().configure(
+            "TCheckbutton", wraplength=max(200, e.width - 60)), add="+")
         # the game's own window, at the end of each turn in a fight: that turn's rolls
         self.popups = tk.BooleanVar(value=bool(settings.get("turn_popups", True)))
         ttk.Checkbutton(in_game, text="Show each turn's rolls in the game (click Continue to go on)",
@@ -302,8 +305,7 @@ class Viewer:
                         command=self._popups_changed).pack(anchor="w", pady=(4, 0))
         # the companion's own item: a Ring +1 on the Tied-up Prisoner in the arena (ring.py)
         self.arena_ring = tk.BooleanVar(value=bool(settings.get("arena_ring", True)))
-        ttk.Checkbutton(in_game, text="Put a Ring of Protection +1 (+1 AC, +1 on saves) on the arena's Tied-up Prisoner, "
-                        "found on his body once he's dead",
+        ttk.Checkbutton(in_game, text="A Ring of Protection +1 on the arena's Tied-up Prisoner (search his body)",
                         variable=self.arena_ring, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
         self.pickpockets = tk.BooleanVar(value=bool(settings.get("pickpockets", True)))
         ttk.Checkbutton(in_game, text="P in a conversation: the leader, a thief, tries the other's pockets "
