@@ -48,6 +48,7 @@ VEC_GRACE_EFFECT equ 0xEE  ; PROBE_GRACE_EFFECT
 VEC_GRACE_ABILITY equ 0xEF ; PROBE_GRACE_ABILITY
 VEC_NAMES_SIZE equ 0xEC    ; PROBE_NAMES_SIZE
 VEC_NAMES_FILL equ 0xEB    ; PROBE_NAMES_FILL
+VEC_STEALTH equ 0xEA       ; PROBE_STEALTH
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -76,7 +77,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvK'          ; +0
+sig      db 'DSCLOGvL'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -156,6 +157,9 @@ names_off  dw extra_names       ; +196 offset of EXTRA_NAMES: the names past the
                                 ;      of NAME_SIZE bytes), copied into the game's table each time it loads
 names_count dw NAMES_EXTRA      ; +198 how many
 names_ptr  dd 0                 ; +200 the game's name table, as last loaded with them (0: not yet)
+stealth    dw 0                 ; +204 the companion sets bit N when party member N is hidden and
+                                ;      unheard (RULE_STEALTH): their next attack is from behind
+stealth_used dw 0               ; +206 counted up each time one is (the bit cleared)
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -1858,6 +1862,7 @@ RULE_TWO_WEAPONS equ 4
 RULE_SPELL_SAVE equ 8           ; (the companion writes the game's save table for this one)
 RULE_NO_DOUBLE equ 16
 RULE_CATS_GRACE equ 32          ; (the companion also gives Flaming Sphere Strength's record and the name)
+RULE_STEALTH equ 64             ; (the companion rolls the hiding and moving silently, and sets STEALTH)
 FOOT       equ 13               ; the item's slot byte while worn on the feet
 THINGS_SEG equ 0x3972 - 0x4356  ; the things table's segment, relative to DS
 
@@ -2101,6 +2106,70 @@ extra_names:
         times NAME_SIZE - 14 db 0
         times (NAMES_EXTRA - 2) * NAME_SIZE db 0
 
+; STEALTH (RULE_STEALTH): a thief who starts a turn with no enemy next to them may hide in
+; shadows and move silently up to someone; the companion rolls both and, when both succeed,
+; sets the thief's bit in STEALTH. Their next attack then counts as one from behind, and so
+; as a backstab when the game's own conditions for one hold; the bit is cleared (attacking
+; gives the thief away).
+;
+; PROBE_STEALTH: INT VEC_STEALTH replaces "push word [bp-1Ah]" (3 bytes: INT + NOP) in the
+; routine that sets up an attack, straight after it has worked out whether the attacker (SI)
+; is behind the target (DI) and whether that makes a backstab: [BP-1Ah] from behind (+2 to
+; hit, the target's DEX and shield don't count), [BP-24h] a backstab (+2 more, and the damage
+; multiplied), [BP-20h] the THAC0 they lower; [BP-1Ch] set when the target is an object, which
+; has no back. Does the push (under the interrupt's return frame).
+probe_stealth:
+        pop word [cs:s_ip]
+        pop word [cs:s_cs]
+        pop word [cs:s_fl]
+        test byte [cs:rules], RULE_STEALTH
+        jz .push
+        cmp si, 3
+        ja .push
+        btr word [cs:stealth], si
+        jnc .push
+        inc word [cs:stealth_used]
+        cmp word [bp-0x1C], 0
+        jne .push
+        push ax
+        push bx
+        push es
+        cmp word [bp-0x1A], 0
+        jne .stab
+        mov word [bp-0x1A], 1
+        sub word [bp-0x20], 2
+.stab:  cmp word [bp-0x24], 0
+        jne .done
+        ; the game's own conditions: a thief (the sheet's word +12h, bit 400h), in melee
+        ; ([BP+0Eh] 1), with a weapon whose type weighs 40 or less (the type's word +4)
+        mov ax, [bp-0x12]
+        imul ax, ax, 0x47
+        les bx, [0x1661]
+        add bx, ax
+        test word [es:bx+0x12], 0x400
+        jz .done
+        cmp word [bp+0x0E], 1
+        jne .done
+        mov ax, [bp-4]
+        imul ax, ax, 0x14
+        les bx, [0x1669]
+        add bx, ax
+        cmp word [es:bx+4], 0x28
+        jg .done
+        sub word [bp-0x20], 2
+        mov word [bp-0x24], 1
+.done:  pop es
+        pop bx
+        pop ax
+.push:  push word [bp-0x1A]
+        push word [cs:s_fl]
+        push word [cs:s_cs]
+        push word [cs:s_ip]
+        iret
+s_ip    dw 0
+s_cs    dw 0
+s_fl    dw 0
+
 L_LINE_SIZE equ 24
 LOOK_SIZE   equ 80
 LOOK_FULL_SIZE equ 700
@@ -2151,7 +2220,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 26
+        mov cx, 27
 .check:
         lodsb
         mov ah, 35h
@@ -2245,6 +2314,9 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_NAMES_FILL
         mov dx, probe_names_fill
         int 21h
+        mov ax, 2500h + VEC_STEALTH
+        mov dx, probe_stealth
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -2260,8 +2332,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or EBh-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL
+busy    db 'DSCLOG: interrupts 60h-65h or EAh-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH
 
         align 16, db 0
 image_len equ $ - $$

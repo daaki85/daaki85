@@ -16,21 +16,22 @@ Everything game-specific here was taken from the GOG release of Shattered
 Lands (DSUN.EXE, 611408 bytes).
 """
 
+import random
 import re
 import struct
 import time
 from collections import Counter
 from dataclasses import dataclass
-from typing import Dict, List, NamedTuple, Optional, Tuple
+from typing import Callable, Dict, List, NamedTuple, Optional, Tuple
 
-from . import game, monsters, names, pickpocket, ring, tools
+from . import game, monsters, names, pickpocket, ring, stealth, tools
 from .game import (CONVENTIONAL_AND_UPPER, CREATURE_ABILITIES, CREATURE_SIDE, CREATURE_THAC0, EFFECT_NAMES,
                    EFFECT_RULES, MATERIAL_TO_HIT, MATERIALS, SAVE_NAMES, STR_DAMAGE, GameData)
 from .guestmem import GuestMemory
 from .textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGvK"
+HDR_SIG = b"DSCLOGvL"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
 MSG_SIZE = 900
@@ -316,6 +317,7 @@ class DiceLog:
         self._swap_seq = 0  # DSCLOG's text swaps seen (the arena ring's search, ring.py)
         self._tools_new: List[str] = []
         self.rules = 0  # RULE_HELMS | RULE_BOOTS: rule changes DSCLOG makes (set_rules)
+        self.stealth_roll: Callable[[], int] = lambda: random.randint(1, 100)  # hiding, moving silently
         self._ring_check = 0.0
         self._look_seq = 0
         self._turn_seq = 0
@@ -1080,11 +1082,25 @@ class DiceLog:
             return []
         self._turn = turn
         self._acted.add(turn)
+        self._set_stealth(False)  # the last turn's hiding is over
         now = self.game.game_time()
         if self._round_time is None or now is None or now - self._round_time > FIGHT_GAP:
             return []  # not in a fight
         name = self.game.combatant_name(turn)
-        return [f"{name}'s turn"] if name != "?" else []
+        out = [f"{name}'s turn"] if name != "?" else []
+        if self.rules & game.RULE_STEALTH and turn < game.PARTY_SIZE:
+            try:
+                lines, hidden = stealth.turn(self.game, turn, self.stealth_roll)
+            except (struct.error, IndexError, ValueError):
+                lines, hidden = [], False
+            out += lines
+            self._set_stealth(hidden, turn)
+        return out
+
+    def _set_stealth(self, hidden: bool, member: int = 0) -> None:
+        """Have DSCLOG make this party member's next attack one from behind (or no one's)."""
+        if self.tsr_hdr is not None:
+            self.guest.write(self.tsr_hdr + stealth.TSR_STEALTH, struct.pack("<H", 1 << member if hidden else 0))
 
     def round_status(self, acted_creatures: frozenset = frozenset()) -> Optional[dict]:
         """The round in progress, for keeping its order in view: {"round", "now": (name, score),

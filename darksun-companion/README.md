@@ -48,8 +48,8 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   Prisoner's body in the arena, an item of the Ledger's own (see [The Ring +1](#the-ring-1)), and
   optional rule changes: helms give AC 1, boots a move more in a fight, AD&D's
   two-weapon penalties, spells saved against with the spell save, and DEX
-  rather than a doubled d20 on saves against fire, cold and electricity, and a
-  new spell, Cat's Grace (see
+  rather than a doubled d20 on saves against fire, cold and electricity, a
+  new spell, Cat's Grace, and thieves hiding in shadows to backstab (see
   [Rule changes](#rule-changes)).
 - **Picking pockets:** a thief can try anyone's pockets, with the Thieves'
   Tools every thief now carries or with P in a conversation, a move silently
@@ -439,7 +439,9 @@ has a script command that lets each member try in turn, but no script uses it.)
 
 **Move silently, hide in shadows and read languages are never rolled** anywhere
 in the game, so they make no difference; nor does the equipment penalty on
-them. The scripts also make 3 ability checks (a d20 under the ability): CHA
+them. (The Ledger rolls move silently when a pocket isn't picked, see
+[Picking pockets](#picking-pockets), and hide in shadows and move silently in
+fights with the [stealth rule](#rule-changes).) The scripts also make 3 ability checks (a d20 under the ability): CHA
 twice and STR once.
 
 `python -m dscompanion checks` lists them all with the script's text around
@@ -772,7 +774,7 @@ the helper shows the result instead of the game's "nothing happens".
 
 ### Rule changes
 
-Six changes to the game's rules, each with its own box under **Rule changes**
+Seven changes to the game's rules, each with its own box under **Rule changes**
 on the Options tab (all on by default; they take effect in games started with
 the dice log, while the Ledger runs or with **Play Dark Sun (in-game rolls)**,
 which uses the Options as last set). Untick one and the game's own rule is back
@@ -872,6 +874,44 @@ abilities from its own scores and its effects, adds that to DEX the way
 Strength's adds to STR (`INT EFh`). When the spell runs out, the game works
 the abilities out again without it. A game saved while Cat's Grace lasts and
 loaded without the dice log simply ignores the effect it doesn't know.
+
+**Hiding in shadows to backstab.** The game never rolls hide in shadows, and a
+thief only backstabs a target that has turned to face someone else. With
+**Thieves hide in shadows and move silently to backstab** ticked, a thief
+whose turn comes in a fight with no enemy in any of the eight squares around
+them tries to hide in shadows; if they do, they try to move silently up to
+someone; and if both succeed, their next attack that turn counts as one from
+behind: +2 to hit, the target's DEX and shield don't count, and with a weapon
+that can backstab it is a backstab, the damage multiplied as usual. The
+attack gives the thief away, and so does the turn ending without one. An enemy
+next to the thief when the turn comes means no hiding at all: get clear
+first.
+
+```
+Cilla's turn
+Cilla hides in shadows: d100 = 21, needs 27 or less (54, halved in daylight) -> hidden
+  Cilla moves silently: d100 = 30, needs 54 or less -> unheard: their next attack this turn is from behind (a backstab with a weapon that can)
+Cilla attacks Slig BACKSTAB with Bone Long Sword (1d8): d20 = 11, needs 10+ (55%), hits AC 2, target AC 3 -> HIT
+    THAC0 19, +2 from behind, +2 backstab, +3 STR, -1 bone = 13
+  Cilla hits Slig for 16: (1d8 = [1] -1 weapon (raised to the minimum of 1) +7 STR 19) x2 backstab
+```
+
+The chance to hide is **halved in daylight**. Which maps are under the open
+sky goes by the game's regions: open desert and rock, the villages' open
+ground and the arena are; the slave pens, the sewers, the lava caverns and
+the other underground or roofed places aren't. Three maps have both, buildings
+with floors of their own standing on open ground: there it goes by the floor
+under the thief (from the game's map of the region in memory), so a thief in
+a building is out of the sun and one in a roofless ruin isn't. The chances
+are the thief's own as they stand (level, race, DEX, the equipment penalty,
+and effects: Invisibility makes hiding certain, Fire Shield and Mirror Image
+rule it out).
+
+How: the Ledger rolls both when the turn passes to the thief and tells the
+helper, which, where the game has just worked out whether an attack is from
+behind and a backstab (`INT EAh`), makes the hidden thief's next one so, by
+the game's own conditions for a backstab (a thief, in melee, a weapon of
+weight 40 or less).
 
 ### No critical hits
 
@@ -1155,7 +1195,8 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    movement `INT FBh` (for boots), a key the conversation window doesn't know
    `INT FCh` and an item used on the map `INT FDh` (for
    [picking pockets](#picking-pockets)), the two-weapon adjustment `INT FEh`
-   and the doubling of a save's d20 `INT F0h`, Cat's Grace `INT EDh`-`INT EFh` (for [rule changes](#rule-changes)), and
+   and the doubling of a save's d20 `INT F0h`, Cat's Grace `INT EDh`-`INT EFh` and a hidden thief's attack `INT EAh` (for
+   [rule changes](#rule-changes)), and
    where the game makes room for its name table and reads it in `INT ECh` and
    `INT EBh` (for [new item names](#new-item-names)), and
    the copy looks for its data files in the current
@@ -1432,6 +1473,6 @@ After changing `dos/dsclog.asm`, rebuild the helper with
 nasm -f bin -o dos/DSCLOG.EXE dos/dsclog.asm
 ```
 
-The header's signature (`DSCLOGvK` now) goes up whenever the helper and the
+The header's signature (`DSCLOGvL` now) goes up whenever the helper and the
 Ledger must change together (`HDR_SIG` in `dscompanion/dicelog.py`), so a
 Ledger never talks to an older helper.

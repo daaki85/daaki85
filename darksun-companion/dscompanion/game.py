@@ -76,10 +76,11 @@ RING_TYPE = 102
 # AD&D's two-weapon penalties; spells saved against with the spell save; no doubled d20
 RULE_HELMS, RULE_BOOTS, RULE_TWO_WEAPONS, RULE_SPELL_SAVE, RULE_NO_DOUBLE = 1, 2, 4, 8, 16
 RULE_CATS_GRACE = 32  # Cat's Grace in Flaming Sphere's place
+RULE_STEALTH = 64  # a thief hiding in shadows and moving silently backstabs (stealth.py)
 # the Options' setting for each, all on unless unticked
 RULE_SETTINGS = (("helm_ac", RULE_HELMS), ("boots_move", RULE_BOOTS), ("two_weapons", RULE_TWO_WEAPONS),
                  ("spell_save", RULE_SPELL_SAVE), ("no_doubled_save", RULE_NO_DOUBLE),
-                 ("cats_grace", RULE_CATS_GRACE))
+                 ("cats_grace", RULE_CATS_GRACE), ("stealth", RULE_STEALTH))
 # Cat's Grace (RULE_CATS_GRACE): Flaming Sphere (wizard level 2) gets Strength's record and the
 # name, and DSCLOG sends it to Strength's code, which rolls 1d6 into an effect of its own (54,
 # a number the game leaves unused) that adds to DEX, at most 24, as Strength's adds to STR.
@@ -986,11 +987,11 @@ class GameData:
             out.append((name, sum(n for _, n in parts)))
         return out
 
-    def thief_skills_now(self, creature: int) -> List[Tuple[str, int]]:
+    def thief_skills_now(self, creature: int, skills: Tuple[int, ...] = ROLLED_SKILLS) -> List[Tuple[str, int]]:
         """[(skill, chance), ...] for the skills the game rolls, as they stand now: with the
         equipment penalty, 0 for a skill an effect rules out (or when the thief isn't Okay), 100
         for one an effect makes certain. Not the situation's bonus (a hard lock...). [] for
-        someone without thief levels."""
+        someone without thief levels. `skills`: which (numbers in THIEF_SKILLS)."""
         rec = self.creature(creature)
         if len(rec) < CREATURE_SIZE:
             return []
@@ -999,7 +1000,7 @@ class GameData:
         ids = {e.id for e in self._mine(creature, self.effects())}
         okay = rec[CREATURE_STATUS] == STATUS_OKAY
         out = []
-        for skill in ROLLED_SKILLS:
+        for skill in skills:
             parts = self.thief_skill_parts(creature, skill)
             if parts is None:
                 return []

@@ -148,7 +148,8 @@ class SettingsTests(unittest.TestCase):
         log = dag()
         log.use_settings({"helm_ac": False, "arena_ring": False, "no_doubled_save": False})
         self.assertEqual((log.rules, log.arena_ring, log.monster_info),
-                         (game.RULE_BOOTS | game.RULE_TWO_WEAPONS | game.RULE_SPELL_SAVE | game.RULE_CATS_GRACE,
+                         (game.RULE_BOOTS | game.RULE_TWO_WEAPONS | game.RULE_SPELL_SAVE | game.RULE_CATS_GRACE
+                          | game.RULE_STEALTH,
                           False, True))
 
 

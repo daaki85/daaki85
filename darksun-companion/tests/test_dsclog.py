@@ -16,7 +16,7 @@ from dscompanion.dicelog import FILTERS, HDR_SIG, Entry
 from dscompanion.textlog import TextBuffer
 from dscompanion.gamepatch import (VEC_AC, VEC_DOUBLE, VEC_MSG, VEC_NEXT, VEC_RAND, VEC_RING_AC, VEC_USE_ITEM,
                                   VEC_RING_SAVE, VEC_SAVE, VEC_TEXT, VEC_TWO, VEC_GRACE_CAST, VEC_GRACE_EFFECT,
-                                  VEC_GRACE_ABILITY, VEC_NAMES_FILL, VEC_NAMES_SIZE)
+                                  VEC_GRACE_ABILITY, VEC_NAMES_FILL, VEC_NAMES_SIZE, VEC_STEALTH)
 
 try:
     from unicorn import Uc, UC_ARCH_X86, UC_HOOK_INTR, UC_HOOK_MEM_WRITE, UC_MODE_16
@@ -593,6 +593,80 @@ class NamesTests(unittest.TestCase):
         self.assertEqual(bytes(self.mu.mem_read(self.NAMES_SEG * 16 + 4 + 0x142 * 25, 4)), bytes(4))
         self.assertEqual(bytes(self.mu.mem_read(self.hdr + 200, 4)), bytes(4))
         self.assertEqual(self.mu.reg_read(r.UC_X86_REG_AX), 1)
+
+
+@unittest.skipIf(Uc is None, "unicorn not installed")
+class StealthTests(unittest.TestCase):
+    """A hidden thief's attack (RULE_STEALTH, 64): from behind, a backstab when it can be."""
+    SHEETS, TYPES = 0x8000, 0x9000
+
+    def setUp(self):
+        self.image = image = load_image()
+        self.mu = mu = Uc(UC_ARCH_X86, UC_MODE_16)
+        mu.mem_map(0, 0x100000)
+        mu.mem_write(TSR * 16, image)
+        self.hdr = TSR * 16 + image.find(HDR_SIG)
+        at = image.find(bytes.fromhex("2ef606") + struct.pack("<H", 170) + bytes([64]))
+        self.assertGreater(at, 0)
+        mu.mem_write(VEC_STEALTH * 4, struct.pack("<HH", at - 15, TSR))  # (after its three pops)
+        mu.hook_add(UC_HOOK_INTR, real_mode_interrupt)
+        mu.mem_write(GAME_DS * 16 + 0x1661, struct.pack("<HH", 0, self.SHEETS))
+        mu.mem_write(GAME_DS * 16 + 0x1669, struct.pack("<HH", 0, self.TYPES))
+        mu.mem_write(TSR * 16 + 170, struct.pack("<H", 64))
+
+    def word(self, offset, value=None):
+        at = SS * 16 + (BP + offset) % 0x10000
+        if value is not None:
+            self.mu.mem_write(at, struct.pack("<h", value))
+        return struct.unpack("<h", self.mu.mem_read(at, 2))[0]
+
+    def attack(self, attacker=2, hidden=0b0100, behind=0, stab=0, thac0=15, thief=True, melee=1,
+               weight=20, target_object=0):
+        """INT VEC_STEALTH with SI the attacker; its sheet 5 ([BP-12h]) a thief or not, its
+        weapon of type 7 ([BP-4]): ([BP-1Ah], [BP-24h], [BP-20h], what was pushed, STEALTH,
+        STEALTH_USED)."""
+        mu = self.mu
+        mu.mem_write(self.hdr + 204, struct.pack("<HH", hidden, 0))
+        mu.mem_write(self.SHEETS * 16 + 5 * 0x47 + 0x12, struct.pack("<H", 0x400 if thief else 0))
+        mu.mem_write(self.TYPES * 16 + 7 * 0x14 + 4, struct.pack("<H", weight))
+        for offset, value in ((-0x12, 5), (-4, 7), (-0x1A, behind), (-0x24, stab), (-0x20, thac0),
+                              (-0x1C, target_object), (0x0E, melee)):
+            self.word(offset, value)
+        mu.mem_write(CALLER * 16 + 0x600, bytes((0xCD, VEC_STEALTH, 0x90)))
+        for name, value in dict(cs=CALLER, ds=GAME_DS, ss=SS, esp=0x800, ebp=BP, eflags=IF | 2, esi=attacker,
+                                eax=0x1111, ebx=0x2222, es=0x6666).items():
+            mu.reg_write(getattr(r, "UC_X86_REG_" + name.upper()), value)
+        mu.emu_start(CALLER * 16 + 0x600, CALLER * 16 + 0x602)
+        self.assertEqual(mu.reg_read(r.UC_X86_REG_SP), 0x7FE)
+        self.assertEqual([mu.reg_read(x) for x in (r.UC_X86_REG_AX, r.UC_X86_REG_BX, r.UC_X86_REG_ES)],
+                         [0x1111, 0x2222, 0x6666])
+        pushed, = struct.unpack("<h", mu.mem_read(SS * 16 + 0x7FE, 2))
+        stealth, used = struct.unpack("<HH", mu.mem_read(self.hdr + 204, 4))
+        return self.word(-0x1A), self.word(-0x24), self.word(-0x20), pushed, stealth, used
+
+    def test_backstab(self):
+        self.assertEqual(self.attack(), (1, 1, 11, 1, 0, 1))
+
+    def test_behind_already(self):
+        """The game had it from behind: only the backstab's +2 more."""
+        self.assertEqual(self.attack(behind=1, thac0=13), (1, 1, 11, 1, 0, 1))
+
+    def test_no_backstab(self):
+        """From behind only: not a thief, a missile, a weapon too heavy."""
+        for kw in (dict(thief=False), dict(melee=2), dict(weight=41)):
+            self.assertEqual(self.attack(**kw), (1, 0, 13, 1, 0, 1), kw)
+
+    def test_not_hidden(self):
+        self.assertEqual(self.attack(hidden=0b1011), (0, 0, 15, 0, 0b1011, 0))
+        self.assertEqual(self.attack(attacker=0x29, hidden=0b1111), (0, 0, 15, 0, 0b1111, 0))
+
+    def test_an_object(self):
+        """Attacking an object (no back): nothing, but the hiding is over."""
+        self.assertEqual(self.attack(target_object=1), (0, 0, 15, 0, 0, 1))
+
+    def test_rule_off(self):
+        self.mu.mem_write(TSR * 16 + 170, struct.pack("<H", 0))
+        self.assertEqual(self.attack(), (0, 0, 15, 0, 0b0100, 0))
 
 
 if __name__ == "__main__":

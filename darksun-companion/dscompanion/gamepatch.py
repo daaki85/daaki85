@@ -37,6 +37,7 @@ VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM = 0xF8,
 VEC_TWO, VEC_DOUBLE = 0xFE, 0xF0
 VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY = 0xED, 0xEE, 0xEF
 VEC_NAMES_SIZE, VEC_NAMES_FILL = 0xEC, 0xEB
+VEC_STEALTH = 0xEA
 
 
 class Patch(NamedTuple):
@@ -131,6 +132,8 @@ PATCHES = (
     # ... and the "add sp,0Ch" after reading it in (DSCLOG copies its names after the game's)
     Patch("names_fill_start", 0x566AD, bytes.fromhex("83c40c"), _interrupt(VEC_NAMES_FILL, 3)),
     Patch("names_fill_load", 0x6A5D6, bytes.fromhex("83c40c"), _interrupt(VEC_NAMES_FILL, 3)),
+    # where an attack is worked out from behind / a backstab: a hidden thief's is (RULE_STEALTH)
+    Patch("stealth", 0x58353, bytes.fromhex("ff76e6"), _interrupt(VEC_STEALTH, 3)),
     # (not changed: DSCLOG reads the segment this "mov dx,<segment>" loads, the pointer's items')
     Patch("use_item_seg", 0x73A14, bytes.fromhex("ba8003"), bytes.fromhex("ba8003")),
     # The data path is argv[0] cut after its last \ or :, kept at DS:4B81h. The

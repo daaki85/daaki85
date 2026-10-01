@@ -23,7 +23,8 @@ game itself, in the game's own lettering and windows:
   - two-weapon penalties;
   - spells saved against with the spell save;
   - DEX on saves against fire, cold and electricity instead of a doubled d20;
-  - a new spell, Cat's Grace.
+  - a new spell, Cat's Grace;
+  - thieves hiding in shadows and moving silently to backstab.
 - **New items and thief play:** a Ring of Protection +1 to find in the arena;
   Thieves' Tools for every thief; picking anyone's pockets.
 
@@ -63,6 +64,13 @@ launcher runs a patched copy of the game that it keeps in its own folder.
   - Untick the rule and Flaming Sphere is back.
 - **REAC and DEF on the inventory screen.** REAC (the DEX reaction adjustment)
   sits beside SP; DEF (the defensive adjustment) sits on the AC line.
+- **Rule change: hiding in shadows to backstab.** A thief whose turn comes with
+  no enemy beside them rolls hide in shadows (half the chance in daylight),
+  then move silently. If both succeed, their next attack that turn is from
+  behind, and a backstab with a weapon that can.
+  - Daylight goes by the map: outdoors, or on maps with buildings, by the
+    floor under the thief.
+  - The game itself never rolls hide in shadows.
 - **32 new entries in the game's item name table**, for the Ledger's own items.
   The Ring of Protection and Thieves' Tools no longer borrow the game's entries:
   the game's "Rest icon" label is back.
