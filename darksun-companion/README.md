@@ -48,11 +48,16 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   Prisoner's body in the arena, an item of the Ledger's own (see [The Ring +1](#the-ring-1)), and
   two optional rule changes: helms give AC 1, boots a move more in a fight (see
   [Rule changes](#rule-changes-helms-and-boots)).
+- **Picking pockets:** a thief can try anyone's pockets, with the Thieves'
+  Tools every thief now carries or with P in a conversation, a move silently
+  roll deciding whether a fumble is noticed (see
+  [Picking pockets](#picking-pockets)).
 
 Nothing in the game folder or your save files is changed, except that a game
-you save after the Ledger has put the Ring +1 in the arena keeps the ring (untick
-its box to go without). Apart from that ring and what it hands the dice log's
-helper, the Ledger only reads the game's memory. For the dice log, the launcher
+you save keeps what the Ledger has handed out: the Ring +1, a thief's Thieves'
+Tools, and whatever a thief has lifted (untick their boxes to go without).
+Apart from those and what it hands the dice log's helper, the Ledger only
+reads the game's memory. For the dice log, the launcher
 runs a patched copy of the game that it keeps in its own folder (see
 [How the dice log works](#how-the-dice-log-works)).
 
@@ -64,7 +69,7 @@ the arena, all sampled from the game (no game artwork is copied).
 
 ![The Dialogue tab](docs/dialogue.png)
 
-![The inventory screen's panel in the game, with THAC0, saves and thief skills added](docs/inventory.png)
+![The inventory screen's panel in the game, with THAC0, saves and Cilla's thief skills added, move silently among them](docs/inventory.png)
 
 ## Requirements
 
@@ -137,8 +142,8 @@ say the game was started without it.
 **Just the game, with the in-game additions, no Ledger window:** double-click
 **`Play Dark Sun (in-game rolls).bat`**. The dice log runs unseen and stops
 when you close DOSBox. It uses the switches on the Ledger's Options tab as you
-last set them (each turn's rolls, monster descriptions, the Ring +1, the rule
-changes). If anything goes wrong it says so in a message box and
+last set them (each turn's rolls, monster descriptions, the Ring +1, picking
+pockets, the rule changes). If anything goes wrong it says so in a message box and
 writes the details to `play.log`.
 
 **Checking a save file (no game needed):** drag a `SAVEnn.SAV` file from the
@@ -727,6 +732,11 @@ Daaki picks Kurzak's pocket: d100 = 71, needs 63 or less -> failed
   Daaki fumbles Kurzak's pockets, but slips away unnoticed.
 ```
 
+The thief's card on the Ledger's Characters tab shows the chances as they
+stand, move silently among them, and the tools they carry:
+
+![Cilla's card on the Characters tab: Thieves' Tools carried, and her thief skills now, move silently among them](docs/thief-card.png)
+
 How: the patched game's conversation window sends a key it doesn't know to
 the helper (`INT FCh`), which has the Ledger roll and move the item, then adds
 the result to the window's text; and the routine that uses the item on the
@@ -1134,8 +1144,11 @@ The party pane has two tabs:
 The other side has the **Dice log**, **Dialogue**, **Spells** and **Memory
 tools** tabs, and **Options** (Alt+O) with the Ledger's switches: what the
 dice log shows (unlabelled rolls, details), what it adds to the game (each
-turn's rolls, monster descriptions, the Ring +1) and the rule changes (helms,
+turn's rolls, monster descriptions, the Ring +1, picking pockets, and a button
+that gives each thief a set of Thieves' Tools now) and the rule changes (helms,
 boots). The switches for the game are remembered for next time.
+
+![The Options tab](docs/options.png)
 
 **Spell slots.** `Priest spells left: 1st 5/5, 2nd 3/3, 3rd 2/2, 4th 1/1`
 means five first-level priest spells can still be cast out of five, and so
