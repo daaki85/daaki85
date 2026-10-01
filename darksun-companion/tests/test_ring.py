@@ -135,6 +135,11 @@ class WornTests(unittest.TestCase):
         self.log.guest.mem[ITEMS + 70 * game.ITEM_SIZE + game.ITEM_SLOT] = 0xFF
         self.assertEqual(self.log.game.ring_plus(0), 0)
 
+    def test_either_hand(self):
+        """The inventory screen has a ring on each hand: slots 4 and 11."""
+        self.log.guest.mem[ITEMS + 70 * game.ITEM_SIZE + game.ITEM_SLOT] = 11
+        self.assertEqual(self.log.game.ring_plus(0), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

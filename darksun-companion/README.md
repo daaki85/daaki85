@@ -44,15 +44,20 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   these additions and the Ledger's window start together.
 - **Spells:** a tab listing what every spell and psionic power really does,
   from the game's own records (see [the Spells tab](#the-spells-tab)).
-- **A Ring +1** (+1 AC, +1 on saving throws) to loot from the Tied-up
+- **A Ring +1** (+1 AC, +1 on saving throws) found by searching the Tied-up
   Prisoner's body in the arena, an item of the Ledger's own (see [The Ring +1](#the-ring-1)), and
   two optional rule changes: helms give AC 1, boots a move more in a fight (see
   [Rule changes](#rule-changes-helms-and-boots)).
+- **Picking pockets:** a thief can try anyone's pockets, with the Thieves'
+  Tools every thief now carries or with P in a conversation, a move silently
+  roll deciding whether a fumble is noticed (see
+  [Picking pockets](#picking-pockets)).
 
 Nothing in the game folder or your save files is changed, except that a game
-you save after the Ledger has put the Ring +1 in the arena keeps the ring (untick
-its box to go without). Apart from that ring and what it hands the dice log's
-helper, the Ledger only reads the game's memory. For the dice log, the launcher
+you save keeps what the Ledger has handed out: the Ring +1, a thief's Thieves'
+Tools, and whatever a thief has lifted (untick their boxes to go without).
+Apart from those and what it hands the dice log's helper, the Ledger only
+reads the game's memory. For the dice log, the launcher
 runs a patched copy of the game that it keeps in its own folder (see
 [How the dice log works](#how-the-dice-log-works)).
 
@@ -64,7 +69,7 @@ the arena, all sampled from the game (no game artwork is copied).
 
 ![The Dialogue tab](docs/dialogue.png)
 
-![The inventory screen's panel in the game, with THAC0, saves and thief skills added](docs/inventory.png)
+![The inventory screen's panel in the game, with THAC0, saves and Cilla's thief skills added, move silently among them](docs/inventory.png)
 
 ## Requirements
 
@@ -137,8 +142,8 @@ say the game was started without it.
 **Just the game, with the in-game additions, no Ledger window:** double-click
 **`Play Dark Sun (in-game rolls).bat`**. The dice log runs unseen and stops
 when you close DOSBox. It uses the switches on the Ledger's Options tab as you
-last set them (each turn's rolls, monster descriptions, the Ring +1, the rule
-changes). If anything goes wrong it says so in a message box and
+last set them (each turn's rolls, monster descriptions, the Ring +1, picking
+pockets, the rule changes). If anything goes wrong it says so in a message box and
 writes the details to `play.log`.
 
 **Checking a save file (no game needed):** drag a `SAVEnn.SAV` file from the
@@ -629,8 +634,8 @@ are no rings or cloaks of protection, which is why the Ledger adds
 ### The Ring +1
 
 A ring of protection the game never had: **+1 AC and +1 on every saving
-throw** for whoever wears it, called a Ring of Protection. With **Put a Ring of
-Protection +1 (+1 AC, +1 on saves) on the arena's Tied-up Prisoner** ticked on
+throw** for whoever wears it, called a Ring of Protection. With **A Ring of
+Protection +1 on the arena's Tied-up Prisoner (search his body)** ticked on
 the Options tab (it is by default), it is on the Tied-up Prisoner, the bound
 man beside the vulture in the arena: free him (he dies as he falls from his
 bonds; killing him where he hangs does too), then look at his body
@@ -643,7 +648,7 @@ Searching the body, you find a ring sewn into his loincloth: a Ring of Protectio
 ```
 
 and puts the ring in the leader's backpack (or, if that's full, the first
-backpack with room); the log says whose. Wear it on a finger from the
+backpack with room); the log says whose. Wear it on either hand's finger from the
 inventory screen. The game's names are at most 15 letters long, and
 longer ones run out of the Look box, so in the game it is **RING/PROTECTION**
 on the inventory screen and **Ring/Protection+1** in the box Look opens on it
@@ -682,15 +687,17 @@ The game has one pocket to pick, in the Trustee's conversation (his key). With
 can try anyone's, two ways, with the thief as the party's leader (keys 1-4):
 
 - **Thieving tools.** Every thief starts a new game with a set in their
-  backpack (the log says so); a thief who joins later, or one in a game
+  backpack, in its first free cell (the log says so); a thief who joins later, or one in a game
   started before this version, gets a set once too. **Give thieving tools
   now** on the Options tab gives a set at once to each thief in the party
-  without one (lost or sold ones included). They are called **Thieves'
+  without one (lost or sold ones included). Moving the tools about the inventory
+  screen doesn't count as being without: no second set for that. They are called **Thieves'
   Tools**: the game's name table has no free entry, so the name goes over
   "Rest icon", an internal label of the game's that no item has (without the
   Ledger running, that is what they're called). Tools an earlier version gave,
-  called "pick", are renamed. They look like a leather satchel (the game's own
-  picture), and earlier sets that looked like a key change to it too. On the inventory screen, pick the tools up, go back to the
+  called "pick", are renamed. They look like a satchel (the game's own
+  picture), and earlier sets that looked like a key change to it too. On the
+  inventory screen, pick the tools up, go back to the
   game with them on the pointer, and click someone in sight: the result comes
   up in the game's message window, and the tools stay on the pointer for the
   next one. (Clicking open ground drops them, as with anything carried.)
@@ -724,6 +731,11 @@ Daaki picks Kurzak's pocket: d100 = 71, needs 63 or less -> failed
   Daaki moves silently to get away: d100 = 12, needs 55 or less -> success
   Daaki fumbles Kurzak's pockets, but slips away unnoticed.
 ```
+
+The thief's card on the Ledger's Characters tab shows the chances as they
+stand, move silently among them, and the tools they carry:
+
+![Cilla's card on the Characters tab: Thieves' Tools carried, and her thief skills now, move silently among them](docs/thief-card.png)
 
 How: the patched game's conversation window sends a key it doesn't know to
 the helper (`INT FCh`), which has the Ledger roll and move the item, then adds
@@ -1086,6 +1098,7 @@ WCAG 2.0 level AA:
   well as highlighted.
 - **Text size:** **A+** / **A-** at the top, or **Ctrl +**, **Ctrl -** and
   **Ctrl 0** (back to normal), enlarge or shrink all text up to 2.5 times.
+  The Options tab's longer lines wrap to the window rather than run out of it.
 - **Keyboard:** Tab and Shift+Tab move between controls, and the one with the
   keyboard focus is outlined in yellow. **Ctrl+Tab** switches tabs, as do
   **Alt+L** (Dice log), **Alt+I** (Dialogue), **Alt+S** (Spells), **Alt+M**
@@ -1131,8 +1144,11 @@ The party pane has two tabs:
 The other side has the **Dice log**, **Dialogue**, **Spells** and **Memory
 tools** tabs, and **Options** (Alt+O) with the Ledger's switches: what the
 dice log shows (unlabelled rolls, details), what it adds to the game (each
-turn's rolls, monster descriptions, the Ring +1) and the rule changes (helms,
+turn's rolls, monster descriptions, the Ring +1, picking pockets, and a button
+that gives each thief a set of Thieves' Tools now) and the rule changes (helms,
 boots). The switches for the game are remembered for next time.
+
+![The Options tab](docs/options.png)
 
 **Spell slots.** `Priest spells left: 1st 5/5, 2nd 3/3, 3rd 2/2, 4th 1/1`
 means five first-level priest spells can still be cast out of five, and so
@@ -1241,7 +1257,7 @@ types 20-byte ones (`DS:0x1669`, 115 of them, from GPLDATA.GFF):
 | item | `+0x04` | the next item in the list (9999: the end) |
 | item | `+0x08` | a container's contents (an object number), as in a Dead Body |
 | item | `+0x0a` | its type |
-| item | `+0x11` | where it's worn: 0-12 the game's slots (arm, ammo, missile, right hand, finger, waist, legs, head, neck, chest, left hand, cloak, foot), 13 and up a backpack cell |
+| item | `+0x11` | where it's worn: 0-13 the game's slots (arm, ammo, missile, right hand, finger, waist, legs, head, neck, chest, left hand, finger, cloak, foot), 14-25 a backpack cell |
 | item | `+0x12` | its name (an entry of the game's name table, 25 bytes each) |
 | item | `+0x14` | its plus |
 | type | `+0x04` | weight, in tenths of a pound |
