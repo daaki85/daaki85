@@ -82,7 +82,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvP'          ; +0
+sig      db 'DSCLOGvQ'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -626,6 +626,19 @@ probe_char:
         inc cx
         cmp cx, 3
         jb .cls
+        ; no thief levels: a ranger's move silently and hide in shadows (the companion's
+        ; stealth rule), in the thief's places, when the companion sends them
+        mov bx, [cs:c_who]
+        call stats_for
+        jc .react
+        cmp byte [cs:bx + 17], STATS_RANGER
+        jne .react
+        mov ax, [cs:bx + 18 + 3]
+        mov [cs:c_vals], ax
+        mov bx, c_cells_thief + 3 * 8
+        mov cx, 2
+        mov byte [cs:c_signed], 0
+        call c_cells
         jmp .react
 .thief: mov al, [es:si + bx + 3]  ; the thief level (levels follow the classes)
         call c_thief
@@ -1558,8 +1571,10 @@ probe_unlook:
 ; STATS: STATS_SIZE bytes for each party member, kept by the companion: +0 1 if in use, +1 THAC0
 ; with the main weapon (signed), +2 the five saves as the d20 needed now, +8 three words: the
 ; item numbers of the weapons ready, +14 three bytes: the THAC0 with each (signed), +17 1 for a
-; thief, +18 the five thief skills the game rolls, as they stand (equipment and effects too)
+; thief (2 for a ranger: of the six, only move silently and hide in shadows count), +18 the six
+; thief skills the panel shows, as they stand (equipment and effects too)
 STATS_SIZE  equ 24
+STATS_RANGER equ 2
 STATS_FRESH equ 91              ; timer ticks (5 seconds)
 STATS_WAIT  equ 9               ; ... (half a second): the longest a screen waits for fresh STATS
 stats   times 4 * STATS_SIZE db 0

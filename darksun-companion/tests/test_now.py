@@ -133,6 +133,17 @@ class ThiefTests(unittest.TestCase):
         self.log.guest.mem[ITEMS + 6 * game.ITEM_SIZE + game.ITEM_SLOT] = 0xFF
         self.assertEqual(self.now(), [16, 39, 16, 16, 16, 16])
 
+    def test_panel_shows_a_rangers(self):
+        """A ranger (10th, no thief levels) with the stealth rule: move silently and hide in
+        shadows in a thief's places (AD&D's 78 and 63), the rest 0; nothing without the rule."""
+        self.log.guest.mem[SHEETS + game.SHEET_CLASSES + 1] = 13
+        self.log.guest.mem[SHEETS + game.SHEET_LEVELS + 1] = 10
+        self.log.rules = game.RULE_STEALTH
+        entry = self.log.stats_entry(0)
+        self.assertEqual(list(entry[17:24]), [dicelog.STATS_RANGER, 0, 0, 0, 78, 63, 0])
+        self.log.rules = 0
+        self.assertEqual(list(self.log.stats_entry(0)[17:24]), [0] * 7)
+
     def test_penalty_slots_from_the_game(self):
         """The slots come from the game's list in memory: the game's own (the sword in Dag's
         right hand counts) or the dice log's copy (empty: nothing does)."""

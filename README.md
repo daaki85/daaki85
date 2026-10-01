@@ -11,9 +11,11 @@ game itself, in the game's own lettering and windows:
 - **A party viewer:** THAC0 with each weapon, saves as they stand now, AC and
   what makes it up, spell slots, thief skills, equipment and active effects.
 - **In the game:**
-  - THAC0, saves, thief skills and DEX adjustments on the inventory screen;
+  - THAC0, saves, thief skills and DEX adjustments on the inventory screen,
+    THAC0 and saves on View Character;
   - spell slots on the USE screen;
-  - each turn's rolls in a pop-up during fights;
+  - each turn's rolls in a pop-up during fights, if you tick it (three levels
+    of detail);
   - what hurts a monster in the Look box.
 - **Dialogue and spells tabs:** a scrollable record of every conversation, and
   what each spell and psionic power really does, from the game's own records.
@@ -28,13 +30,17 @@ game itself, in the game's own lettering and windows:
     to attack from behind;
   - class levels up to 10 (the game stops at 9).
 - **New items and thief play:** a Ring of Protection +1 to find in the arena;
-  gear for Kurzak, Legcrusher and Pehtucl in the slave pens;
-  Thieves' Tools for every thief; picking anyone's pockets.
+  gear for Kurzak, Legcrusher and Pehtucl in the slave pens (a short sword
+  and a Cloak of Protection among it); Thieves' Tools for every thief;
+  picking anyone's pockets; and no more thief skill penalty for what a thief
+  holds.
 - **A mini-quest:** the cooked vulture, at last good for something (Dinos
   cooks it for the party).
 
-The game folder and your saves are never modified. For the dice log, the
-launcher runs a patched copy of the game that it keeps in its own folder.
+The game folder is never modified, and your save files only keep what you'd
+expect from play: the items the Ledger hands out, the XP it gives. For the dice
+log, the launcher runs a patched copy of the game that it keeps in its own
+folder.
 
 **Everything else is in [`darksun-companion/README.md`](darksun-companion/README.md):**
 - requirements;
@@ -51,7 +57,7 @@ launcher runs a patched copy of the game that it keeps in its own folder.
 
 ## Changelog
 
-### Unreleased (in review)
+### Pull request #8 ([in review](https://github.com/daaki85/darksun-companion-mod/pull/8))
 
 **Added**
 - **Rule change: levels up to 10.** Every class can reach 10th level, at
@@ -67,11 +73,12 @@ launcher runs a patched copy of the game that it keeps in its own folder.
   - Legcrusher: Leather Chest Armor +1;
   - Pehtucl: a Cloak of Protection +1 (a new item type: +1 AC and +1 on saves,
     as the ring) and a Ring of Protection +1 (a thief can lift it).
-
 - **Rangers hide in shadows and move silently too** (the stealth rule), with
   AD&D's ranger chances: the full chance outdoors and half indoors, the
   reverse of thieves. Their attack from behind is +2 to hit and ignores the
-  target's DEX and shield, but is no backstab.
+  target's DEX and shield, but is no backstab. Their two chances show on the
+  inventory screen where a thief's MOVE and HIDE go, and on the Characters
+  tab.
 
 **Changed**
 - **Thief skills: no equipment penalty.** The game took 5 to 10 off some

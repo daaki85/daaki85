@@ -31,7 +31,7 @@ from .guestmem import GuestMemory
 from .textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGvP"
+HDR_SIG = b"DSCLOGvQ"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
 MSG_SIZE = 900
@@ -46,6 +46,7 @@ TSR_LOOK_SEQ, TSR_LOOK_REPLY, TSR_LOOK_WHO, TSR_LOOK_OFF, TSR_LOOK_FULL_OFF, TSR
 LOOK_SIZE, LOOK_FULL_SIZE = 80, 700
 # ... and the party's THAC0 and saves as they stand now, for the game's screens (see STATS)
 TSR_STATS_OFF, TSR_STATS_STAMP, TSR_STATS_REQ, TSR_STATS_REPLY, STATS_SIZE = 162, 164, 166, 168, 24
+STATS_RANGER = 2  # a STATS entry's +17 for a ranger: only move silently and hide in shadows count
 BIOS_TIMER = 0x46C
 # ... and the rule changes it makes to the game (the Options tab)
 TSR_RULES = 170
@@ -689,7 +690,13 @@ class DiceLog:
         out += struct.pack("<3H", *([h.item for h in weapons] + [game.NO_ITEM] * (3 - len(weapons))))
         out += struct.pack("<3b", *([clamp(h.thac0) for h in weapons] + [0] * (3 - len(weapons))))
         thief = g.thief_skills_now(member, game.PANEL_SKILLS)
-        out += struct.pack("<B6B", 1, *(n for _, n in thief)) if len(thief) == 6 else bytes(7)
+        ranger = g.ranger_skills_now(member) if self.rules & game.RULE_STEALTH and not thief else []
+        if len(thief) == 6:
+            out += struct.pack("<B6B", 1, *(n for _, n in thief))
+        elif len(ranger) == 2:  # move silently and hide in shadows, in a thief's places
+            out += struct.pack("<B6B", STATS_RANGER, 0, 0, 0, *(min(n, 255) for _, n in ranger), 0)
+        else:
+            out += bytes(7)
         return out.ljust(STATS_SIZE, b"\0")
 
     def _answer_stats(self) -> None:
