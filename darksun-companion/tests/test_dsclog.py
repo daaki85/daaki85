@@ -15,7 +15,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dscompanion.dicelog import FILTERS, HDR_SIG, Entry
 from dscompanion.textlog import TextBuffer
 from dscompanion.gamepatch import (VEC_AC, VEC_DOUBLE, VEC_MSG, VEC_NEXT, VEC_RAND, VEC_RING_AC, VEC_USE_ITEM,
-                                  VEC_RING_SAVE, VEC_SAVE, VEC_TEXT, VEC_TWO)
+                                  VEC_RING_SAVE, VEC_SAVE, VEC_TEXT, VEC_TWO, VEC_GRACE_CAST, VEC_GRACE_EFFECT,
+                                  VEC_GRACE_ABILITY)
 
 try:
     from unicorn import Uc, UC_ARCH_X86, UC_HOOK_INTR, UC_HOOK_MEM_WRITE, UC_MODE_16
@@ -495,6 +496,51 @@ class RuleTests(RingTests):
             self.rules(rules)
             self.run_at(bytes((0xCD, VEC_DOUBLE)), eax=7)
             self.assertEqual(self.mu.reg_read(r.UC_X86_REG_AL), want)
+
+
+
+@unittest.skipIf(Uc is None, "unicorn not installed")
+class GraceTests(RuleTests):
+    """Cat's Grace (spell 14, rule 32): Strength's code, its own effect (54), DEX."""
+
+    def setUp(self):
+        super().setUp()
+        image = load_image()
+        for vector, start in ((VEC_GRACE_CAST, "8b460e2ef606aa0020"), (VEC_GRACE_EFFECT, "c746ec4300817e0e9400"),
+                              (VEC_GRACE_ABILITY, "8946f6b90700")):
+            at = image.find(bytes.fromhex(start))
+            self.assertGreater(at, 0)
+            self.mu.mem_write(vector * 4, struct.pack("<HH", at, TSR))
+
+    def word(self, offset, value=None):
+        at = SS * 16 + (BP + offset) % 0x10000
+        if value is not None:
+            self.mu.mem_write(at, struct.pack("<h", value))
+        return struct.unpack("<h", self.mu.mem_read(at, 2))[0]
+
+    def test_cast_goes_to_strength(self):
+        for rules, spell, want in ((32, 14, 23), (0, 14, 14), (32, 20, 20), (32, 23, 23)):
+            self.rules(rules)
+            self.word(0x0E, spell)
+            self.run_at(bytes((0xCD, VEC_GRACE_CAST)))
+            self.assertEqual((self.word(-0x1A), self.mu.reg_read(r.UC_X86_REG_AX)), (want, spell if want == spell else 23))
+
+    def test_its_own_effect(self):
+        for rules, spell, want in ((32, 14, 54), (0, 14, 0x43), (32, 23, 0x43), (32, 0x94, 0x42), (0, 0x94, 0x42)):
+            self.rules(rules)
+            self.word(0x0E, spell)
+            self.run_at(bytes((0xCD, VEC_GRACE_EFFECT)))
+            self.assertEqual(self.word(-0x14), want, (rules, spell))
+
+    def test_adds_to_dex(self):
+        effects = 0x9800
+        self.mu.mem_write(effects * 16 + 0x10F, bytes([5]))
+        for effect, dex, want in ((54, 15, 20), (54, 21, 24), (67, 15, 15)):
+            self.word(-0x340, dex)
+            self.word(-0x342, 18)  # STR, untouched
+            self.run_at(bytes((0xCD, VEC_GRACE_ABILITY)), eax=effect, ebx=0, es=effects, ecx=0)
+            self.assertEqual((self.word(-0x340), self.word(-0x342), self.word(-0x0A)), (want, 18, effect))
+            self.assertEqual(self.mu.reg_read(r.UC_X86_REG_CX), 7)
 
 
 if __name__ == "__main__":

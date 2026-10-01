@@ -87,8 +87,12 @@ def save_text(gd: GameData, spell: int, rec: bytes, damages: bool) -> str:
     return text
 
 
-def effect_text(rec: bytes) -> str:
-    eff = struct.unpack_from("b", rec, 0x19)[0]
+# spells whose effect comes from code of their own (the record names none)
+OWN_EFFECTS = {"Strength": 67, "Cat's Grace": 54}
+
+
+def effect_text(rec: bytes, name: str = "") -> str:
+    eff = struct.unpack_from("b", rec, 0x19)[0] or OWN_EFFECTS.get(name, 0)
     if eff > 0:
         name = EFFECT_NAMES.get(eff, f"effect {eff}")
         return name + (f": {EFFECT_RULES[eff]}" if eff in EFFECT_RULES else "")
@@ -146,8 +150,9 @@ def spell_info(gd: GameData, spell: int, party: List[int]) -> Optional[SpellInfo
             level = gd.effect_caster_level(creature, spell)
             if level:
                 casters.append(f"{gd.creature_name(creature)} {ordinal(level)}")
-    return SpellInfo(spell, gd.spell_name(spell), magic, spell_level(gd, spell), damage,
-                     save_text(gd, spell, rec, bool(damage)), effect_text(rec), lasts_text(gd, spell, rec), casters)
+    name = gd.spell_name(spell)
+    return SpellInfo(spell, name, magic, spell_level(gd, spell), damage,
+                     save_text(gd, spell, rec, bool(damage)), effect_text(rec, name), lasts_text(gd, spell, rec), casters)
 
 
 def all_spells(gd: GameData, party: Optional[List[int]] = None) -> List[SpellInfo]:

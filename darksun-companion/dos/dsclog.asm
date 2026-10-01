@@ -43,6 +43,9 @@ VEC_PICK   equ 0xFC   ; PROBE_PICK
 VEC_USE_ITEM equ 0xFD ; PROBE_USE_ITEM
 VEC_TWO    equ 0xFE   ; PROBE_TWO
 VEC_DOUBLE equ 0xF0   ; PROBE_DOUBLE
+VEC_GRACE_CAST equ 0xED    ; PROBE_GRACE_CAST
+VEC_GRACE_EFFECT equ 0xEE  ; PROBE_GRACE_EFFECT
+VEC_GRACE_ABILITY equ 0xEF ; PROBE_GRACE_ABILITY
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -71,7 +74,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvI'          ; +0
+sig      db 'DSCLOGvJ'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -1848,6 +1851,7 @@ RULE_BOOTS equ 2
 RULE_TWO_WEAPONS equ 4
 RULE_SPELL_SAVE equ 8           ; (the companion writes the game's save table for this one)
 RULE_NO_DOUBLE equ 16
+RULE_CATS_GRACE equ 32          ; (the companion also gives Flaming Sphere Strength's record and the name)
 FOOT       equ 13               ; the item's slot byte while worn on the feet
 THINGS_SEG equ 0x3972 - 0x4356  ; the things table's segment, relative to DS
 
@@ -1959,6 +1963,66 @@ probe_double:
         shl al, 1
 .done:  iret
 
+; CAT'S GRACE (RULE_CATS_GRACE): Flaming Sphere (spell 14), given Strength's record and the
+; name by the companion, works as Strength does but for DEX: its own effect (54, a number the
+; game leaves unused) holds the 1d6, which the routine that works out a creature's abilities
+; adds to DEX, keeping it between 3 and 24.
+GRACE_SPELL    equ 14
+STRENGTH_SPELL equ 23
+GRACE_EFFECT   equ 54
+ADRENALIN      equ 0x94         ; the psionic Adrenalin Control, which Strength's code also serves
+
+; PROBE_GRACE_CAST: INT VEC_GRACE_CAST replaces "mov ax,[bp+0Eh] / mov [bp-1Ah],ax" (6 bytes:
+; INT + 4 NOPs) where the code for spells with handlers of their own picks the handler by the
+; spell's number: Cat's Grace goes to Strength's.
+probe_grace_cast:
+        mov ax, [bp+0x0E]
+        test byte [cs:rules], RULE_CATS_GRACE
+        jz .store
+        cmp ax, GRACE_SPELL
+        jne .store
+        mov ax, STRENGTH_SPELL
+.store: mov [bp-0x1A], ax
+        iret
+
+; PROBE_GRACE_EFFECT: INT VEC_GRACE_EFFECT replaces Strength's handler choosing its effect
+; (19 bytes: INT + 17 NOPs): Adrenalin Control 42h, Strength 43h, and Cat's Grace its own.
+probe_grace_effect:
+        mov word [bp-0x14], 0x43
+        cmp word [bp+0x0E], ADRENALIN
+        jne .grace
+        mov word [bp-0x14], 0x42
+        iret
+.grace: test byte [cs:rules], RULE_CATS_GRACE
+        jz .out
+        cmp word [bp+0x0E], GRACE_SPELL
+        jne .out
+        mov word [bp-0x14], GRACE_EFFECT
+.out:   iret
+
+; PROBE_GRACE_ABILITY: INT VEC_GRACE_ABILITY replaces "mov [bp-0Ah],ax / mov cx,7" (6 bytes:
+; INT + 4 NOPs) in the routine that works out a creature's abilities, as it looks at one of its
+; effects (AX its number; ES:BX the effect, its amount at +10Fh): Cat's Grace adds the amount
+; to DEX in its sums (words from [BP-342h], STR first), as Strength's adds to STR.
+probe_grace_ability:
+        mov [bp-0x0A], ax
+        mov cx, 7
+        cmp ax, GRACE_EFFECT
+        jne .out
+        push ax
+        mov al, [es:bx+0x10F]
+        cbw
+        add ax, [bp-0x340]
+        cmp ax, 24
+        jle .low
+        mov ax, 24
+.low:   cmp ax, 3
+        jge .set
+        mov ax, 3
+.set:   mov [bp-0x340], ax
+        pop ax
+.out:   iret
+
 L_LINE_SIZE equ 24
 LOOK_SIZE   equ 80
 LOOK_FULL_SIZE equ 700
@@ -2009,7 +2073,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 21
+        mov cx, 24
 .check:
         lodsb
         mov ah, 35h
@@ -2088,6 +2152,15 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_DOUBLE
         mov dx, probe_double
         int 21h
+        mov ax, 2500h + VEC_GRACE_CAST
+        mov dx, probe_grace_cast
+        int 21h
+        mov ax, 2500h + VEC_GRACE_EFFECT
+        mov dx, probe_grace_effect
+        int 21h
+        mov ax, 2500h + VEC_GRACE_ABILITY
+        mov dx, probe_grace_ability
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -2103,8 +2176,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or F0h-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE
+busy    db 'DSCLOG: interrupts 60h-65h or EDh-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY
 
         align 16, db 0
 image_len equ $ - $$

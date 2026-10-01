@@ -30,7 +30,7 @@ from .guestmem import GuestMemory
 from .textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGvI"
+HDR_SIG = b"DSCLOGvJ"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
 MSG_SIZE = 900
@@ -519,6 +519,7 @@ class DiceLog:
                 save = game.kind_to_save(game.SPELL_KIND, rules)
                 self.guest.write(table + 2 * game.SPELL_KIND, struct.pack("<H", save))
             if self.game is not None:
+                self.game.set_cats_grace(bool(rules & game.RULE_CATS_GRACE))
                 self.game.set_dodge(bool(rules & game.RULE_NO_DOUBLE))
 
     def _answer_look(self) -> List[str]:
@@ -1374,8 +1375,10 @@ class DiceLog:
             if count == 1 and e.parent_code.startswith(STRENGTH_ROLL_RETURN) and e.parent_arg(0x0E) is not None:
                 spell, target = e.parent_arg(0x0E), e.parent_arg(6)
                 self._spell_cast(spell, now)
+                # (Cat's Grace, in Flaming Sphere's place, uses Strength's code for DEX)
+                ability = "DEX" if spell == game.FLAMING_SPHERE and self.rules & game.RULE_CATS_GRACE else "STR"
                 return self.flush(now, force=True) + [
-                    f"{self.game.spell_name(spell)}: 1d{sides} = {faces[0]} -> {self._name(target)}'s STR "
+                    f"{self.game.spell_name(spell)}: 1d{sides} = {faces[0]} -> {self._name(target)}'s {ability} "
                     f"+{faces[0]} while it lasts (at most {STR_MOST})"]
             if count == 1 and sides == 100 and e.parent_code.startswith(RESISTANCE_ROLL_RETURN):
                 return self._magic_resistance(e.parent_arg(6), e.parent_arg(8), faces[0])

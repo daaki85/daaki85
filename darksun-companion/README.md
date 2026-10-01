@@ -48,7 +48,8 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   Prisoner's body in the arena, an item of the Ledger's own (see [The Ring +1](#the-ring-1)), and
   optional rule changes: helms give AC 1, boots a move more in a fight, AD&D's
   two-weapon penalties, spells saved against with the spell save, and DEX
-  rather than a doubled d20 on saves against fire, cold and electricity (see
+  rather than a doubled d20 on saves against fire, cold and electricity, and a
+  new spell, Cat's Grace (see
   [Rule changes](#rule-changes)).
 - **Picking pockets:** a thief can try anyone's pockets, with the Thieves'
   Tools every thief now carries or with P in a conversation, a move silently
@@ -753,7 +754,7 @@ the helper shows the result instead of the game's "nothing happens".
 
 ### Rule changes
 
-Five changes to the game's rules, each with its own box under **Rule changes**
+Six changes to the game's rules, each with its own box under **Rule changes**
 on the Options tab (all on by default; they take effect in games started with
 the dice log, while the Ledger runs or with **Play Dark Sun (in-game rolls)**,
 which uses the Options as last set). Untick one and the game's own rule is back
@@ -826,6 +827,32 @@ only while that rule is off, and the Ledger marks the fire, cold and
 electricity spells with the game's own "can be dodged" flag (bit 40h of the
 spell's category word), which no spell has, so the game's save routine adds
 the DEX defensive adjustment from its own table.
+
+**Cat's Grace** (a new spell, in Flaming Sphere's place). A level 2 wizard
+spell from AD&D's *Spells & Magic*, made to work exactly as the game's
+Strength does, for DEX: the caster touches someone, whose DEX goes up by 1d6
+(at most 24) for 60 rounds per caster level. Everything that reads DEX
+follows it while it lasts: AC, initiative, REAC and DEF, thief skills, the
+two-weapon penalties and the saves against fire, cold and electricity. The
+log says what it rolled: `Cat's Grace: 1d6 = 4 -> Gerakis's DEX +4 while it
+lasts (at most 24)`.
+
+The game has no room for a new spell (wizard spells are numbers 1-68, every
+one taken), so Cat's Grace takes the place of Flaming Sphere, the weakest
+level 2 spell: 2d4 fire damage once, whatever the caster's level. While the
+box is ticked (it is by default), every character and monster who would cast
+Flaming Sphere casts Cat's Grace instead, under that name on the USE screen;
+untick it and Flaming Sphere is back.
+
+How: the Ledger gives Flaming Sphere (spell 14) Strength's record (range,
+duration, whom it can be cast on) and the name, in the game's memory. The
+helper sends it to Strength's own code (`INT EDh`), which rolls the 1d6;
+gives it an effect of its own (`INT EEh`: number 54, which the game leaves
+unused) holding the roll; and, in the routine that works out a creature's
+abilities from its own scores and its effects, adds that to DEX the way
+Strength's adds to STR (`INT EFh`). When the spell runs out, the game works
+the abilities out again without it. A game saved while Cat's Grace lasts and
+loaded without the dice log simply ignores the effect it doesn't know.
 
 ### No critical hits
 
@@ -1108,7 +1135,7 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    movement `INT FBh` (for boots), a key the conversation window doesn't know
    `INT FCh` and an item used on the map `INT FDh` (for
    [picking pockets](#picking-pockets)), the two-weapon adjustment `INT FEh`
-   and the doubling of a save's d20 `INT F0h` (for [rule changes](#rule-changes)), and
+   and the doubling of a save's d20 `INT F0h`, and Cat's Grace `INT EDh`-`INT EFh` (for [rule changes](#rule-changes)), and
    the copy looks for its data files in the current
    folder rather than next to itself. DOSBox runs it from the game folder, so
    it uses your saves as usual.
@@ -1211,7 +1238,7 @@ tools** tabs, and **Options** (Alt+O) with the Ledger's switches: what the
 dice log shows (unlabelled rolls, details), what it adds to the game (each
 turn's rolls, monster descriptions, the Ring +1, picking pockets, and a button
 that gives each thief a set of Thieves' Tools now) and the rule changes (helms,
-boots, two weapons, the spell save, doubled saves). The switches for the game
+boots, two weapons, the spell save, doubled saves, Cat's Grace). The switches for the game
 are remembered for next time.
 
 ![The Options tab](docs/options.png)
@@ -1380,6 +1407,6 @@ After changing `dos/dsclog.asm`, rebuild the helper with
 nasm -f bin -o dos/DSCLOG.EXE dos/dsclog.asm
 ```
 
-The header's signature (`DSCLOGvI` now) goes up whenever the helper and the
+The header's signature (`DSCLOGvJ` now) goes up whenever the helper and the
 Ledger must change together (`HDR_SIG` in `dscompanion/dicelog.py`), so a
 Ledger never talks to an older helper.

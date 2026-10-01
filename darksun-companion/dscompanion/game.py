@@ -75,9 +75,18 @@ RING_TYPE = 102
 # The companion's rule changes (DSCLOG's RULES): helms count AC 1, boots add a move in a fight;
 # AD&D's two-weapon penalties; spells saved against with the spell save; no doubled d20
 RULE_HELMS, RULE_BOOTS, RULE_TWO_WEAPONS, RULE_SPELL_SAVE, RULE_NO_DOUBLE = 1, 2, 4, 8, 16
+RULE_CATS_GRACE = 32  # Cat's Grace in Flaming Sphere's place
 # the Options' setting for each, all on unless unticked
 RULE_SETTINGS = (("helm_ac", RULE_HELMS), ("boots_move", RULE_BOOTS), ("two_weapons", RULE_TWO_WEAPONS),
-                 ("spell_save", RULE_SPELL_SAVE), ("no_doubled_save", RULE_NO_DOUBLE))
+                 ("spell_save", RULE_SPELL_SAVE), ("no_doubled_save", RULE_NO_DOUBLE),
+                 ("cats_grace", RULE_CATS_GRACE))
+# Cat's Grace (RULE_CATS_GRACE): Flaming Sphere (wizard level 2) gets Strength's record and the
+# name, and DSCLOG sends it to Strength's code, which rolls 1d6 into an effect of its own (54,
+# a number the game leaves unused) that adds to DEX, at most 24, as Strength's adds to STR.
+FLAMING_SPHERE, STRENGTH_SPELL, GRACE_EFFECT = 14, 23, 54
+GRACE_NAME, SPHERE_NAME = b"CAT'S GRACE", b"FLAMING SPHERE"  # (in the game's capitals)
+# Flaming Sphere's own record, from DSUN.EXE, to put back when the rule is off
+SPHERE_RECORD = bytes.fromhex("067800000000003c0014000001ffff4dff004049ffff6106ff000202001104a1")
 # The game turns a spell's kind of save (bits 5-7 of its +0Fh) into one of the sheet's five
 # saves (1-5: paralysis/poison/death ... spell) with a table of words at DS:1E75h, read afresh
 # for each save. Kind 5, what almost every spell is marked with, is petrification/polymorph
@@ -196,7 +205,7 @@ EFFECT_NAMES = {
     60: "Magical Vestments", 61: "Animal Affinity", 62: "Body Weaponry", 63: "Strength Enhanced",
     64: "Strength Borrowed", 65: "Strength Lent", 66: "Adrenalin Control", 67: "Strength",
     68: "Weakened", 69: "Extra Hitpoints", 70: "Flame Blade", 71: "Spirit. Hammer", 72: "Shillelagh",
-    73: "Prayer",
+    73: "Prayer", GRACE_EFFECT: "Cat's Grace",
 }
 
 # What effects do, where the game's own code shows it (to-hit, AC and saving throws)
@@ -209,7 +218,7 @@ EFFECT_RULES = {
     52: "AC -7 against evil", 55: "attackers -2 to hit", 56: "armour AC at most 4, +3 on saves",
     57: "AC at most 6 - level/4, +1 on saves", 58: "AC -2", 59: "AC at most 10 - level",
     60: "AC 5, 1 better per 3 caster levels above 5", 63: "higher STR", 64: "STR + the amount borrowed, at most 24",
-    67: "STR + 1d6, at most 24", 68: "STR - the amount, at least 3",
+    67: "STR + 1d6, at most 24", 68: "STR - the amount, at least 3", GRACE_EFFECT: "DEX + 1d6, at most 24",
     73: "+1 to hit and saves for the caster's side, -1 for the other",
     # what the game's turn, movement, casting and damage code does with the rest
     1: "2d4 acid damage each round",
@@ -693,6 +702,24 @@ class GameData:
                 self.guest.write(at + 0x01, bytes((new,)))
                 changed += 1
         return changed
+
+    def set_cats_grace(self, on: bool) -> bool:
+        """Put Cat's Grace in Flaming Sphere's place (Strength's record, the name), or Flaming
+        Sphere back. Only over what's there now being one or the other. True if it is as asked."""
+        sphere = (self.load_seg + SPELLS_SEG) * 16 + SPELLS_OFF - 0x10 + FLAMING_SPHERE * SPELL_SIZE
+        info = self.load_seg * 16 + SPELL_INFO_OFF + (FLAMING_SPHERE - 1) * SPELL_INFO_SIZE
+        name_at = self.ds * 16 + struct.unpack("<H", self.guest.read(info + 5, 2))[0]
+        name = self.guest.read(name_at, len(SPHERE_NAME) + 1)
+        if name.rstrip(b"\0") not in (SPHERE_NAME, GRACE_NAME):
+            return False  # not the name it should be: leave it
+        strength = self.spell_record(STRENGTH_SPELL)
+        want = strength if on else SPHERE_RECORD
+        mine = self.guest.read(sphere, SPELL_SIZE)
+        if mine != want:  # (the category's dodge flag aside, which set_dodge sees to)
+            self.guest.write(sphere, want)
+        text = GRACE_NAME if on else SPHERE_NAME
+        self.guest.write(name_at, text.ljust(len(SPHERE_NAME), b"\0") + b"\0")
+        return True
 
     def spell_record(self, spell: int) -> bytes:
         """The spell's whole 32-byte record (it starts 10h before the fields SPELLS_OFF names)."""

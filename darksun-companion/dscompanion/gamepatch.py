@@ -35,6 +35,7 @@ VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR = range(0x60, 0x66)  # a
 VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT = 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7  # not 66h-6Fh: the game calls those itself, looking for drivers
 VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM = 0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD
 VEC_TWO, VEC_DOUBLE = 0xFE, 0xF0
+VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY = 0xED, 0xEE, 0xEF
 
 
 class Patch(NamedTuple):
@@ -110,6 +111,17 @@ PATCHES = (
     # the saving throw, doubling its d20 against fire, cold and electricity: shl al,1 (DSCLOG
     # does it, unless the companion's rule is on)
     Patch("double", 0x79B74, bytes.fromhex("d0e0"), _interrupt(VEC_DOUBLE, 2)),
+    # Cat's Grace (the companion's rule, in Flaming Sphere's place): the spells with handlers of
+    # their own, picking one by the spell's number: mov ax,[bp+0Eh] / mov [bp-1Ah],ax (DSCLOG
+    # sends Cat's Grace to Strength's) ...
+    Patch("grace_cast", 0x791F3, bytes.fromhex("8b460e8946e6"), _interrupt(VEC_GRACE_CAST, 6)),
+    # ... Strength's handler choosing its effect, 43h (Adrenalin Control's 42h): cmp/jne/mov/
+    # jmp/mov (DSCLOG gives Cat's Grace its own) ...
+    Patch("grace_effect", 0x79470, bytes.fromhex("817e0e94007507c746ec4200eb05c746ec4300"),
+          _interrupt(VEC_GRACE_EFFECT, 19)),
+    # ... and the routine working out a creature's abilities, at each of its effects:
+    # mov [bp-0Ah],ax / mov cx,7 (DSCLOG adds Cat's Grace's amount to DEX)
+    Patch("grace_ability", 0x7B7D7, bytes.fromhex("8946f6b90700"), _interrupt(VEC_GRACE_ABILITY, 6)),
     # (not changed: DSCLOG reads the segment this "mov dx,<segment>" loads, the pointer's items')
     Patch("use_item_seg", 0x73A14, bytes.fromhex("ba8003"), bytes.fromhex("ba8003")),
     # The data path is argv[0] cut after its last \ or :, kept at DS:4B81h. The
