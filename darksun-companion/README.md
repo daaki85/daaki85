@@ -967,9 +967,10 @@ The game's USE (cast spells) screen shows, at the top of the panel under the
 spells, how many spells of each level the selected character can still cast,
 and the most they get after resting: `WIZ` for preservers' wizard spells, `PRI`
 for clerics', druids' and rangers' priest spells, one `left/most` per spell
-level from the 1st (six to a line):
+level from the 1st (six to a line), up to the highest level the character can
+cast (more appear as they level up):
 
-![The USE screen with Daaki's spell slots above a Guava's icon](docs/use-slots.png)
+![The USE screen with K'ratchek's spell slots: a 2nd-level druid, five first-level spells](docs/use-slots.png)
 
 The numbers go down as spells are cast (the screen shows the new count when it
 is next drawn) and back up after resting. That panel is where the game puts
@@ -1264,7 +1265,7 @@ are remembered for next time.
 
 ![The Options tab](docs/options.png)
 
-**Spell slots.** `Priest spells left: 1st 5/5, 2nd 3/3, 3rd 2/2, 4th 1/1`
+**Spell slots.** `Priest spells left: 1st 5/5, 2nd 3/3, 3rd 2/2`
 means five first-level priest spells can still be cast out of five, and so
 on. Casting a spell uses one slot of its level, and resting fills them
 again. Wizard slots belong to preservers; priest slots belong to clerics,
@@ -1275,8 +1276,11 @@ when it refills them (its tables are read from memory):
 - Clerics and druids: from their level plus a WIS bonus.
 - Rangers: from their level only, with their first slot at level 8.
 
-The WIS bonus doesn't depend on level, so a 2nd-level druid with WIS 19
-already has 3rd- and 4th-level slots. For a human dual-class character, a
+The game's WIS bonus doesn't depend on level, so it gives a 2nd-level druid
+with WIS 19 slots at the 2nd to 4th levels too, though a druid that level
+casts only 1st-level spells. Those aren't shown (here or in the game): only
+the spell levels the character's class levels reach, as in AD&D, where the
+WIS bonus counts only at levels the priest can cast. For a human dual-class character, a
 later class counts only while its level is below the first class's. Checked
 against two characters at the start of a new game, whose slots the game had
 just filled.

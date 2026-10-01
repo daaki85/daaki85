@@ -884,28 +884,30 @@ class GameData:
 
     def spell_slots(self, member: int) -> List[Tuple[str, List[Tuple[int, int, int]]]]:
         """A party member's spell slots: [(kind, [(spell level, left, most), ...]), ...] for
-        the kinds of magic (Wizard, Priest) their classes cast, at the levels they have any."""
+        the kinds of magic (Wizard, Priest) their classes cast, at the spell levels their class
+        levels reach. (The game gives WIS's bonus slots at spell levels the class can't cast yet
+        too: no use to them, so not shown.)"""
         out = []
         for kind, bit in MAGIC_KINDS:
             left = self.guest.read(self.ds * 16 + SLOTS_LEFT[kind] + member * SLOTS_STRIDE, SPELL_LEVELS + 1)
-            levels = [(lvl, left[lvl], self.max_spell_slots(member, bit, lvl)) for lvl in range(1, SPELL_LEVELS + 1)]
-            levels = [x for x in levels if x[1] or x[2]]
+            levels = [(lvl, left[lvl], self.max_spell_slots(member, bit, lvl)) for lvl in range(1, SPELL_LEVELS + 1)
+                      if self.max_spell_slots(member, bit, lvl, wis=False)]
             if levels:
                 out.append((kind, levels))
         return out
 
-    def max_spell_slots(self, member: int, bit: int, spell_level: int) -> int:
+    def max_spell_slots(self, member: int, bit: int, spell_level: int, wis: bool = True) -> int:
         """The slots the game gives on resting (its routine at 5E0ACh in DSUN.EXE): for each class
         casting this kind of magic, rules from its tables applied to the class level and then WIS.
         A rule word: bits 8-11 the most it gives, bits 4-7 one more than the spell level it
         starts below, bit 0 how odd values round. A human's later (dual) classes count only while
-        their level is below the first class's."""
+        their level is below the first class's. Without `wis`, the class levels' alone."""
         if member < 4 and self._word(SLOTS_ALL_19) == 1:  # the game's own test switch
             return 19
         sheet = self.sheet(member)
         if len(sheet) < SHEET_SIZE:
             return 0
-        wis = self.creature(member)[CREATURE_ABILITIES + 4]
+        ability = self.creature(member)[CREATURE_ABILITIES + 4]
         magic = self.guest.read((self.load_seg + CLASS_MAGIC_SEG) * 16 + CLASS_MAGIC_OFF, 4 * 32)
         total = 0
         for n in range(3):
@@ -915,7 +917,7 @@ class GameData:
             if n and sheet[SHEET_RACE] == HUMAN and level >= sheet[SHEET_LEVELS]:
                 continue
             rules = self.guest.read(self.ds * 16 + SLOT_CLASS_RULES + cls, 1)[0]
-            for value in (level, wis):
+            for value in (level, ability) if wis else (level,):
                 if not rules:
                     break
                 word, = struct.unpack("<H", self.guest.read(self.ds * 16 + SLOT_RULES + (rules & 0x0F) * 2, 2))

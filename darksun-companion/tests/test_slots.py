@@ -53,6 +53,9 @@ class SlotTests(unittest.TestCase):
         set_character(log, 1, (FIGHTER, DRUID, PSIONICIST), (2, 2, 2), 19, race=8)
         self.assertEqual([g.max_spell_slots(1, 2, level) for level in range(1, 6)], [5, 3, 2, 1, 0])
         self.assertEqual([g.max_spell_slots(1, 1, level) for level in range(1, 3)], [0, 0])
+        # ... but the druid casts only first-level spells yet: only those are shown
+        self.assertEqual([g.max_spell_slots(1, 2, level, wis=False) for level in range(1, 3)], [2, 0])
+        self.assertEqual(g.spell_slots(1), [("Priest", [(1, 0, 5)])])
         # Cermak, preserver/gladiator 1/3: one first-level wizard slot (WIS doesn't count)
         set_character(log, 2, (PRESERVER, 10, 0), (1, 3, 0), 17)
         self.assertEqual([g.max_spell_slots(2, 1, level) for level in range(1, 3)], [1, 0])
@@ -74,6 +77,16 @@ class SlotTests(unittest.TestCase):
         self.assertEqual(g.max_spell_slots(0, 1, 1), 2)
         set_character(log, 0, (FIGHTER, PRESERVER, 0), (5, 5, 0), 10, race=game.HUMAN)
         self.assertEqual(g.max_spell_slots(0, 1, 1), 0)
+
+    def test_levels_reached(self):
+        """A 7th level cleric with WIS 18 casts spells up to the 4th level: the game's 5th-level
+        bonus slot isn't shown."""
+        log = with_tables()
+        g = game.GameData(log.guest, DS)
+        set_character(log, 0, (1, 0, 0), (7, 0, 0), 18)
+        self.assertEqual([level for level, _, _ in g.spell_slots(0)[0][1]],
+                         [n for n in range(1, 8) if g.max_spell_slots(0, 2, n, wis=False)])
+        self.assertEqual(max(level for level, _, _ in g.spell_slots(0)[0][1]), 4)
 
     def test_text(self):
         self.assertEqual(game.slots_text([(1, 3, 5), (2, 0, 2)]), "1st 3/5, 2nd 0/2")
