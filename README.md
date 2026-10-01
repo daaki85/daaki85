@@ -76,6 +76,9 @@ launcher runs a patched copy of the game that it keeps in its own folder.
   the game's "Rest icon" label is back.
 
 **Changed**
+- **Turn pop-ups in the game are off by default**, and have three levels: at the
+  least (only what came of each attack and spell, no dice), in short, or in
+  detail.
 - **Spell slots** (on the USE screen and the Characters tab) only show the spell
   levels the character can cast. More levels appear as they level up. The game
   gives WIS bonus slots at levels a character can't use yet, and those are no

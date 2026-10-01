@@ -133,6 +133,7 @@ def cmd_checks(args) -> None:
 
 def cmd_dicelog(args) -> None:
     import time
+    from . import dicelog
     from .dicelog import DiceLog
     from .dicelog import DiceLogError
     from .guestmem import GuestMemoryError
@@ -148,7 +149,8 @@ def cmd_dicelog(args) -> None:
     log = DiceLog(guest, record_everything=args.raw)
     log.use_settings(load_settings())  # the Ring +1, the rule changes, monster descriptions
     log.popups = args.popups
-    log.popup_detail = not args.short_popups
+    log.popup_level = (dicelog.POPUP_MINIMAL if args.minimal_popups else
+                       dicelog.POPUP_SHORT if args.short_popups else dicelog.POPUP_DETAIL)
     log.speaker_names = speaker_names()
     log.learned_speakers = learned_speakers()
 
@@ -363,6 +365,8 @@ def main(argv=None) -> int:
                    help="in a fight, have the game show each turn's rolls when the turn ends")
     s.add_argument("--short-popups", action="store_true",
                    help="with --popups: one line per target instead of the log's detail")
+    s.add_argument("--minimal-popups", action="store_true",
+                   help="with --popups: only what came of each attack and spell, no dice")
     s.set_defaults(func=cmd_dicelog)
 
     s = sub.add_parser("checks", help="list the thief skill and ability checks in the game's scripts (spoilers)")

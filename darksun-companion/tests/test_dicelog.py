@@ -262,9 +262,9 @@ class AttackTests(unittest.TestCase):
                                parent_code=dicelog.WEAPON_DAMAGE_RETURN))
         log.describe(self.attack(3, 8, 4, 5, 9, after_f1=9, hit_bonus=1))  # and misses
         short = "Dag attacks Mountain Stalker: 18 vs 4+ HIT, 20 damage; 3 vs 4+ miss"
-        self.assertEqual(log.turn_summary(0, detail=False), short)
+        self.assertEqual(log.turn_summary(0, dicelog.POPUP_SHORT), short)
         # anyone's attacks during a turn go in its summary (a guarding character striking back...)
-        self.assertEqual(log.turn_summary(1, detail=False), short)
+        self.assertEqual(log.turn_summary(1, dicelog.POPUP_SHORT), short)
         # in detail: the dice log's lines, the damage under the hit it belongs to
         lines = log.turn_summary(0).split("\n")
         self.assertEqual(len(lines), 5)
@@ -272,7 +272,9 @@ class AttackTests(unittest.TestCase):
         self.assertTrue(lines[1].startswith("THAC0"))
         self.assertEqual(lines[2], "Dag hits Mountain Stalker for 20: 2d8 = [2 + 5] +1 weapon +12 STR 24")
         self.assertTrue(lines[3].endswith("-> miss"))
-        log.popup_detail = False
+        # at the least: what came of it
+        self.assertEqual(log.turn_summary(0, dicelog.POPUP_MINIMAL), "Dag hits Mountain Stalker for 20, misses")
+        log.popup_level = dicelog.POPUP_SHORT
         # DSCLOG's side: it counts the turn's end (Dag's, combatant 0) and waits for the text
         m = log.guest.mem
         struct.pack_into("<H", m, HDR + dicelog.TSR_HDR_OFF, 0)
@@ -286,6 +288,25 @@ class AttackTests(unittest.TestCase):
         self.assertEqual(bytes(m[HDR + 0x400:HDR + 0x400 + 68]).split(b"\0")[0],
                          b"Dag attacks Mountain Stalker: 18 vs 4+ HIT, 20 damage; 3 vs 4+ miss")
         self.assertEqual(log.turn_summary(0), "")  # a new turn starts afresh
+
+    def test_minimal_spells(self):
+        """At the least, a spell's damage taken and healing, without its dice or saves."""
+        log = make_game()
+        log._turn_log += ["Fireball damage: 9d6 = [3 + 2 + 3 + 4 + 5 + 4 + 1 + 2 + 2] = 26",
+                          "Red Slaad saves vs Fireball from Daaki (petrification/polymorph): d20 = 6 -> saved",
+                          "  Red Slaad takes 13 from Fireball, now 47/60 HP",
+                          "  Dag regains 7 HP from Cure Light Wounds, now 30/40 HP"]
+        self.assertEqual(log.turn_summary(0, dicelog.POPUP_MINIMAL),
+                         "Red Slaad takes 13 from Fireball. Dag regains 7 HP from Cure Light Wounds")
+
+    def test_popup_settings(self):
+        """Off unless ticked; the level as saved, or from an earlier version's detail switch."""
+        log = make_game()
+        log.use_settings({})
+        self.assertEqual((log.popups, log.popup_level), (False, dicelog.POPUP_DETAIL))
+        self.assertEqual(dicelog.popup_level({"turn_popups_detail": False}), dicelog.POPUP_SHORT)
+        self.assertEqual(dicelog.popup_level({"turn_popups_level": "minimal", "turn_popups_detail": True}),
+                         dicelog.POPUP_MINIMAL)
 
     def test_look_box_describes_the_monster(self):
         log = make_game()
@@ -344,7 +365,7 @@ class AttackTests(unittest.TestCase):
         self.assertIn("needs 12 -> saved", text[1])  # the chance to save left out too
         self.assertEqual(text[2], "Dag takes 8 from Fireball, now 16/24 HP")
         self.assertEqual(len(text), 3)  # nor unlabelled dice
-        self.assertEqual(log.turn_summary(0, detail=False).split(". ")[0], "Fireball damage: 5d6 = [2 + 5 + 3 + 6 + 1] = 17")
+        self.assertEqual(log.turn_summary(0, dicelog.POPUP_SHORT).split(". ")[0], "Fireball damage: 5d6 = [2 + 5 + 3 + 6 + 1] = 17")
 
     def test_detailed_summary_in_the_game(self):
         log = make_game()

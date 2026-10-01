@@ -35,9 +35,9 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   View Character screen their THAC0 and saves
   (see [In the game](#in-the-game-thac0-saves-and-thief-skills)); the USE
   screen shows their spell slots left (see
-  [spell slots](#in-the-game-spell-slots-on-the-use-screen)); and after each
-  turn in a fight the game stops to show that turn's attack rolls, spell
-  damage and saving throws, and who is still to act (see
+  [spell slots](#in-the-game-spell-slots-on-the-use-screen)); and, if you
+  tick it, after each turn in a fight the game stops to show that turn's
+  attack rolls, spell damage and saving throws, and who is still to act (see
   [each turn's rolls](#in-the-game-each-turns-rolls)); and Looking at a monster
   in a fight tells you what hurts it (see
   [the Look box](#in-the-game-what-hurts-a-monster-the-look-box)). The game,
@@ -114,8 +114,8 @@ no packaged program to trust.
 Double-click **`Start Game with Dice Log.bat`** in the `darksun-companion`
 folder. It starts Shattered Lands (through GOG's own DOSBox) with the dice log
 helper loaded, and opens Templar's Ledger next to it. The game gets its
-in-game additions too: each turn's rolls shown in the game (untick **Show
-each turn's rolls in the game** on the Options tab to turn that off), THAC0,
+in-game additions too: each turn's rolls shown in the game if you want them
+(tick **Show each turn's rolls in the game** on the Options tab), THAC0,
 saves and thief skills on the inventory and View Character screens, and spell
 slots on the USE screen. Your saves are the same ones the game normally uses.
 The first time, it looks for the game in the usual GOG folders; if it can't
@@ -1030,11 +1030,13 @@ and stay, while Templar's Ledger (or its command-line dice log) is running.
 
 ### In the game: each turn's rolls
 
-With **Show each turn's rolls in the game** ticked on the Options tab (the
-default; or `python -m dscompanion dicelog --popups`), the game stops at the end
+With **Show each turn's rolls in the game** ticked on the Options tab (it is
+off unless you tick it; or `python -m dscompanion dicelog --popups`), the game
+stops at the end
 of every turn in a fight in which someone attacked or cast a spell, and shows
-that turn's rolls in its own dialogue window, with **Continue** to go on. They
-are the dice log's own lines: each attack's d20, the AC it would hit and the
+that turn's rolls in its own dialogue window, with **Continue** to go on. Below
+the box, pick how much it says: **at the least**, **in short** or **in
+detail**. In detail, they are the dice log's own lines: each attack's d20, the AC it would hit and the
 target's AC, how the THAC0 was worked out, and for a hit the damage dice and
 bonuses; a spell's damage dice, and each saving throw against it. (The chance
 to hit or to save is left out: the log has it.) The last line says who is
@@ -1048,14 +1050,18 @@ next ones:
 
 ![The game's window after a Defiler's Cone of Cold](docs/turn-spell.png)
 
-Untick **... in detail** (or add `--short-popups`) for one line per target
-instead (and each spell's first line):
+**In short** (or `--short-popups`) gives one line per target instead (and each
+spell's first line):
 
 ![The game's window at the end of Mlemlem's turn, in short](docs/turn-summary.png)
 
 `20 vs 11+ HIT, 12 damage` is the d20, the roll it needed (THAC0 − the
 target's AC; a natural 20 always hits, a 1 always misses), and the damage the
 hit did.
+
+**At the least** (or `--minimal-popups`) gives only what came of the turn, no
+dice: `Mlemlem hits Mountain Stalker for 12, misses. Slig takes 9 from
+Fireball`. It leaves out who is still to act.
 
 Each turn gets its own window, monsters' included. (The game plays a
 monster's whole turn inside one call, so the helper is also called there, just

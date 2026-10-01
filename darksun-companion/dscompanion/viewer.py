@@ -15,7 +15,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Dict, List, Optional, Tuple
 
-from . import art, game, launch, partyview, spellbook, theme, values
+from . import art, dicelog, game, launch, partyview, spellbook, theme, values
 from .dicelog import DiceLog, DiceLogError
 from .guestmem import GuestMemory
 from .layout import Layout
@@ -282,15 +282,18 @@ class Viewer:
         in_game = ttk.LabelFrame(options, text="In the game (when started with the dice log)", padding=6)
         in_game.pack(fill="x", pady=(8, 0))
         # long lines wrap to the window (as with larger text) instead of running out of it
-        options.bind("<Configure>", lambda e: ttk.Style().configure(
-            "TCheckbutton", wraplength=max(200, e.width - 60)), add="+")
+        options.bind("<Configure>", lambda e: [ttk.Style().configure(
+            kind, wraplength=max(200, e.width - 60)) for kind in ("TCheckbutton", "TRadiobutton")], add="+")
         # the game's own window, at the end of each turn in a fight: that turn's rolls
-        self.popups = tk.BooleanVar(value=bool(settings.get("turn_popups", True)))
+        self.popups = tk.BooleanVar(value=bool(settings.get("turn_popups", False)))
         ttk.Checkbutton(in_game, text="Show each turn's rolls in the game (click Continue to go on)",
                         variable=self.popups, command=self._popups_changed).pack(anchor="w")
-        self.popup_detail = tk.BooleanVar(value=settings.get("turn_popups_detail", True))
-        ttk.Checkbutton(in_game, text="... in detail, as in the log (MORE shows the next lines)",
-                        variable=self.popup_detail, command=self._popups_changed).pack(anchor="w", padx=(20, 0))
+        self.popup_level = tk.StringVar(value=dicelog.popup_level(settings))
+        for value, text in ((dicelog.POPUP_MINIMAL, "... at the least: what came of each attack and spell, no dice"),
+                            (dicelog.POPUP_SHORT, "... in short: each attack's roll, what it needed and the damage"),
+                            (dicelog.POPUP_DETAIL, "... in detail, as in the log (MORE shows the next lines)")):
+            ttk.Radiobutton(in_game, text=text, value=value, variable=self.popup_level,
+                            command=self._popups_changed).pack(anchor="w", padx=(20, 0))
         # the game's Look box, on a monster in a fight: what hurts it, then all of it in a window
         self.monster_info = tk.BooleanVar(value=bool(settings.get("monster_info", True)))
         ttk.Checkbutton(in_game, text="Describe monsters when you Look at them in a fight (defences, then a window)",
@@ -600,7 +603,7 @@ class Viewer:
                 self.dice.speaker_names = launch.speaker_names()
                 self.dice.learned_speakers = launch.learned_speakers()
                 self.dice.popups = self.popups.get()
-                self.dice.popup_detail = self.popup_detail.get()
+                self.dice.popup_level = self.popup_level.get()
                 self.dice.monster_info = self.monster_info.get()
                 self.dice.arena_ring = self.arena_ring.get()
                 self.dice.pickpockets = self.pickpockets.get()
@@ -681,7 +684,7 @@ class Viewer:
         on = self.popups.get()
         settings = launch.load_settings()
         settings["turn_popups"] = on
-        settings["turn_popups_detail"] = self.popup_detail.get()
+        settings["turn_popups_level"] = self.popup_level.get()
         settings["monster_info"] = self.monster_info.get()
         settings["arena_ring"] = self.arena_ring.get()
         settings["pickpockets"] = self.pickpockets.get()
@@ -690,7 +693,7 @@ class Viewer:
         launch.save_settings(settings)
         if self.dice is not None:
             self.dice.set_popups(on)
-            self.dice.popup_detail = self.popup_detail.get()
+            self.dice.popup_level = self.popup_level.get()
             self.dice.set_monster_info(self.monster_info.get())
             self.dice.arena_ring = self.arena_ring.get()
             self.dice.set_pickpockets(self.pickpockets.get())
