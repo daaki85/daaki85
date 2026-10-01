@@ -25,7 +25,7 @@ NAME, OWN_NAME = b"Thieves' Tools", b"Rest icon"
 OLD_NAME_ENTRIES = (0xAD,)  # what earlier versions named them ("pick", the pickaxe's): renamed
 NEW_GAME = 3600  # game seconds: a game this young, in the arena, has just started
 ARENA = 0x2A  # the region every game starts in
-PICTURE, TYPE = 0x8AB0, 60  # the tools' picture; small things carried (weight 1, worn nowhere)
+PICTURE, TYPE = 0xFBD4, 60  # the tools' picture (a leather satchel); small things carried (weight 1, worn nowhere)
 OLD_PICTURES = (0x8AB0,)  # what earlier versions gave them (a Slavepen key's): changed to PICTURE
 PICTURE_CACHE = 0x0C  # in an item: the game keeps the picture it loaded here (0: load it again)
 # a Slavepen key's record, as the game has it, with that name and picture, not in a slot

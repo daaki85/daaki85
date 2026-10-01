@@ -689,7 +689,8 @@ can try anyone's, two ways, with the thief as the party's leader (keys 1-4):
   Tools**: the game's name table has no free entry, so the name goes over
   "Rest icon", an internal label of the game's that no item has (without the
   Ledger running, that is what they're called). Tools an earlier version gave,
-  called "pick", are renamed. On the inventory screen, pick the tools up, go back to the
+  called "pick", are renamed. They look like a leather satchel (the game's own
+  picture), and earlier sets that looked like a key change to it too. On the inventory screen, pick the tools up, go back to the
   game with them on the pointer, and click someone in sight: the result comes
   up in the game's message window, and the tools stay on the pointer for the
   next one. (Clicking open ground drops them, as with anything carried.)
