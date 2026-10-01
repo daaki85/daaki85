@@ -92,8 +92,8 @@ install anything into the game folder.
 
 **One-time setup**
 
-1. Download this project: on GitHub open the `templars-ledger`
-   branch, click **Code → Download ZIP**, and unzip it anywhere.
+1. Download this project: on its GitHub page click **Code → Download ZIP**,
+   and unzip it anywhere.
    The files you need are in the `darksun-companion` folder.
 2. Python: the first time you double-click one of the `.bat` files, it
    checks for a 64-bit Python 3.8 or later. If there is none, it asks
