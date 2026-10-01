@@ -590,6 +590,8 @@ probe_char:
         jae .thieves
         mov al, [bx + DEX_REACTION]
         mov [cs:c_react], al
+        mov al, [bx + DEX_DEFENCE]   ; and the defensive adjustment (on AC; on saves against
+        mov [cs:c_defence], al       ; what can be dodged, the other way round)
 .thieves:
         ; thief skills, for a character with thief levels
         xor cx, cx
@@ -619,6 +621,23 @@ probe_char:
         call c_draw_line
         push word REACT_Y
         push word REACT_VALUE_X
+        push cs
+        push word c_num
+        call c_draw_line
+        mov al, [cs:c_defence]    ; right of SP in the saves: "DEF -4"
+        mov di, c_num
+        test al, al
+        jle .dsign
+        mov byte [cs:di], '+'
+        inc di
+.dsign: call c_itoa_s
+        push word DEF_Y
+        push word 0x113
+        push cs
+        push word l_defence
+        call c_draw_line
+        push word DEF_Y
+        push word DEF_VALUE_X
         push cs
         push word c_num
         call c_draw_line
@@ -922,7 +941,12 @@ l_move  db 'MOVE', 0
 l_hear  db 'HEAR', 0
 l_clmb  db 'CLMB', 0
 l_react db 'REAC', 0
+l_defence db 'DEF', 0
 c_react db 0
+c_defence db 0
+DEX_DEFENCE equ 0x07F6          ; DS: the DEX defensive adjustment (bytes, by score: on AC)
+DEF_Y   equ 0x25                ; the saves' last row, right of SP (where BW and RSW are above)
+DEF_VALUE_X equ 0x12A           ; (as the saves' second column)
 NO_REACT equ 0x80
 DEX_REACTION equ 0x07DC         ; DS: the DEX reaction adjustment (bytes, by score)
 REACT_Y equ 0x72                ; the AC line's y
