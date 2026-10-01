@@ -85,11 +85,13 @@ The window is dressed in the game's own colours: its grey stone panels, the
 amber of its dialogue, the yellow of its character screen and the red rock of
 the arena, all sampled from the game (no game artwork is copied).
 
-![Templar's Ledger during a fight in the arena: the Characters tab, and the dice log with the round's order kept above it](docs/dicelog.png)
+![Templar's Ledger during the first arena fight: the Characters tab, and the dice log with Cilla hiding in shadows and moving silently](docs/dicelog.png)
 
 ![The Dialogue tab](docs/dialogue.png)
 
-![The inventory screen's panel in the game, with THAC0, saves, Cilla's thief skills (move silently among them) and her DEX reaction and defensive adjustments added](docs/inventory.png)
+![The inventory screen's panel in the game: THAC0 and the saves at the top, Daaki's thief skills (move silently and hide in shadows among them) beside the abilities, and his DEX reaction and defensive adjustments](docs/inventory.png)
+
+![A ranger's panel: Dream's move silently and hide in shadows, for the stealth rule, where a thief's go](docs/inventory-ranger.png)
 
 ## Requirements
 
@@ -218,7 +220,7 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 | `    no hit point roll: that comes only when the highest class level rises (still 3rd)` | A multi-class character's level in one class went up without raising their highest level: the game gives no hit points for it. |
 | `Cilla's 3rd Ranger level: hit points d10 = 2, raised to 3 for CON 21` | The hit point roll for a new level: the class's die (d8 clerics and druids, d10 fighters, gladiators and rangers, d4 preservers, d6 psionicists and thieves), never less than 2, 3 or 4 with CON 20, 21-22 or 23+, and doubled for half-giants. After level 9 or 10 there's no roll, just a fixed gain (thieves roll at 10th too with [levels up to 10](#rule-changes)). |
 | `Cilla hides in shadows: d100 = 21, needs 27 or less (54, halved in daylight) -> hidden` / `  Cilla moves silently: ...` | A thief's or ranger's hiding and moving silently at the start of their turn (the [stealth rule](#rule-changes)). |
-| `(Kurzak now carries Metal Short Sword, ...)` | The Ledger's items given to someone in the slave pens (see [The slave pens' gear](#the-slave-pens-gear)). |
+| `(Kurzak now carries Metal Short Sword, Leather Helm (AC 1))` | The Ledger's items given to someone in the slave pens (see [The slave pens' gear](#the-slave-pens-gear)). |
 | `Dinos cooks the vulture and the party eats with him: ... +100 XP each, and restored as after a full rest` | The cooked vulture used on Dinos (see [The cooked vulture](#the-cooked-vulture)). |
 | `Character creation, STR 17: best of four 4d4 (7, 11, 9, 10) = 11, +4, +1 dwarf = 16, raised to 17 (the Fighter's prime requisite)` | An ability score rolled on the character creation screen (see below). |
 | `Character creation, hit points 15: Fighter d10 per level: 7 + 9; Thief d6 per level: 5 + 1 = 22, / 2 classes = 11, +4 CON 16 = 15` | The new character's hit points: a die for every level of every class, divided by the number of classes, plus CON's bonus (see below). |
@@ -841,7 +843,7 @@ Daaki picks Kurzak's pocket: d100 = 71, needs 63 or less -> failed
 The thief's card on the Ledger's Characters tab shows the chances as they
 stand, move silently among them, and the tools they carry:
 
-![Cilla's card on the Characters tab: Thieves' Tools carried, and her thief skills now, move silently among them](docs/thief-card.png)
+![Cilla's card on the Characters tab: Thieves' Tools carried, and her thief skills now, move silently and hide in shadows among them](docs/thief-card.png)
 
 How: the patched game's conversation window sends a key it doesn't know to
 the helper (`INT FCh`), which has the Ledger roll and move the item, then adds
