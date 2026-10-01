@@ -44,7 +44,7 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   these additions and the Ledger's window start together.
 - **Spells:** a tab listing what every spell and psionic power really does,
   from the game's own records (see [the Spells tab](#the-spells-tab)).
-- **A Ring +1** (+1 AC, +1 on saving throws) to loot from the Tied-up
+- **A Ring +1** (+1 AC, +1 on saving throws) found by searching the Tied-up
   Prisoner's body in the arena, an item of the Ledger's own (see [The Ring +1](#the-ring-1)), and
   two optional rule changes: helms give AC 1, boots a move more in a fight (see
   [Rule changes](#rule-changes-helms-and-boots)).
@@ -629,8 +629,8 @@ are no rings or cloaks of protection, which is why the Ledger adds
 ### The Ring +1
 
 A ring of protection the game never had: **+1 AC and +1 on every saving
-throw** for whoever wears it, called a Ring of Protection. With **Put a Ring of
-Protection +1 (+1 AC, +1 on saves) on the arena's Tied-up Prisoner** ticked on
+throw** for whoever wears it, called a Ring of Protection. With **A Ring of
+Protection +1 on the arena's Tied-up Prisoner (search his body)** ticked on
 the Options tab (it is by default), it is on the Tied-up Prisoner, the bound
 man beside the vulture in the arena: free him (he dies as he falls from his
 bonds; killing him where he hangs does too), then look at his body
@@ -682,15 +682,17 @@ The game has one pocket to pick, in the Trustee's conversation (his key). With
 can try anyone's, two ways, with the thief as the party's leader (keys 1-4):
 
 - **Thieving tools.** Every thief starts a new game with a set in their
-  backpack (the log says so); a thief who joins later, or one in a game
+  backpack, in its first free cell (the log says so); a thief who joins later, or one in a game
   started before this version, gets a set once too. **Give thieving tools
   now** on the Options tab gives a set at once to each thief in the party
-  without one (lost or sold ones included). They are called **Thieves'
+  without one (lost or sold ones included). Moving the tools about the inventory
+  screen doesn't count as being without: no second set for that. They are called **Thieves'
   Tools**: the game's name table has no free entry, so the name goes over
   "Rest icon", an internal label of the game's that no item has (without the
   Ledger running, that is what they're called). Tools an earlier version gave,
-  called "pick", are renamed. They look like a leather satchel (the game's own
-  picture), and earlier sets that looked like a key change to it too. On the inventory screen, pick the tools up, go back to the
+  called "pick", are renamed. They look like a satchel (the game's own
+  picture), and earlier sets that looked like a key change to it too. On the
+  inventory screen, pick the tools up, go back to the
   game with them on the pointer, and click someone in sight: the result comes
   up in the game's message window, and the tools stay on the pointer for the
   next one. (Clicking open ground drops them, as with anything carried.)
@@ -1086,6 +1088,7 @@ WCAG 2.0 level AA:
   well as highlighted.
 - **Text size:** **A+** / **A-** at the top, or **Ctrl +**, **Ctrl -** and
   **Ctrl 0** (back to normal), enlarge or shrink all text up to 2.5 times.
+  The Options tab's longer lines wrap to the window rather than run out of it.
 - **Keyboard:** Tab and Shift+Tab move between controls, and the one with the
   keyboard focus is outlined in yellow. **Ctrl+Tab** switches tabs, as do
   **Alt+L** (Dice log), **Alt+I** (Dialogue), **Alt+S** (Spells), **Alt+M**
