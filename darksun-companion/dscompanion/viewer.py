@@ -620,7 +620,7 @@ class Viewer:
                 self.dice.monster_info = self.monster_info.get()
                 self.dice.arena_ring = self.arena_ring.get()
                 self.dice.pickpockets = self.pickpockets.get()
-                self.dice.picked = launch.pickpocketed()
+                self.dice.load_picked(launch.pickpocketed())
                 self.dice.tools_given = launch.tools_given()
                 self.dice.rules = self._rules()
             try:
@@ -639,8 +639,8 @@ class Viewer:
             self._append_dice(lines)
         self.round_line.set(self._round_text())
         picked = self.dice.take_picked()
-        if picked:
-            launch.add_pickpocketed(picked)
+        if picked is not None:
+            launch.set_pickpocketed(picked)
         given = self.dice.take_tools_given()
         if given:
             launch.add_tools_given(given)

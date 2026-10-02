@@ -326,7 +326,11 @@ class DiceLog:
         self.arena_ring = True  # put the Ring +1 on the Tied-up Prisoner's body in the arena (ring.py)
         self.pickpockets = True  # P in a conversation picks a pocket (pickpocket.py)
         self.picked: set = set()  # the pockets tried already (each person gets one try)
-        self._picked_new: List[str] = []
+        # ... and when, by the game's clock: one tried after the game being played was saved is
+        # forgotten when that save is loaded (the clock goes back past it)
+        self.picked_at: Dict[str, Optional[int]] = {}
+        self._picked_changed = False
+        self._clock: Optional[int] = None
         self.tools_given: set = set()  # the thieves given thieving tools (tools.py)
         self._tools_session: set = set()  # ... while this runs
         self._swap_seq = 0  # DSCLOG's text swaps seen (the arena ring's search, ring.py)
@@ -422,11 +426,50 @@ class DiceLog:
         if self.tsr_hdr is not None:
             self.guest.write(self.tsr_hdr + TSR_PICK_ON, struct.pack("<H", int(on)))
 
-    def take_picked(self) -> List[str]:
-        """The pockets tried since the last call, for the caller to remember (settings.json):
-        each person gets one try."""
-        new, self._picked_new = self._picked_new, []
-        return new
+    def load_picked(self, entries) -> None:
+        """The pockets tried, as remembered (settings.json): "key@game time" (or a bare key, from
+        an earlier version: forgotten the first time a game is loaded)."""
+        self.picked, self.picked_at = set(), {}
+        for entry in entries:
+            key, at, when = entry.rpartition("@")
+            if not (at and when.isdigit()):
+                key, when = entry, ""
+            self.picked.add(key)
+            self.picked_at[key] = int(when) if when else None
+
+    def take_picked(self) -> Optional[List[str]]:
+        """All the pockets tried, for the caller to remember in place of what it had (settings.json),
+        when they have changed since the last call; else None."""
+        if not self._picked_changed:
+            return None
+        self._picked_changed = False
+        return sorted(key if self.picked_at.get(key) is None else f"{key}@{self.picked_at[key]}"
+                      for key in self.picked)
+
+    def _remember_pick(self, key: str) -> None:
+        self.picked.add(key)
+        try:
+            self.picked_at[key] = self.game.game_time()
+        except (struct.error, IndexError, ValueError):
+            self.picked_at[key] = None
+        self._picked_changed = True
+
+    def _forget_undone_picks(self) -> None:
+        """When the game's clock goes back (a game saved earlier was loaded), the pockets tried
+        since that save are forgotten: the person can be tried again."""
+        try:
+            now = self.game.game_time()
+        except (struct.error, IndexError, ValueError):
+            return
+        if not now or now <= 0:  # (no game, or the menus)
+            return
+        if self._clock is not None and now < self._clock:
+            undone = [k for k in self.picked if self.picked_at.get(k) is None or self.picked_at[k] > now]
+            for key in undone:
+                self.picked.discard(key)
+                self.picked_at.pop(key, None)
+            self._picked_changed = self._picked_changed or bool(undone)
+        self._clock = now
 
     def give_tools_now(self) -> List[str]:
         """Thieving tools for each thief in the party not carrying a set (the Ledger's button)."""
@@ -486,8 +529,7 @@ class DiceLog:
         if not result:
             return []
         if result.key:
-            self.picked.add(result.key)
-            self._picked_new.append(result.key)
+            self._remember_pick(result.key)
         return result.log or [result.text]
 
     def _answer_pick(self) -> List[str]:
@@ -509,8 +551,7 @@ class DiceLog:
         if not result:
             return []
         if result.key:
-            self.picked.add(result.key)
-            self._picked_new.append(result.key)
+            self._remember_pick(result.key)
         return result.log or [result.text]
 
     def set_monster_info(self, on: bool) -> None:
@@ -526,7 +567,7 @@ class DiceLog:
         self.monster_info = bool(settings.get("monster_info", True))
         self.arena_ring = bool(settings.get("arena_ring", True))
         self.pickpockets = bool(settings.get("pickpockets", True))
-        self.picked = set(settings.get("pickpocketed", []))
+        self.load_picked(settings.get("pickpocketed", []))
         self.tools_given = set(settings.get("tools_given", []))
         self.rules = game.rules_from_settings(settings)
 
@@ -837,6 +878,7 @@ class DiceLog:
             # first, for the end of the summary
             out += self.initiative_lines()
         self._answer_turn()  # after the entries: they hold the turn's last attack
+        self._forget_undone_picks()
         self._answer_stats()
         out += self._answer_pick()
         out += self._answer_use()

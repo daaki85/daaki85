@@ -876,7 +876,9 @@ the last try on that person.
 A thief can go on trying the same person until **caught** (both rolls failed)
 or until they take the coins; after that, that person keeps a hand on their
 pockets for good. The Ledger remembers who in `settings.json`,
-for this party. The Trustee is left to his own conversation. What happens is
+for this party, with the time on the game's clock: load a game saved before
+the try and the clock goes back past it, so the try is forgotten and the
+person can be tried again. The Trustee is left to his own conversation. What happens is
 added to the conversation's text (use its arrow to scroll down to it if the
 text is long) and to the dice log:
 

@@ -97,6 +97,9 @@ folder.
   their own, monsters' in red, bold, all at 4.5:1 contrast or more.
 
 **Fixed**
+- **Picking a pocket after loading a save:** a try made after the save (the
+  thief caught) is forgotten when it's loaded, so that person can be tried
+  again.
 - **XP taken away and given back between areas** (the game does it as the
   party moves on) is no longer logged as a loss and a gain; a loss that stays
   is logged after a minute.

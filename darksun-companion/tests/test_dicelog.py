@@ -830,6 +830,24 @@ class NewLinesTests(unittest.TestCase):
         self.assertEqual(tracker.check(2.2), [])  # waits for the others' XP
         self.assertEqual(tracker.check(3.0), ["XP: Dag +125 (for Mountain Stalker 500)"])
 
+    def test_pockets_tried_after_a_save_forgotten_on_loading_it(self):
+        """A pocket tried (and the thief caught) after the game was saved can be tried again once
+        that save is loaded: the game's clock goes back past the try."""
+        log = make_game()
+        log.load_picked(["Dag|41|7|Trader@500", "Dag|41|8|Guard"])  # (the second from an older version)
+        set_clock(log, 1000)
+        log.lines(now=1.0)
+        self.assertIsNone(log.take_picked())
+        log._remember_pick("Dag|41|9|Slave")
+        self.assertEqual(log.take_picked(), ["Dag|41|7|Trader@500", "Dag|41|8|Guard", "Dag|41|9|Slave@1000"])
+        set_clock(log, 1300)
+        log.lines(now=2.0)
+        self.assertIsNone(log.take_picked())  # time moving on forgets nothing
+        set_clock(log, 800)  # the game saved at 800, loaded
+        log.lines(now=3.0)
+        self.assertEqual(log.take_picked(), ["Dag|41|7|Trader@500"])
+        self.assertEqual(log.picked, {"Dag|41|7|Trader"})
+
     def test_xp_taken_and_given_back(self):
         """Going between areas the game takes the XP away and gives it back: nothing logged. A
         loss that stays is logged once LOSS_WAIT has passed; a gain after a loss, as the net."""

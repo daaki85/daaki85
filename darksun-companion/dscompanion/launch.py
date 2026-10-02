@@ -95,14 +95,14 @@ def learned_speakers() -> Dict[int, str]:
     return {int(k): v for k, v in names.items() if str(k).isdigit() and isinstance(v, str) and v}
 
 
-def pickpocketed() -> set:
-    """The pockets tried already (pickpocket.py): each person gets one try."""
-    return set(load_settings().get("pickpocketed", []))
+def pickpocketed() -> List[str]:
+    """The pockets tried already (pickpocket.py), "key@game time" each: each person gets one try."""
+    return list(load_settings().get("pickpocketed", []))
 
 
-def add_pickpocketed(keys: List[str]) -> None:
+def set_pickpocketed(entries: List[str]) -> None:
     settings = load_settings()
-    settings["pickpocketed"] = sorted(set(settings.get("pickpocketed", [])) | set(keys))
+    settings["pickpocketed"] = list(entries)
     save_settings(settings)
 
 
