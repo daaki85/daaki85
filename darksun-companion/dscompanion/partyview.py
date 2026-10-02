@@ -91,7 +91,7 @@ class Card(ttk.Frame):
             label.bind("<Configure>", lambda e: label.configure(wraplength=max(e.width, 120)))
 
     def show(self, name: str, fields: Dict[str, str], status: str, current_ac: Optional[int],
-             game_art: Optional["art.GameArt"], slots=(), thief=(), equipment=(), hits=(), saves=(), boots=False) -> None:
+             game_art: Optional["art.GameArt"], slots=(), thief=(), equipment=(), hits=(), saves=(), boots=False, skills_label: str = "Thief skills now") -> None:
         """`slots`: [(kind, [(spell level, left, most), ...]), ...], as GameData.spell_slots gives;
         `thief`: [(skill, percent), ...], as GameData.thief_skills gives; `hits` and `saves`,
         THAC0 with each weapon and the saves as they stand now (GameData.weapon_hits, saves_now)."""
@@ -125,7 +125,7 @@ class Card(ttk.Frame):
         self.vars["attacks"].set(f"Attacks: {get('Attacks/round', '')} a round")
         self.vars["equipment"].set("\n".join(f"{slot.capitalize() if slot else 'Carried'}: {item}"
                                               for slot, item in equipment))
-        self.vars["thief"].set(("Thief skills now: " + ", ".join(f"{name} {n}%" for name, n in thief))
+        self.vars["thief"].set((f"{skills_label}: " + ", ".join(f"{name} {n}%" for name, n in thief))
                                if thief else "")
         self.vars["slots"].set("\n".join(f"{kind} spells left: {game.slots_text(levels)}" for kind, levels in slots))
         key = (number(get("Race", "")) or 0, number(get("Gender", "")) or 0)

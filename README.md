@@ -11,9 +11,11 @@ game itself, in the game's own lettering and windows:
 - **A party viewer:** THAC0 with each weapon, saves as they stand now, AC and
   what makes it up, spell slots, thief skills, equipment and active effects.
 - **In the game:**
-  - THAC0, saves, thief skills and DEX adjustments on the inventory screen;
+  - THAC0, saves, thief skills and DEX adjustments on the inventory screen,
+    THAC0 and saves on View Character;
   - spell slots on the USE screen;
-  - each turn's rolls in a pop-up during fights;
+  - each turn's rolls in a pop-up during fights, if you tick it (three levels
+    of detail);
   - what hurts a monster in the Look box.
 - **Dialogue and spells tabs:** a scrollable record of every conversation, and
   what each spell and psionic power really does, from the game's own records.
@@ -24,14 +26,22 @@ game itself, in the game's own lettering and windows:
   - spells saved against with the spell save;
   - DEX on saves against fire, cold and electricity instead of a doubled d20;
   - a new spell, Cat's Grace;
-  - thieves hiding in shadows and moving silently to backstab.
+  - thieves hiding in shadows and moving silently to backstab, and rangers
+    to attack from behind;
+  - class levels up to 10 (the game stops at 9).
 - **New items and thief play:** a Ring of Protection +1 to find in the arena;
-  Thieves' Tools for every thief; picking anyone's pockets.
+  gear for Kurzak, Legcrusher and Pehtucl in the slave pens (a short sword
+  and a Cloak of Protection among it), with icons of their own; Thieves'
+  Tools for every thief;
+  picking anyone's pockets; and no more thief skill penalty for what a thief
+  holds.
 - **A mini-quest:** the cooked vulture, at last good for something (Dinos
   cooks it for the party).
 
-The game folder and your saves are never modified. For the dice log, the
-launcher runs a patched copy of the game that it keeps in its own folder.
+The game folder is never modified, and your save files only keep what you'd
+expect from play: the items the Ledger hands out, the XP it gives. For the dice
+log, the launcher runs a patched copy of the game that it keeps in its own
+folder.
 
 **Everything else is in [`darksun-companion/README.md`](darksun-companion/README.md):**
 - requirements;
@@ -48,7 +58,44 @@ launcher runs a patched copy of the game that it keeps in its own folder.
 
 ## Changelog
 
-### Unreleased ([pull request #7](https://github.com/daaki85/darksun-companion-mod/pull/7), in review)
+### Pull request #8 ([in review](https://github.com/daaki85/darksun-companion-mod/pull/8))
+
+**Added**
+- **Rule change: levels up to 10.** Every class can reach 10th level, at
+  AD&D's XP (the game stops at 9). The game's own tables and formulas give
+  the rest: hit points, THAC0, saves, spell slots (still no higher than 5th
+  level), thief skills, a gladiator's armour bonus, a preserver's new spell
+  and a psionicist's new power. Thieves roll their 10th hit die (the game
+  would give them a psionicist's fixed +2).
+- **Gear for the slave pens' bosses** (with the Ledger running, given once a
+  game):
+  - Kurzak: a metal Short Sword (1d6, a new item type; a thief can lift it)
+    and a leather Helm;
+  - Legcrusher: Leather Chest Armor +1;
+  - Pehtucl: a Cloak of Protection +1 (a new item type: +1 AC and +1 on saves,
+    as the ring) and a Ring of Protection +1 (a thief can lift it).
+- **Rangers hide in shadows and move silently too** (the stealth rule), with
+  AD&D's ranger chances: the full chance outdoors and half indoors, the
+  reverse of thieves. Their attack from behind is +2 to hit and ignores the
+  target's DEX and shield, but is no backstab. Their two chances show on the
+  inventory screen where a thief's MOVE and HIDE go, and on the Characters
+  tab.
+- **Item icons of their own** for the Short Sword (a shorter blade), Leather
+  Chest Armor +1 (fire), the Cloak of Protection +1 (violet) and the two Rings
+  of Protection +1 (Pehtucl's violet, the arena's fire), made from the game's
+  plain ones. The launcher writes a copy of the game's objects file with them
+  in its own folder; the game folder is untouched.
+
+**Changed**
+- **Thief skills: no equipment penalty.** The game took 5 to 10 off some
+  thief skills for anything in the legs slot, the quiver or either hand
+  (whatever it was); it no longer does in games started with the dice log.
+- **The inventory screen shows hide in shadows** in hear noise's place (which
+  one script check uses); the Ledger's own screens show both.
+- **Pick pockets lifts a short sword** too, though it weighs more than other
+  small things.
+
+### Pull request #7 ([merged 2026-10-01](https://github.com/daaki85/darksun-companion-mod/pull/7))
 
 **Added**
 - **Rule change: AD&D's two-weapon penalties.** A non-ranger with a melee weapon

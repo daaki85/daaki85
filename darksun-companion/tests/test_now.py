@@ -133,6 +133,35 @@ class ThiefTests(unittest.TestCase):
         self.log.guest.mem[ITEMS + 6 * game.ITEM_SIZE + game.ITEM_SLOT] = 0xFF
         self.assertEqual(self.now(), [16, 39, 16, 16, 16, 16])
 
+    def test_panel_shows_a_rangers(self):
+        """A ranger (10th, no thief levels) with the stealth rule: move silently and hide in
+        shadows in a thief's places (AD&D's 78 and 63), the rest 0; nothing without the rule."""
+        self.log.guest.mem[SHEETS + game.SHEET_CLASSES + 1] = 13
+        self.log.guest.mem[SHEETS + game.SHEET_LEVELS + 1] = 10
+        self.log.rules = game.RULE_STEALTH
+        entry = self.log.stats_entry(0)
+        self.assertEqual(list(entry[17:24]), [dicelog.STATS_RANGER, 0, 0, 0, 78, 63, 0])
+        self.log.rules = 0
+        self.assertEqual(list(self.log.stats_entry(0)[17:24]), [0] * 7)
+
+    def test_penalty_slots_from_the_game(self):
+        """The slots come from the game's list in memory: the game's own (the sword in Dag's
+        right hand counts) or the dice log's copy (empty: nothing does)."""
+        m = self.log.guest.mem
+        at = (LOAD_SEG + game.THIEF_TABLE_SEG) * 16 + game.THIEF_PENALTY_LIST
+        m[at:at + 10] = struct.pack("<5H", 6, 1, 10, 3, 13)
+        self.assertEqual(self.log.game.thief_penalty_slots(), (6, 1, 10, 3))
+        self.assertEqual(self.now(), [11, 39, 16, 16, 16, 6])
+        m[at:at + 10] = struct.pack("<5H", 13, 13, 13, 13, 13)
+        self.assertEqual(self.log.game.thief_penalty_slots(), ())
+        self.assertEqual(self.now(), [16, 39, 16, 16, 16, 16])
+
+    def test_panel_shows_hiding(self):
+        """The inventory screen's six (DSCLOG's STATS): hide in shadows in hear noise's place."""
+        self.log.guest.mem[(LOAD_SEG + game.THIEF_TABLE_SEG) * 16 + game.THIEF_BASE + 4] = 7  # hide 7 + 16
+        entry = self.log.stats_entry(0)
+        self.assertEqual(list(entry[17:24]), [1, 11, 39, 16, 16, 23, 6])
+
     def test_effects(self):
         set_effects(self.log, [(0, 0, 47)])  # Slowed: all but picking pockets
         self.assertEqual(self.now(), [11, 0, 0, 0, 0, 0])
@@ -149,7 +178,7 @@ class SettingsTests(unittest.TestCase):
         log.use_settings({"helm_ac": False, "arena_ring": False, "no_doubled_save": False})
         self.assertEqual((log.rules, log.arena_ring, log.monster_info),
                          (game.RULE_BOOTS | game.RULE_TWO_WEAPONS | game.RULE_SPELL_SAVE | game.RULE_CATS_GRACE
-                          | game.RULE_STEALTH,
+                          | game.RULE_STEALTH | game.RULE_LEVEL_10,
                           False, True))
 
 

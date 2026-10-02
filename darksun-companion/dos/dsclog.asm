@@ -49,6 +49,11 @@ VEC_GRACE_ABILITY equ 0xEF ; PROBE_GRACE_ABILITY
 VEC_NAMES_SIZE equ 0xEC    ; PROBE_NAMES_SIZE
 VEC_NAMES_FILL equ 0xEB    ; PROBE_NAMES_FILL
 VEC_STEALTH equ 0xEA       ; PROBE_STEALTH
+VEC_TYPES_SIZE equ 0xE9    ; PROBE_TYPES_SIZE
+VEC_TYPES_FILL equ 0xE8    ; PROBE_TYPES_FILL
+VEC_LEVEL equ 0xE7         ; PROBE_LEVEL
+VEC_HD_ROLL equ 0xE6       ; PROBE_HD_ROLL
+VEC_HD_CON equ 0xE5        ; PROBE_HD_CON
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -77,7 +82,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvM'          ; +0
+sig      db 'DSCLOGvR'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -161,6 +166,13 @@ names_ptr  dd 0                 ; +200 the game's name table, as last loaded wit
 stealth    dw 0                 ; +204 the companion sets bit N when party member N is hidden and
                                 ;      unheard (RULE_STEALTH): their next attack is from behind
 stealth_used dw 0               ; +206 counted up each time one is (the bit cleared)
+types_off  dw extra_types       ; +208 offset of EXTRA_TYPES: item types past the game's own
+                                ;      (TYPES_EXTRA of TYPE_SIZE bytes), copied in as it loads them
+types_count dw TYPES_EXTRA      ; +210 how many
+types_first dw 0                ; +212 the number the first of them gets (the game's own count)
+types_ptr  dd 0                 ; +214 the game's item type table, as last loaded with them
+objects_on dw 0                 ; +218 1 once the game has opened the companion's copy of
+                                ;      SEGOBJEX.GFF (its icons: see PROBE_DOS_OPEN)
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -616,6 +628,19 @@ probe_char:
         inc cx
         cmp cx, 3
         jb .cls
+        ; no thief levels: a ranger's move silently and hide in shadows (the companion's
+        ; stealth rule), in the thief's places, when the companion sends them
+        mov bx, [cs:c_who]
+        call stats_for
+        jc .react
+        cmp byte [cs:bx + 17], STATS_RANGER
+        jne .react
+        mov ax, [cs:bx + 18 + 3]
+        mov [cs:c_vals], ax
+        mov bx, c_cells_thief + 3 * 8
+        mov cx, 2
+        mov byte [cs:c_signed], 0
+        call c_cells
         jmp .react
 .thief: mov al, [es:si + bx + 3]  ; the thief level (levels follow the classes)
         call c_thief
@@ -828,10 +853,10 @@ c_thief:
         cmp bx, 8
         jb .skill
         pop si
-        mov al, [cs:c_vals + 5] ; the five the game ever rolls and move silently (the Templar's
-        mov [cs:c_vals + 4], al ; Ledger rolls it when a pocket isn't picked): hide in shadows
-        mov al, [cs:c_vals + 6] ; and read languages are never checked (its script decoder found
-        mov [cs:c_vals + 5], al ; no script asking for them)
+        mov al, [cs:c_vals + 6] ; pick pockets, open locks, find traps, move silently and hide in
+        mov [cs:c_vals + 5], al ; shadows (which the Templar's Ledger rolls: for picking pockets
+                                ; and its stealth rule), and climb walls; not hear noise (one
+                                ; script check in the game) or read languages (none)
         mov bx, [cs:c_who]      ; the companion's, with equipment and effects, if it keeps them
         call stats_for
         jc .ours
@@ -940,7 +965,7 @@ c_cells_thief:                  ; right of the abilities (whose values end by 10
         dw 0x113, 0x3C, l_lock, 0x12D
         dw 0x113, 0x43, l_trap, 0x12D
         dw 0x113, 0x4A, l_move, 0x12D  ; (move silently)
-        dw 0x113, 0x51, l_hear, 0x12D
+        dw 0x113, 0x51, l_hide, 0x12D  ; (hide in shadows)
         dw 0x113, 0x58, l_clmb, 0x12D
 l_thac0 db 'THAC0:', 0
 l_ppd   db 'PPD', 0
@@ -952,7 +977,7 @@ l_pick  db 'PICK', 0
 l_lock  db 'LOCK', 0
 l_trap  db 'TRAP', 0
 l_move  db 'MOVE', 0
-l_hear  db 'HEAR', 0
+l_hide  db 'HIDE', 0
 l_clmb  db 'CLMB', 0
 l_react db 'REAC', 0
 l_defence db 'DEF', 0
@@ -1548,8 +1573,10 @@ probe_unlook:
 ; STATS: STATS_SIZE bytes for each party member, kept by the companion: +0 1 if in use, +1 THAC0
 ; with the main weapon (signed), +2 the five saves as the d20 needed now, +8 three words: the
 ; item numbers of the weapons ready, +14 three bytes: the THAC0 with each (signed), +17 1 for a
-; thief, +18 the five thief skills the game rolls, as they stand (equipment and effects too)
+; thief (2 for a ranger: of the six, only move silently and hide in shadows count), +18 the six
+; thief skills the panel shows, as they stand (equipment and effects too)
 STATS_SIZE  equ 24
+STATS_RANGER equ 2
 STATS_FRESH equ 91              ; timer ticks (5 seconds)
 STATS_WAIT  equ 9               ; ... (half a second): the longest a screen waits for fresh STATS
 stats   times 4 * STATS_SIZE db 0
@@ -1725,6 +1752,7 @@ HELM_METAL   equ 89             ; Contemplation; and a leather one no object use
 HELM_OTHER   equ 109            ; Might, made by a script)
 FINGER     equ 4                ; the item's slot byte while worn on a finger (the left
 FINGER2    equ 11               ; hand's, then the right's)
+CLOAK      equ 12               ; ... and on the back
 THINGS     equ 0xC36            ; the things table (3 bytes each: kind, index) in its segment
 NO_THING   equ 0x270F
 CREATURES  equ 0x1665           ; DS: far pointer to the creature records (3Ah bytes each)
@@ -1796,6 +1824,15 @@ ring_plus:                      ; DS = the game's, AX = the things table's segme
         add si, [cs:ws_plus]
         mov ax, [cs:r_who]
         mov word [cs:ws_slot], FINGER2
+        call worn_scan
+        add si, [cs:ws_plus]
+        mov ax, [cs:types_first]  ; and a cloak of protection's (the second of TYPES), worn
+        or ax, ax
+        jz .done
+        inc ax
+        mov [cs:ws_type], ax
+        mov word [cs:ws_slot], CLOAK
+        mov ax, [cs:r_who]
         call worn_scan
         add si, [cs:ws_plus]
 .done:  ret
@@ -1883,6 +1920,7 @@ RULE_SPELL_SAVE equ 8           ; (the companion writes the game's save table fo
 RULE_NO_DOUBLE equ 16
 RULE_CATS_GRACE equ 32          ; (the companion also gives Flaming Sphere Strength's record and the name)
 RULE_STEALTH equ 64             ; (the companion rolls the hiding and moving silently, and sets STEALTH)
+RULE_LEVEL_10 equ 128          ; class levels go up to 10, not 9
 FOOT       equ 13               ; the item's slot byte while worn on the feet
 THINGS_SEG equ 0x3972 - 0x4356  ; the things table's segment, relative to DS
 
@@ -1993,6 +2031,134 @@ probe_double:
         jnz .done
         shl al, 1
 .done:  iret
+
+; PROBE_LEVEL: INT VEC_LEVEL replaces "cmp byte es:[bx+24h],9" (5 bytes: INT + 3 NOPs) in the
+; two places the game holds a class level (ES:BX+24h, a sheet's) against its cap of 9: where a
+; character goes up a level (only while below it) and where View Character shows the XP for the
+; next level (not at it). With RULE_LEVEL_10 the cap is 10: the game's XP tables, hit points,
+; THAC0, saves, spell slots and thief skills all go on past 9 (the tables have 20 levels, the
+; rest are formulas). RETF 2 keeps the compare's flags.
+probe_level:
+        sti
+        push ax
+        mov al, 9
+        test byte [cs:rules], RULE_LEVEL_10
+        jz .cmp
+        inc al
+.cmp:   cmp [es:bx+0x24], al
+        pop ax
+        retf 2
+
+; A thief's hit dice. The game keeps one "dice up to this level" for thieves and psionicists
+; together (9: after it, +2 a level), but an AD&D thief rolls a d6 up to 10th (a psionicist
+; stops at 9th). With RULE_LEVEL_10 a thief's goes to 10, in the two places it counts.
+THIEF_CLASS equ 17
+; PROBE_HD_ROLL: INT VEC_HD_ROLL replaces "mov al,es:[bx+1]" (5 bytes: INT + 3 NOPs) where a new
+; level's hit points are a roll or the fixed gain: ES:BX the class's hit point group, the
+; game's [BP+8] the class.
+probe_hd_roll:
+        mov al, [es:bx+1]
+        test byte [cs:rules], RULE_LEVEL_10
+        jz .done
+        cmp al, 9
+        jne .done
+        cmp word [bp+8], THIEF_CLASS
+        jne .done
+        inc al
+.done:  iret
+
+; PROBE_HD_CON: INT VEC_HD_CON replaces "cmp al,es:[bx+1]" (5 bytes: INT + 3 NOPs) where the game
+; counts the levels CON's hit point bonus applies to: AL a class's level, ES:BX its group, the
+; game's [BP-4] the sheet (far) and CX which of its classes. RETF 2 keeps the compare's flags.
+probe_hd_con:
+        sti
+        push dx
+        mov dl, [es:bx+1]
+        test byte [cs:rules], RULE_LEVEL_10
+        jz .cmp
+        cmp dl, 9
+        jne .cmp
+        push es
+        push bx
+        les bx, [bp-4]
+        add bx, cx
+        cmp byte [es:bx+0x21], THIEF_CLASS
+        pop bx
+        pop es
+        jne .cmp
+        inc dl
+.cmp:   cmp al, dl
+        pop dx
+        retf 2
+
+; PROBE_DOS_OPEN: the DOS services (INT 21h), hooked. Opening a file (AH=3Dh) whose name ends in
+; SEGOBJEX.GFF, the game's objects and their pictures, opens the companion's copy instead
+; (D:\SEGOBJEX.GFF, which the launcher writes with the companion's item icons added; the game
+; folder is never changed); with no copy there, the game's own. Everything else goes on to DOS.
+OBJ_NAME_LEN equ 12
+probe_dos_open:
+        cmp ah, 3Dh
+        jne .chain
+        push ax
+        push cx
+        push si
+        push di
+        mov si, dx
+        mov cx, 128
+.end:   cmp byte [si], 0
+        je .at_end
+        inc si
+        loop .end
+        jmp .no
+.at_end:
+        mov ax, si
+        sub ax, dx
+        cmp ax, OBJ_NAME_LEN
+        jb .no
+        sub si, OBJ_NAME_LEN
+        mov di, obj_name
+        mov cx, OBJ_NAME_LEN
+.cmp:   mov al, [si]
+        cmp al, 'a'
+        jb .upper
+        cmp al, 'z'
+        ja .upper
+        sub al, 20h
+.upper: cmp al, [cs:di]
+        jne .no
+        inc si
+        inc di
+        loop .cmp
+        pop di
+        pop si
+        pop cx
+        pop ax
+        sti                     ; (RETF 2 keeps these flags: interrupts on, as the game had them)
+        push ax                 ; (the game's AX, for its own file if there's no copy)
+        push ds
+        push dx
+        push cs
+        pop ds
+        mov dx, obj_copy
+        pushf
+        call far [cs:old21]
+        pop dx
+        pop ds
+        jc .own
+        pop word [cs:obj_scratch]  ; (POP keeps the flags: CF clear, AX the handle)
+        mov word [cs:objects_on], 1
+        retf 2
+.own:   pop ax
+        jmp .chain
+.no:    pop di
+        pop si
+        pop cx
+        pop ax
+.chain: jmp far [cs:old21]
+old21       dd 0
+obj_scratch dw 0
+obj_name    db 'SEGOBJEX.GFF'
+obj_copy    db 'D:\SEGOBJEX.GFF', 0
 
 ; CAT'S GRACE (RULE_CATS_GRACE): Flaming Sphere (spell 14), given Strength's record and the
 ; name by the companion, works as Strength does but for DEX: its own effect (54, a number the
@@ -2117,6 +2283,84 @@ probe_names_fill:
 n_ip    dw 0
 n_cs    dw 0
 n_fl    dw 0
+
+; TYPES: the game's item types (GPLDATA's IT1R chunk, 20 bytes each, which items name by
+; number), read in just before the names, get TYPES_EXTRA more in the same way: for the
+; companion's own items that no type of the game's fits (a metal short sword, a cloak of
+; protection). Nothing in the game limits the numbers to its own.
+TYPE_SIZE   equ 20
+TYPES_EXTRA equ 8
+TYPES_PTR   equ 0x1669          ; DS: far pointer to the item types
+
+; PROBE_TYPES_SIZE: INT VEC_TYPES_SIZE replaces "push dword 1" (3 bytes: INT + NOP) before the
+; game reserves memory for the IT1R chunk, its size the dword at [BP-4]: adds the room.
+probe_types_size:
+        add word [bp-4], TYPES_EXTRA * TYPE_SIZE
+        adc word [bp-2], 0
+        pop word [cs:n_ip]
+        pop word [cs:n_cs]
+        pop word [cs:n_fl]
+        push dword 1
+        push word [cs:n_fl]
+        push word [cs:n_cs]
+        push word [cs:n_ip]
+        iret
+
+; PROBE_TYPES_FILL: INT VEC_TYPES_FILL replaces "add sp,0Ch" (3 bytes: INT + NOP) after the
+; call that reads the chunk in (AX 0: read). Does the add, then, if it was read, copies
+; EXTRA_TYPES after the game's own (the room made, [BP-4], less theirs) and notes where.
+probe_types_fill:
+        pop word [cs:n_ip]
+        pop word [cs:n_cs]
+        pop word [cs:n_fl]
+        add sp, 0x0C
+        push word [cs:n_fl]
+        push word [cs:n_cs]
+        push word [cs:n_ip]
+        or ax, ax
+        jnz .out
+        push ax
+        push cx
+        push dx
+        push si
+        push di
+        push ds
+        push es
+        les di, [TYPES_PTR]
+        mov [cs:types_ptr], di
+        mov [cs:types_ptr+2], es
+        mov ax, [bp-4]
+        sub ax, TYPES_EXTRA * TYPE_SIZE
+        add di, ax              ; after the game's own
+        xor dx, dx
+        mov cx, TYPE_SIZE
+        div cx
+        mov [cs:types_first], ax
+        push cs
+        pop ds
+        mov si, extra_types
+        mov cx, TYPES_EXTRA * TYPE_SIZE
+        cld
+        rep movsb
+        pop es
+        pop ds
+        pop di
+        pop si
+        pop dx
+        pop cx
+        pop ax
+.out:   iret
+; the types, numbered from the game's count (115): the companion's (the same as TYPES in
+; dscompanion/npcitems.py), the rest unused
+extra_types:
+        ; a metal short sword: the metal long sword's type (63), 1d6
+        db 0x01, 0x00, 0x30, 0x00, 0x1E, 0x00, 0xFA, 0x00, 0x04, 0x05, 0x01, 0x01
+        db 0x06, 0x01, 0x00, 0x00, 0x72, 0x16, 0x00, 0x01
+        ; a cloak of protection: the Cloak's type (65), no material shown, its plus counting
+        ; for AC (bit 80h of +0Fh, as armour's) with an AC of its own of 0
+        db 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x0A, 0x00, 0x40, 0x08, 0x00, 0x00
+        db 0x00, 0x00, 0x00, 0x80, 0xFF, 0x1F, 0x00, 0x01
+        times (TYPES_EXTRA - 2) * TYPE_SIZE db 0
 ; the names, numbered from NAMES_OWN (322): the companion's items' (the same as the companion's
 ; NAMES in dscompanion/names.py), the rest blank until it writes more
 extra_names:
@@ -2124,7 +2368,13 @@ extra_names:
         times NAME_SIZE - 15 db 0
         db "Thieves' Tools"
         times NAME_SIZE - 14 db 0
-        times (NAMES_EXTRA - 2) * NAME_SIZE db 0
+        db "Short Sword"                ; (Kurzak's, of type TYPES' first)
+        times NAME_SIZE - 11 db 0
+        db "Cloak/Protectn"             ; (Pehtucl's, the game's way of shortening)
+        times NAME_SIZE - 14 db 0
+        db "Ring/Protection"            ; (Pehtucl's ring: the arena's is the first; their icons differ)
+        times NAME_SIZE - 15 db 0
+        times (NAMES_EXTRA - 5) * NAME_SIZE db 0
 
 ; STEALTH (RULE_STEALTH): a thief who starts a turn with no enemy next to them may hide in
 ; shadows and move silently up to someone; the companion rolls both and, when both succeed,
@@ -2240,7 +2490,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 27
+        mov cx, 32
 .check:
         lodsb
         mov ah, 35h
@@ -2337,6 +2587,28 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_STEALTH
         mov dx, probe_stealth
         int 21h
+        mov ax, 2500h + VEC_TYPES_SIZE
+        mov dx, probe_types_size
+        int 21h
+        mov ax, 2500h + VEC_TYPES_FILL
+        mov dx, probe_types_fill
+        int 21h
+        mov ax, 2500h + VEC_LEVEL
+        mov dx, probe_level
+        int 21h
+        mov ax, 2500h + VEC_HD_ROLL
+        mov dx, probe_hd_roll
+        int 21h
+        mov ax, 2500h + VEC_HD_CON
+        mov dx, probe_hd_con
+        int 21h
+        mov ax, 3521h           ; DOS itself last: opening the objects file (PROBE_DOS_OPEN)
+        int 21h
+        mov [old21], bx
+        mov [old21 + 2], es
+        mov ax, 2521h
+        mov dx, probe_dos_open
+        int 21h
         mov byte [hooked], 1
 
         mov es, [cs:psp]
@@ -2352,8 +2624,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or EAh-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH
+busy    db 'DSCLOG: interrupts 60h-65h or E5h-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON
 
         align 16, db 0
 image_len equ $ - $$

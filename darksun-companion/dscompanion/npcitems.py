@@ -1,0 +1,139 @@
+"""Items of the companion's own on people in the slave pens.
+
+- Kurzak, the leader of the guards: a metal Short Sword (a thief can lift it) and a leather Helm.
+- Legcrusher, the half-giant monster trainer: Leather Chest Armor +1.
+- Pehtucl, the head templar (the Templar in the pens' south-west corner, who carries the
+  Obsidian Bloodwrath): a Cloak of Protection +1 (+1 AC, +1 on saves) and a Ring of
+  Protection +1 (a thief can lift it).
+
+The game has no short sword, and no cloak whose plus counts, so those two have item types of
+the companion's own: DSCLOG adds TYPES after the game's 115 each time it reads its type table
+in, as it adds names after its 322 (names.py). The Ledger puts the items among each one's
+things once a game (the key in the tools_given set, kept in settings), when the party is in the
+pens and the table has DSCLOG's types; the game then keeps and saves them like its own.
+"""
+
+import struct
+from typing import Dict, List, Optional, Set, Tuple
+
+from . import game, pickpocket, ring
+from .game import GameData
+
+REGION = 0x29  # the slave pens
+SHORT_SWORD, CLOAK, RING = 0x144, 0x145, 0x146  # name entries DSCLOG adds
+# as DSCLOG's EXTRA_NAMES has them. Pehtucl's ring is named as the arena's, in an entry of its own
+# so that each keeps its own icon (icons.py)
+NAMES = {SHORT_SWORD: b"Short Sword", CLOAK: b"Cloak/Protectn", RING: ring.NAME}
+GAME_TYPES, SHORT_SWORD_TYPE, CLOAK_TYPE = game.GAME_TYPES, game.SHORT_SWORD_TYPE, game.CLOAK_TYPE
+TYPES = (  # as DSCLOG's EXTRA_TYPES has them
+    bytes.fromhex("010030001e00fa00040501010601000072160001"),  # the metal long sword's (63), 1d6
+    bytes.fromhex("000000000a000a00400800000000008" "0ff1f0001"),  # the Cloak's (65): its plus counts for AC
+)
+TSR_TYPES_OFF, TSR_TYPES_COUNT, TSR_TYPES_FIRST, TSR_TYPES_PTR = 208, 210, 212, 214
+BLOODWRATH = 0x9C  # the name entry of the Templar's sword: which Templar is Pehtucl
+
+
+def _item(template: str, plus: int = 0, type_: Optional[int] = None, name: Optional[int] = None) -> bytes:
+    """An item record from one of the game's templates (SEGOBJEX), in no list and no slot."""
+    rec = bytearray.fromhex(template)
+    struct.pack_into("<H", rec, game.ITEM_NEXT, game.NO_ITEM)
+    struct.pack_into("<H", rec, ring.ITEM_CONTENTS, game.NO_ITEM)
+    rec[game.ITEM_SLOT] = 0xFF
+    if type_ is not None:
+        struct.pack_into("<H", rec, game.ITEM_TYPE, type_)
+    if name is not None:
+        struct.pack_into("<H", rec, game.ITEM_NAME, name)
+    rec[0x0C] = 0  # (the game's cache of the item's picture; the Cloak's template has 35h)
+    rec[game.ITEM_PLUS] = plus & 0xFF
+    return bytes(rec)
+
+
+# pictures and the rest from the game's own: the metal long sword, the Helm, Leather Chest
+# Armor, the Cloak
+SWORD = _item("0afc00000000f40100003f000000000006ff1c0000", type_=SHORT_SWORD_TYPE, name=SHORT_SWORD)
+HELM = _item("03fc000000000500000005000000000004ff060000")
+CHEST_ARMOR = _item("02fc000000000a00000006000000000004ff070000", plus=1)
+CLOAK_ITEM = _item("e3fb000000001400000041003500000003ff0e0000", plus=1, type_=CLOAK_TYPE, name=CLOAK)
+RING_ITEM = ring.RING[:game.ITEM_NAME] + struct.pack("<H", RING) + ring.RING[game.ITEM_NAME + 2:]
+# each one's: (item, where it goes: worn in that slot, or None for a backpack cell). Worn
+# things go on the body (and still a backpack cell if that slot is taken)
+SLOT = {name: game.EQUIP_SLOTS.index(name) for name in ("head", "chest", "cloak")}
+ITEMS_FOR: Dict[str, List[Tuple[bytes, Optional[int]]]] = {
+    "Kurzak": [(SWORD, None), (HELM, SLOT["head"])],
+    "Legcrusher": [(CHEST_ARMOR, SLOT["chest"])],
+    "Pehtucl": [(CLOAK_ITEM, SLOT["cloak"]), (RING_ITEM, game.FINGER)],
+}
+
+
+def types_ready(gd: GameData, tsr_hdr) -> bool:
+    """The game's type table has DSCLOG's types, numbered from GAME_TYPES."""
+    if tsr_hdr is None:
+        return False
+    first, off, seg = struct.unpack("<HHH", gd.guest.read(tsr_hdr + TSR_TYPES_FIRST, 6))
+    return first == GAME_TYPES and seg * 16 + off == game.far_pointer(gd.guest, gd.ds, game.ITEM_TYPES_PTR)
+
+
+def who(gd: GameData, it: ring.Items, index: int) -> Optional[str]:
+    """Which of the three a creature is: by name, and Pehtucl as the Templar carrying the
+    Bloodwrath."""
+    name = gd.creature_name(index)
+    if name in ("Kurzak", "Legcrusher"):
+        return name
+    if name == "Templar":
+        rec = gd.creature(index)
+        for offset in game.CREATURE_ITEM_LISTS:
+            thing, = struct.unpack_from("<h", rec, offset)
+            if any(struct.unpack_from("<H", data, game.ITEM_NAME)[0] == BLOODWRATH for _, data in it.chain(thing)):
+                return "Pehtucl"
+    return None
+
+
+def add_to(gd: GameData, creature: int, rec: bytes, slot: Optional[int] = None) -> bool:
+    """An item from the game's free list, made `rec`, put first in the creature's (last
+    non-empty) item list: worn in `slot` if given and free, else in a backpack cell of its
+    own. False if there's nowhere (or no item record) for it."""
+    it = ring.Items(gd)
+    lists = [struct.unpack_from("<h", gd.creature(creature), o)[0] for o in game.CREATURE_ITEM_LISTS]
+    thing = next((t for t in reversed(lists) if 0 <= t < ring.THING_COUNT), None)
+    used = {data[game.ITEM_SLOT] for t in lists for _, data in it.chain(t, inside=False)}
+    cell = slot if slot is not None and slot not in used else pickpocket.free_cell(gd, it, creature)
+    item = it.word(ring.FREE_ITEMS)
+    if thing is None or cell is None or item >= game.NO_ITEM:
+        return False
+    kind, first = it.thing(thing)
+    if kind != game.THING_ITEM:
+        return False
+    gd.guest.write(gd.ds * 16 + ring.FREE_ITEMS, it.item(item)[game.ITEM_NEXT:game.ITEM_NEXT + 2])
+    rec = bytearray(rec)
+    struct.pack_into("<h", rec, game.ITEM_NEXT, first)
+    rec[game.ITEM_SLOT] = cell
+    gd.guest.write(it.items + item * game.ITEM_SIZE, bytes(rec))
+    gd.guest.write(it.things + thing * 3, struct.pack("<Bh", game.THING_ITEM, item))
+    return True
+
+
+def place(gd: GameData, given: Set[str]) -> List[str]:
+    """In the pens, each of the three gets those of their things not yet given this game
+    (GIVEN: a key for each, updated)."""
+    if gd.region() != REGION:
+        return []
+    it = ring.Items(gd)
+    out = []
+    for index in sorted(set(gd.combatants().values())):
+        name = who(gd, it, index)
+        rec = gd.creature(index)
+        if name is None or len(rec) < game.CREATURE_SIZE or struct.unpack_from("<h", rec, 0)[0] <= 0:
+            continue
+        added = []
+        for item, slot in ITEMS_FOR[name]:
+            key = f"{gd.creature_name(0)}|npc:{name}:{struct.unpack_from('<H', item, game.ITEM_NAME)[0]:x}"
+            if key not in given and add_to(gd, index, item, slot):
+                given.add(key)  # (each once a game, whatever comes of it)
+                added.append(label(gd, item))
+        if added:
+            out.append(f"({name} now carries {', '.join(added)})")
+    return out
+
+
+def label(gd: GameData, rec: bytes) -> str:
+    return gd.item_label(rec, gd.item_type_record(rec))
