@@ -420,6 +420,25 @@ def draw_cloak(rows: Rows, body: Rows, model: int, parts: sp.Parts, item_type: i
                 and len(group) >= 4:
             kept.update({q: placed[q] for q in group})
     placed = kept
+    # no holes: a pixel with cloak on both sides (along its row or its column, within two) is cloak
+    for _ in range(2):
+        fill = {}
+        for (x, y) in list(placed):
+            for dx, dy in ((1, 0), (0, 1)):
+                for gap in (1, 2):
+                    a, b = (x + dx, y + dy), (x + dx * (gap + 1), y + dy * (gap + 1))
+                    if a not in placed and b in placed:
+                        for k in range(1, gap + 1):
+                            fill.setdefault((x + dx * k, y + dy * k), placed[(x, y)])
+                        break
+        placed.update(fill)
+    # a dark edge where the cloak meets the ground, as hers has (not along its top, at the shoulders)
+    edge = set()
+    for (x, y) in placed:
+        for dx, dy in ((1, 0), (-1, 0), (0, 1)):
+            n = (x + dx, y + dy)
+            if n not in placed and n not in on_body:
+                edge.add(n)
     for (x, y), p in placed.items():
         X, Y = x + pad, y + pad
         if not (0 <= Y < len(rows) and 0 <= X < len(rows[Y])):
@@ -435,6 +454,11 @@ def draw_cloak(rows: Rows, body: Rows, model: int, parts: sp.Parts, item_type: i
             t = ramp.index(p) / max(1, len(ramp) - 1)
             colour = shades[min(len(shades) - 1, max(1, int(t * (len(shades) - 1) + 0.5)))]
         rows[Y][X] = colour
+    outline = 254 if shades is None else shades[0]
+    for x, y in edge:
+        X, Y = x + pad, y + pad
+        if 0 <= Y < len(rows) and 0 <= X < len(rows[Y]) and rows[Y][X] is None:
+            rows[Y][X] = outline
 
 
 def armed(rows: Rows, model: int, frame: int, combat: bool, weapons: Dict[str, Tuple[int, int]],
