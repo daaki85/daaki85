@@ -939,9 +939,7 @@ class DiceLog:
                 out += bonescale.place(self.game, self.tools_given)  # the bone scale armour's set
                 npcitems.reprice(self.game)  # (those given before they had a magic item's price)
                 self._tools_new += sorted(self.tools_given - before)
-            before = set(self.tools_given)  # Kalzith's scrolls, his stock (Cat's Grace by its rule)
-            kalzith.stock(self.game, self.tools_given, bool(self.rules & game.RULE_CATS_GRACE))
-            self._tools_new += sorted(self.tools_given - before)
+            kalzith.stock(self.game, bool(self.rules & game.RULE_CATS_GRACE))  # (once a game, by its flag)
             if self.pickpockets:
                 tools.repaint(self.game)
                 before = set(self.tools_given)

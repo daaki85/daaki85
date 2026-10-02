@@ -48,9 +48,10 @@ RDFF_SELF, RDFF_NAME, RDFF_NAME_SIZE = 0x10, 0x32, 8  # the record's own object 
 RDFF_CLASS, RDFF_LEVEL = 0x6F, 0x72  # (as the arena Defiler's: a defiler, of level 9)
 DEFILER_CLASS, LEVEL = 18, 5
 
-# his state, in three of the game's global flags (bits; it uses 1-755, a save keeps 808): met
-# him, friendly, cold
+# his state, in four of the game's global flags (bits; it uses 1-755, a save keeps 808): met
+# him, friendly, cold; his scrolls given
 MET, FRIENDLY, COLD = 760, 761, 762
+STOCKED = 763  # (set by the Ledger: his scrolls given)
 
 # The scrolls: (spell, its name, price in ceramic pieces). Cat's Grace is the game's Flaming Sphere
 # (14) under the companion's rule, so it is sold only while the rule is on.
@@ -504,23 +505,16 @@ def region_chunks(rgn: bytes) -> Dict[Tuple[str, int], bytes]:
 # ---------------------------------------------------------------------------------------------
 # His stock, given once a game
 
-def _has_scroll(gd, it, index: int, spell: int) -> bool:
-    lists = [struct.unpack_from("<h", gd.creature(index), o)[0] for o in game.CREATURE_ITEM_LISTS]
-    return any(struct.unpack_from("<H", data, game.ITEM_TYPE)[0] == SCROLL_TYPE
-               and struct.unpack_from("<H", data, ITEM_SPELL)[0] == spell
-               for t in lists for _, data in it.chain(t))
-
-
 CREATURES_SEEN = 128  # creature records searched for him (the pens have 34)
 
 
-def stock(gd, given: set, cats_grace: bool) -> List[str]:
-    """In the pens, Kalzith gets those of his scrolls not yet given this game (GIVEN: a key for
-    each, updated; Cat's Grace only with its rule on). The scrolls given, by name."""
-    from . import npcitems, ring
-    if gd.region() != REGION:
+def stock(gd, cats_grace: bool) -> List[str]:
+    """In the pens, once a game, Kalzith gets his scrolls (Cat's Grace only with its rule on);
+    the game's flag STOCKED marks it done (a save keeps it, a new game starts without it). The
+    scrolls given, by name."""
+    from . import npcitems
+    if gd.region() != REGION or gd.flag(STOCKED):
         return []
-    out = []
     # (found by name among the region's creatures: not among the first 256 objects, where he
     # is not - the pens' 304th)
     table = gd.creatures(CREATURES_SEEN)
@@ -529,21 +523,12 @@ def stock(gd, given: set, cats_grace: bool) -> List[str]:
         at = index * game.CREATURE_SIZE
         if table[at + game.CREATURE_NAME:at + game.CREATURE_NAME + len(name)] != name:
             continue
-        it = ring.Items(gd)
-        for k, (spell, name, price) in enumerate(SCROLLS):
-            if spell == game.FLAMING_SPHERE and not cats_grace:
-                continue
-            key = f"{gd.creature_name(0)}|kalzith:{spell}"
-            if key in given:
-                continue
-            if _has_scroll(gd, it, index, spell):
-                given.add(key)
-                continue
-            if npcitems.add_to(gd, index, scroll(spell, price, k)):
-                given.add(key)
-                out.append(name)
-                it = ring.Items(gd)
-    return out
+        out = [name_ for k, (spell, name_, price) in enumerate(SCROLLS)
+               if (cats_grace or spell != game.FLAMING_SPHERE)
+               and npcitems.add_to(gd, index, scroll(spell, price, k))]
+        gd.set_flag(STOCKED)
+        return out
+    return []
 
 
 # ---------------------------------------------------------------------------------------------

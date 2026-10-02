@@ -164,6 +164,32 @@ class KalzithTests(unittest.TestCase):
         self.assertEqual(struct.unpack_from("<H", rec, kalzith.ITEM_VALUE)[0], 500)
         self.assertEqual(rec[game.ITEM_SLOT], 0xFF)
 
+    def test_stock(self):
+        """Once a game (the game's flag STOCKED), found by name; Cat's Grace only with its rule."""
+        from unittest import mock
+        from dscompanion import npcitems
+        class Game:
+            flags = set()
+            def region(self): return kalzith.REGION
+            def flag(self, n): return n in self.flags
+            def set_flag(self, n, on=True): self.flags.add(n)
+            def creatures(self, count):
+                t = bytearray(count * game.CREATURE_SIZE)
+                at = 9 * game.CREATURE_SIZE + game.CREATURE_NAME
+                t[at:at + 8] = b"Kalzith\0"
+                return bytes(t)
+        gd, given = Game(), []
+        with mock.patch.object(npcitems, "add_to", lambda g, i, rec: given.append((i, rec)) or True):
+            self.assertEqual(kalzith.stock(gd, cats_grace=False),
+                             [n for s, n, _ in kalzith.SCROLLS if s != game.FLAMING_SPHERE])
+            self.assertEqual({i for i, _ in given}, {9})
+            self.assertIn(kalzith.STOCKED, gd.flags)
+            self.assertEqual(kalzith.stock(gd, cats_grace=True), [])  # (done this game)
+            gd.flags.clear(); given.clear()
+            self.assertEqual(len(kalzith.stock(gd, cats_grace=True)), 6)
+            # each scroll its own object
+            self.assertEqual(len({struct.unpack_from("<h", r, 0)[0] for _, r in given}), 6)
+
     def test_six_scrolls(self):
         """Two of each level 1-3, at 100, 250 and 500."""
         self.assertEqual([p for _, _, p in kalzith.SCROLLS], [100, 100, 250, 250, 500, 500])
