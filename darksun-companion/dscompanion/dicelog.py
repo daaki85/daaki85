@@ -24,7 +24,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Callable, Dict, List, NamedTuple, Optional, Tuple
 
-from . import bonescale, game, icons, monsters, names, npcitems, pickpocket, ring, stealth, tools, vulture
+from . import bonescale, game, icons, monsters, names, npcitems, pickpocket, ring, sprites, stealth, tools, vulture
 from .game import (CONVENTIONAL_AND_UPPER, CREATURE_ABILITIES, CREATURE_SIDE, CREATURE_THAC0, EFFECT_NAMES,
                    EFFECT_RULES, MATERIAL_TO_HIT, MATERIALS, SAVE_NAMES, STR_DAMAGE, GameData)
 from .guestmem import GuestMemory
@@ -325,6 +325,9 @@ class DiceLog:
         self.monster_info = True  # monsters' defences in the game's Look box (set_monster_info)
         self.arena_ring = True  # put the Ring +1 on the Tied-up Prisoner's body in the arena (ring.py)
         self.pickpockets = True  # P in a conversation picks a pocket (pickpocket.py)
+        self.show_gear = True  # the party's map sprites dressed in what they wear (sprites.py)
+        self._dresser: Optional[sprites.Dresser] = None
+        self._dresser_tried = False
         self.picked: set = set()  # the pockets tried already (each person gets one try)
         # ... and when, by the game's clock: one tried after the game being played was saved is
         # forgotten when that save is loaded (the clock goes back past it)
@@ -570,6 +573,7 @@ class DiceLog:
         self.monster_info = bool(settings.get("monster_info", True))
         self.arena_ring = bool(settings.get("arena_ring", True))
         self.pickpockets = bool(settings.get("pickpockets", True))
+        self.show_gear = bool(settings.get("show_gear", True))
         self.load_picked(settings.get("pickpocketed", []))
         self.tools_given = set(settings.get("tools_given", []))
         self.rules = game.rules_from_settings(settings)
@@ -942,9 +946,25 @@ class DiceLog:
                 self._tools_new += sorted(self.tools_given - before)
             out += self._ring_search()
             icons.repaint(self.game, icons.ready(self.game, self.tsr_hdr))  # the items' own icons
+            self._dress(now)
         except (struct.error, IndexError, ValueError):
             return out
         return out
+
+    def _dress(self, now: float) -> None:
+        """The party's sprites in what they wear, once the game has the Ledger's SEGOBJEX (whose
+        party pictures the Ledger keeps dressed); as the game's own when switched off."""
+        if not icons.ready(self.game, self.tsr_hdr):
+            return
+        if self._dresser is None and not self._dresser_tried:
+            from . import launch
+            self._dresser_tried = True
+            import os
+            copy = os.path.join(launch.DOS_DIR, icons.OBJECTS_FILE)
+            self._dresser = sprites.Dresser.for_game(self.game, launch.find_game_dir(),
+                                                     copy if os.path.exists(copy) else None)
+        if self._dresser is not None and (self.show_gear or self._dresser.shown):
+            self._dresser.update(self.show_gear, now)
 
     def _ring_search(self) -> List[str]:
         """While the arena's ring is still to be found: have DSCLOG show ring.SEARCH_TEXT instead

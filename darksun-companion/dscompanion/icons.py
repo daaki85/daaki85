@@ -264,7 +264,14 @@ def write_objects(source: str, dest: str) -> None:
     """The game's SEGOBJEX.GFF (SOURCE, only read) with the companion's icons, to DEST."""
     with open(source, "rb") as f:
         data = f.read()
-    out = with_chunks(data, new_chunks(gff.read_gff(data)))
+    from . import sprites
+    chunks = gff.read_gff(data)
+    added = new_chunks(chunks)
+    try:
+        added.update(sprites.new_chunks(chunks))  # (the party's own sprites, for what they wear)
+    except (KeyError, ValueError, IndexError, struct.error):
+        pass
+    out = with_chunks(data, added)
     tmp = dest + ".tmp"
     with open(tmp, "wb") as f:
         f.write(out)
