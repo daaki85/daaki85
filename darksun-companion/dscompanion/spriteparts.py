@@ -357,6 +357,10 @@ CORRECTIONS: Dict[Tuple[int, bool, int], dict] = {
     (2099, True, 2): {"hands": {"right": (8, 1), "left": (10, 18)}},
     (2099, True, 5): {"hands": {"right": (8, 9), "left": (10, 9)}},
     (2099, True, 12): {"hands": {"right": (1, 13), "left": (11, 4)}},
+    (2059, True, 0): {"hands": {"right": (13, 11), "left": (6, 24)}},
+    (2061, True, 2): {"hands": {"right": (8, 3), "left": (11, 18)}},
+    (2070, True, 0): {"hands": {"right": (16, 2), "left": (7, 16)}},
+    (2070, True, 4): {"hands": {"right": (11, 2), "left": (1, 12)}},
     (2059, True, 2): {"hands": {"right": (9, 0), "left": (6, 16)}},
     (2059, True, 12): {"hands": {"right": (5, 19), "left": (11, 4)}},
     # the half-giants' fights (their grey shoulder and knee bands aside)

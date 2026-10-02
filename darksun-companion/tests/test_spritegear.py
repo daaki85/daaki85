@@ -65,6 +65,21 @@ class WeaponTests(unittest.TestCase):
         self.assertTrue(all(abs(x - (hx + PAD)) <= 4 for x, _ in new))  # (about 7 wide, on the forearm)
         self.assertGreaterEqual(len(new), 40)
 
+    def test_fight_shield_by_hand(self):
+        """In a fight, a shield where it is set by hand for the frame; and one even where the frame
+        shows no second hand (behind the body, at the chest, on the side away from the swing)."""
+        before = rows()
+        sg.SHIELD_SPOTS[(2095, 1)] = (3, 12, False)
+        try:
+            new = drawn(before, sg.armed(before, 2095, 1, True, {"left": (SHIELD, 5)}, PAD))
+        finally:
+            del sg.SHIELD_SPOTS[(2095, 1)]
+        self.assertTrue(new)
+        self.assertTrue(all(abs(x - (3 + PAD)) <= 4 for x, _ in new))
+        p = sp.parts(before, 2095, 1, True)
+        spot = sg.fight_shield(before, 2095, 1, p, (99, 0))  # (a swing far off: no other arm near)
+        self.assertIsNotNone(spot)
+
     def test_nothing_in_the_bow_frames(self):
         """The game draws the bow there itself."""
         before = rows()

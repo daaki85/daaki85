@@ -200,6 +200,70 @@ def _hip(rows: Rows, parts: sp.Parts, hx: int, pad: int) -> sp.Point:
     return (a + 1 if hx < middle else b - 1), y + 1
 
 
+# In a fight, where the shield is: (x, y, behind the body) on the frame (its forearm, as a hand is
+# given: the shield's middle two rows above), by model and frame, set by hand where finding it goes
+# wrong; None for none showing.
+SHIELD_SPOTS: Dict[Tuple[int, int], Optional[Tuple[int, int, bool]]] = {
+    # the human and half-elf man: on the forearm flung up, before the shoulder; from behind, its
+    # rim past the body; edge on at the back; raised to the head when hit
+    (2095, 2): (13, 10, False), (2095, 5): (22, 13, True), (2095, 7): (6, 12, False), (2095, 12): (16, 6, False),
+    # the human and half-elf woman: up to the low hand; past her cloak from behind; before her
+    # shoulder when hit
+    (2099, 1): (19, 18, False), (2099, 2): (12, 15, False), (2099, 5): (23, 13, True), (2099, 7): (7, 12, False),
+    (2099, 12): (14, 9, False),
+    # the elves
+    (2059, 1): (18, 18, False), (2059, 2): (13, 14, False), (2059, 5): (22, 12, True), (2059, 7): (8, 11, False),
+    (2059, 12): (12, 10, False),
+    (2061, 1): (18, 16, False), (2061, 2): (12, 15, False), (2061, 7): (7, 12, False),
+    # the dwarves (the same fight)
+    (2053, 2): (9, 10, False), (2053, 7): (5, 10, False), (2053, 12): (12, 7, False),
+    (2055, 2): (9, 10, False), (2055, 7): (5, 10, False), (2055, 12): (12, 7, False),
+    # the halflings
+    (2068, 2): (9, 10, False), (2068, 7): (5, 10, False), (2068, 12): (12, 7, False),
+    (2070, 2): (10, 10, False), (2070, 5): (14, 12, True), (2070, 7): (5, 11, False), (2070, 12): (12, 8, False),
+    # the half-giants: from the side on the back, and on the arm flung back
+    (2072, 7): (6, 16, False), (2072, 8): (7, 7, False),
+    (2074, 7): (6, 16, False), (2074, 8): (7, 7, False),
+    # the mul
+    (2093, 2): (9, 11, False), (2093, 7): (5, 12, False), (2093, 12): (13, 7, False),
+    # the thri-kreen: on an upper arm
+    (2097, 0): (6, 14, False), (2097, 12): (16, 10, False),
+}
+
+
+def fight_shield(rows: Rows, model: int, frame: int, parts: sp.Parts,
+                 swing: Optional[sp.Point]) -> Optional[Tuple[int, int, bool]]:
+    """Where the shield is in a fight frame: on the forearm of the arm that isn't swinging (its
+    wristband, the one farthest from the swinging hand's); where that arm is hidden, behind the
+    body on that side, at the chest."""
+    if (model, frame) in SHIELD_SPOTS:
+        return SHIELD_SPOTS[(model, frame)]
+    lowest = parts.bottom - 3  # (not a boot's band)
+    arms = []
+    if sp.MODELS[model][1] == sp.GREY_BANDS:  # (bands at the shoulders, elbows and knees too: the hands)
+        arms = list(parts.hands.values())
+    else:
+        for group in sp._clusters(rows, sp.MODELS[model][1]):
+            y = max(gy for _, gy in group)
+            if y <= lowest:
+                arms.append((round(sum(gx for gx, _ in group) / len(group)), y + 2))
+    if swing is not None:
+        arms = [a for a in arms if abs(a[0] - swing[0]) + abs(a[1] - swing[1]) > 4]
+    if arms:
+        far = max(arms, key=lambda a: abs(a[0] - swing[0]) + abs(a[1] - swing[1]) if swing else 0)
+        return far[0], far[1], False
+    if not parts.shoulders or parts.waist is None:
+        return None
+    sy, sa, sb = parts.shoulders
+    middle = (sa + sb) / 2
+    y = (sy + parts.waist) // 2
+    run = _torso_run(rows, y, middle, sa, sb)
+    if not run:
+        return None
+    left = swing is not None and swing[0] > middle  # (the other side from the swing)
+    return (run[0] if left else run[1]), y + 2, True
+
+
 def draw_shield(rows: Rows, body: Rows, hand: sp.Point, facing: Optional[str], colours: Tuple[int, int, int],
                 behind: bool, scale: float = 1.0) -> None:
     """A round shield on the forearm (about 7 by 9 pixels on a human): its face, rim and boss from
@@ -665,17 +729,21 @@ def armed(rows: Rows, model: int, frame: int, combat: bool, weapons: Dict[str, T
     if combat and frame in sp.BOW_FRAMES:
         return out  # (the game draws the bow in the hands)
     for hand in ("left", "right"):  # (the right drawn last, over the left)
-        if hand not in weapons or hand not in hands:
+        if hand not in weapons:
             continue
         item_type, material = weapons[hand]
         shape = WEAPON_SHAPES.get(item_type)
+        if hand not in hands and not (shape == SHIELD and pose and hand == "left"):
+            continue
         g = grip(model, frame, combat, hand)
         if g is None and pose:
             g = (pose[1] if hand == "right" else pose[2], False)
+        if shape == SHIELD and pose and hand == "left":
+            g = g or (0, False)  # (placed by fight_shield, whichever hand was found)
         if shape is None or g is None or shape in (SLING, BOW, CHATKCHA):
             continue
         colours = FLAME if item_type == FLAME_BLADE else MATERIAL_COLOURS.get(material, MATERIAL_COLOURS[4])
-        hx, hy = hands[hand]
+        hx, hy = hands.get(hand, (0, 0))
         scale = MODEL_SCALE.get(model, 1.0)
         if shape in TWO_HANDED and not combat and hand == "right":
             g = UPRIGHT.get(parts.facing, g)
@@ -686,6 +754,12 @@ def armed(rows: Rows, model: int, frame: int, combat: bool, weapons: Dict[str, T
             scale = SHEATHED_SCALE * MODEL_SCALE.get(model, 1.0)
         if shape == SHIELD:
             behind = g[1] or parts.facing == sp.BACK  # (from behind: held in front of the body)
+            if pose and hand == "left":
+                spot = fight_shield(rows, model, frame, parts, hands.get("right"))
+                if spot is None:
+                    continue
+                hx, hy, hidden = spot
+                behind = behind or hidden
             draw_shield(out, body, (hx + pad, hy + pad), parts.facing, colours, behind, MODEL_SCALE.get(model, 1.0))
         else:
             draw_weapon(out, body, (hx + pad, hy + pad), g[0], shape, colours, g[1], scale)
