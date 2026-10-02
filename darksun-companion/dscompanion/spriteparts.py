@@ -2,8 +2,10 @@
 the hair, the shoulders, the hands, the waist and the feet. What the Ledger draws worn equipment
 from (a weapon in the hand, a helm on the head, a cloak from the shoulders under the hair).
 
-The party are objects 300-313 (SEGOBJEX's OJFF chunks), each naming one of 12 sprite models (a
-BMP chunk of 15 frames, the next chunk the model's 14 combat frames). Nothing of the game's is
+The party are objects 300-313 (SEGOBJEX's OJFF chunks): 300 + the figure picked on the character
+creation screen (the creature's +18h), which is the race and sex too (race = figure / 2 + 1, the
+odd figures women; 12 the mul, 13 the thri-kreen). Each names one of 12 sprite models (a BMP chunk
+of 15 frames, the next chunk the model's 14 combat frames): humans and half-elves share theirs. Nothing of the game's is
 kept here: the pictures are read from the player's install; this module holds only how to find
 the parts in them (each model's wristband and hair colours) and the corrections to what it finds,
 by hand, for the frames where finding them goes wrong.
@@ -34,18 +36,18 @@ GREY_BANDS = frozenset((208, 209, 210, 211, 212))
 # Each model (its walking chunk): (what it is, its wristbands' colours, its hair's colours). The
 # hair's are the colours of the hair only (not the face's), as the pictures have them.
 MODELS: Dict[int, Tuple[str, frozenset, frozenset]] = {
-    2053: ("mul", GREEN_BANDS, frozenset()),
-    2055: ("mul", GREEN_BANDS, frozenset()),
-    2059: ("half-elf woman", GREEN_BANDS, frozenset((64, 65, 180, 181, 182, 200, 201))),
-    2061: ("half-elf man", GREEN_BANDS, frozenset((44, 45, 64, 65, 180, 181, 182, 200))),
-    2068: ("dwarf", GREEN_BANDS | {43}, frozenset((128, 129, 201))),  # (lime bands)
-    2070: ("halfling", GREEN_BANDS, frozenset((179, 180, 181, 182, 183, 201))),
+    2053: ("dwarf woman", GREEN_BANDS, frozenset()),
+    2055: ("dwarf man", GREEN_BANDS, frozenset()),
+    2059: ("elf woman", GREEN_BANDS, frozenset((64, 65, 180, 181, 182, 200, 201))),
+    2061: ("elf man", GREEN_BANDS, frozenset((44, 45, 64, 65, 180, 181, 182, 200))),
+    2068: ("halfling man", GREEN_BANDS | {43}, frozenset((128, 129, 201))),  # (lime bands)
+    2070: ("halfling woman", GREEN_BANDS, frozenset((179, 180, 181, 182, 183, 201))),
     2072: ("half-giant man", GREY_BANDS, frozenset((128, 129, 133, 179, 180))),
     2074: ("half-giant woman", GREY_BANDS, frozenset((128, 129, 133, 179, 180))),
     2093: ("mul", GREEN_BANDS, frozenset()),
-    2095: ("human man", GREEN_BANDS, frozenset((23, 29, 48, 50, 69, 70))),
+    2095: ("human or half-elf man", GREEN_BANDS, frozenset((23, 29, 48, 50, 69, 70))),
     2097: ("thri-kreen", GREEN_BANDS, frozenset()),
-    2099: ("elf woman", GREEN_BANDS, frozenset((128, 129, 133, 134, 179, 180, 202))),
+    2099: ("human or half-elf woman", GREEN_BANDS, frozenset((128, 129, 133, 134, 179, 180, 202))),
 }
 
 

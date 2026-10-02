@@ -81,8 +81,8 @@ COMBAT_GRIPS: List[Optional[Dict[str, Grip]]] = [None] * sp.COMBAT_FRAMES  # (by
 MODEL_GRIPS: Dict[Tuple[int, bool, int], Dict[str, Grip]] = {}
 
 
-# Weapons in proportion to the body: a half-giant's bigger, a dwarf's and a halfling's smaller
-MODEL_SCALE = {2072: 1.35, 2074: 1.35, 2068: 0.85, 2070: 0.85}
+# Weapons in proportion to the body: a half-giant's bigger, a halfling's and a dwarf's smaller
+MODEL_SCALE = {2072: 1.35, 2074: 1.35, 2068: 0.85, 2070: 0.85, 2053: 0.9, 2055: 0.9}
 
 
 def grip(model: int, frame: int, combat: bool, hand: str) -> Optional[Grip]:
@@ -315,7 +315,7 @@ ARMOUR: Dict[int, Tuple[str, Tuple[int, ...], str]] = {
     88: (ARMOUR_CHEST, METAL_SHADES, PLATE), 25: (ARMOUR_ARMS, METAL_SHADES, PLATE), 26: (ARMOUR_LEGS, METAL_SHADES, PLATE),
     79: (ARMOUR_CHEST, DRAKE_SHADES, SCALES), 82: (ARMOUR_CHEST, SHIMMER_SHADES, PLAIN), 90: (ARMOUR_CHEST, SILK_SHADES, PLAIN),
 }
-# Colours each model keeps under armour: its own cloak (the elf woman's), boots
+# Colours each model keeps under armour: its own cloak (the human and half-elf woman's), boots
 KEEP: Dict[int, frozenset] = {2099: frozenset((53, 54, 55, 56, 188, 189, 190, 191, 69, 70, 158, 159, 160))}
 
 _PALETTE_LIGHT: Dict[int, float] = {}
