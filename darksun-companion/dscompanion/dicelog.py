@@ -24,7 +24,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Callable, Dict, List, NamedTuple, Optional, Tuple
 
-from . import bonescale, game, icons, monsters, names, npcitems, pickpocket, ring, sprites, stealth, tools, vulture
+from . import bonescale, game, icons, kalzith, monsters, names, npcitems, pickpocket, ring, sprites, stealth, tools, vulture
 from .game import (CONVENTIONAL_AND_UPPER, CREATURE_ABILITIES, CREATURE_SIDE, CREATURE_THAC0, EFFECT_NAMES,
                    EFFECT_RULES, MATERIAL_TO_HIT, MATERIALS, SAVE_NAMES, STR_DAMAGE, GameData)
 from .guestmem import GuestMemory
@@ -939,6 +939,9 @@ class DiceLog:
                 out += bonescale.place(self.game, self.tools_given)  # the bone scale armour's set
                 npcitems.reprice(self.game)  # (those given before they had a magic item's price)
                 self._tools_new += sorted(self.tools_given - before)
+            before = set(self.tools_given)  # Kalzith's scrolls, his stock (Cat's Grace by its rule)
+            kalzith.stock(self.game, self.tools_given, bool(self.rules & game.RULE_CATS_GRACE))
+            self._tools_new += sorted(self.tools_given - before)
             if self.pickpockets:
                 tools.repaint(self.game)
                 before = set(self.tools_given)

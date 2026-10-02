@@ -327,3 +327,130 @@ def checks(scripts: Dict[Tuple[str, int], bytes], field_types: bytes, context: i
             text = [s for near in ops if abs(near.at - op.at) <= context for s in strings(near.args)]
             out.append(Check(f"{ctype.strip()} {cid}", op.at, kind, what, who, bonus, text))
     return out
+
+
+# Writing scripts: the reader's forms back into bytes (numbers in their shortest form, strings
+# 7-bit packed), for scripts of the companion's own. encode(decode(script)) reads back the same.
+
+def _w(v: int) -> bytes:
+    return bytes(((v >> 8) & 0xFF, v & 0xFF))
+
+
+def _put_string(s: Optional[str]) -> bytes:
+    """A string's bytes (after the 92h of a value): 1 for the name the game fills in, else 5 and
+    the text, each character's 7 bits in a row (most significant first) as _string unpacks them,
+    ending with code 3."""
+    if s == "<name>":
+        return b"\x01"
+    codes = list(s.encode("cp437")) + [3]
+    if any(c > 0x7F for c in codes):
+        raise ScriptError("only 7-bit text")
+    bits = "".join(format(c, "07b") for c in codes)
+    bits += "0" * (-len(bits) % 8)
+    out = b"\x05" + bytes(int(bits[k:k + 8], 2) for k in range(0, len(bits), 8))
+    if not _check_string(out, s):
+        raise ScriptError("string packing")
+    return out
+
+
+def _check_string(data: bytes, s: str) -> bool:
+    r = _Reader(b"\x92" + data, b"")
+    r.byte()
+    return _string(r) == ("str", s)
+
+
+def _put_term(t) -> bytes:
+    kind = t[0]
+    if kind == "n":
+        v = t[1]
+        if 0 <= v < 0x8000:
+            return _w(v)
+        if -0x80 <= v < 0x80:
+            return bytes((0x8F, v & 0xFF))
+        if -0x8000 <= v < 0x8000:
+            return b"\x90" + _w(v & 0xFFFF)
+        return b"\x8B" + _w((v >> 16) & 0xFFFF) + _w(v & 0xFFFF)
+    if kind == "last":
+        return b"\x80"
+    if kind == "op":
+        return b"\x8C" + encode_op(t[1])
+    if kind == "var":
+        code, n = t[1], t[2]
+        return bytes((code, n)) if n < 0x100 else bytes((code | 0x40,)) + _w(n)
+    if kind == "str":
+        return b"\x92" + _put_string(t[1])
+    if kind == "field":
+        return b"\xB1" + _put_field(t)
+    raise ScriptError(f"no term {kind}")
+
+
+def _put_field(t) -> bytes:
+    _, obj, path = t
+    out = _w(obj)
+    if obj >= 0x8000 and obj & 0x7FFF not in FIELD_SPECIAL:
+        return out
+    return out + bytes((len(path),)) + bytes(path)
+
+
+def encode_expr(e) -> bytes:
+    if not (isinstance(e, tuple) and e and e[0] == "expr"):
+        return _put_term(e)
+    out = bytearray()
+    for p in e[1]:
+        if p == "(":
+            out.append(0xE2)
+        elif p == ")":
+            out.append(0xE1)
+        elif isinstance(p, str):
+            out.append(0xD1 + OPERATORS.index(p))
+        else:
+            out += _put_term(p)
+    return bytes(out)
+
+
+def _put_destination(t) -> bytes:
+    if t[0] == "var":
+        _, kind, n = t
+        return bytes((0x80 | kind, n)) if n < 0x100 else bytes((0xC0 | kind,)) + _w(n)
+    return b"\xB1" + _put_field(t)
+
+
+def encode_op(op) -> bytes:
+    """One command's bytes (an Op, or a (code, args) pair)."""
+    code, args = (op.code, op.args) if isinstance(op, Op) else op
+    out = bytearray((code,))
+    if code == 0x16:
+        out += encode_expr(args[0]) + _put_destination(args[1])
+    elif code in (0x23, 0x2C):
+        out += _put_string(args[0][1])
+    elif code == 0x28:
+        out += encode_expr(args[0]) + encode_expr(args[1]) + _put_string(args[2][1])
+    elif code == 0x40:
+        out += _put_field(args[0]) + encode_expr(args[1])
+    elif code == 0x33:
+        who, a, b, tests = args
+        out += encode_expr(who) + bytes((a, b))
+        for i, (field, kind, value) in enumerate(tests):
+            if i:
+                out.append(0x53)
+            out += bytes((field, kind))
+            if value is not None:
+                out += encode_expr(value)
+    elif code == 0x48:
+        menu = args[0]
+        out += b"".join(encode_op(o) for o in menu["before"]) + encode_expr(menu["title"])
+        for reply in menu["replies"]:
+            out += b"".join(encode_op(o) for o in reply["before"])
+            out += encode_expr(reply["text"]) + encode_expr(reply["goto"]) + encode_expr(reply["if"])
+            out += b"".join(encode_op(o) for o in reply["after"])
+        out.append(0x4A)
+    elif code in COMMANDS:
+        for a in args:
+            out += encode_expr(a)
+    else:
+        raise ScriptError(f"unknown command {code:02X}h")
+    return bytes(out)
+
+
+def encode(ops) -> bytes:
+    return b"".join(encode_op(o) for o in ops)

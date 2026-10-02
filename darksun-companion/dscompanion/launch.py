@@ -16,7 +16,7 @@ import struct
 import subprocess
 from typing import Dict, List, Optional, Tuple
 
-from . import gamepatch, gff, icons
+from . import gamepatch, gff, gpl, icons, kalzith
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOS_DIR = os.path.join(HERE, "dos")
@@ -172,19 +172,36 @@ def write_conf(game_dir: str, path: str = CONF, dice_log: bool = True) -> str:
 
 
 def prepare_patched_game(game_dir: str) -> Optional[str]:
-    """Write DSUNLOG.EXE next to DSCLOG.EXE, and the copy of SEGOBJEX.GFF with the companion's
-    item icons (icons.py; without it the items keep the plain icons). Returns why the game
-    can't be patched, or None."""
+    """Write DSUNLOG.EXE next to DSCLOG.EXE, and the copies of the game's files with the
+    companion's additions: SEGOBJEX.GFF with its item icons (icons.py; without it the items keep
+    the plain icons) and Kalzith's object, RESOURCE.GFF with Cat's Grace's icon, GPLDATA.GFF and
+    RGN29.GFF with Kalzith (kalzith.py). Returns why the game can't be patched, or None."""
     try:
         gamepatch.write_patched(_find_file(game_dir, "DSUN.EXE"), os.path.join(DOS_DIR, PATCHED_EXE))
     except (gamepatch.PatchError, OSError) as e:
         return str(e)
+    objects_ok = False
     try:
         objects = _find_file(game_dir, icons.OBJECTS_FILE)
         if objects:
             icons.write_objects(objects, os.path.join(DOS_DIR, icons.OBJECTS_FILE))
+            objects_ok = True
     except (gff.GffError, OSError, KeyError, struct.error, ValueError):
         pass  # no icons of our own: the game's plain ones
+    # Kalzith, the slave pens' defiler: in his pen and with his conversation only if the objects
+    # copy has him too (the pens naming an object that isn't there would stop the game)
+    try:
+        for name, write in ((kalzith.SCRIPTS_FILE, kalzith.write_scripts), (kalzith.REGION_FILE, kalzith.write_region)):
+            source = _find_file(game_dir, name) if objects_ok else None
+            if not source:
+                raise OSError(f"no {name}")
+            write(source, os.path.join(DOS_DIR, name))
+    except (gff.GffError, OSError, KeyError, struct.error, ValueError, IndexError, gpl.ScriptError):
+        for name in (kalzith.SCRIPTS_FILE, kalzith.REGION_FILE):  # (all or nothing: the game's own)
+            try:
+                os.remove(os.path.join(DOS_DIR, name))
+            except OSError:
+                pass
     try:
         resources = _find_file(game_dir, icons.RESOURCE_FILE)
         if resources:

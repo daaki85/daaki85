@@ -2292,7 +2292,8 @@ dex_table:
 
 ; PROBE_DOS_OPEN: the DOS services (INT 21h), hooked. Opening a file (AH=3Dh) whose name ends in
 ; one of COPIES' (SEGOBJEX.GFF, the game's objects and their pictures; RESOURCE.GFF, its screens'
-; pictures and texts) opens the companion's copy instead (D:\..., which the launcher writes with
+; pictures and texts; GPLDATA.GFF, its scripts; RGN29.GFF, the slave pens) opens the companion's
+; copy instead (D:\..., which the launcher writes with
 ; the companion's icons added; the game folder is never changed), and notes that it has; with no
 ; copy there, the game's own. Everything else goes on to DOS.
 OBJ_NAME_LEN equ 12
@@ -2311,18 +2312,32 @@ probe_dos_open:
         inc si
         loop .end
         jmp .no
+;
+; Each copy's name (its length first) is matched against the end of the path, where it starts the
+; path or follows a \, : or /.
 .at_end:
         mov ax, si
-        sub ax, dx
-        cmp ax, OBJ_NAME_LEN
-        jb .no
-        sub si, OBJ_NAME_LEN
+        sub ax, dx              ; AX: the path's length
         mov bx, copies
-.file:  cmp byte [cs:bx], 0
-        je .no
+.file:  mov cl, [cs:bx]         ; this copy's name length (0: no more)
+        xor ch, ch
+        jcxz .no
+        cmp ax, cx
+        jb .next
+        push ax
         push si
-        mov di, bx
-        mov cx, OBJ_NAME_LEN
+        sub si, cx              ; where the name would start
+        cmp ax, cx
+        je .compare             ; (the path is just the name)
+        mov al, [si - 1]
+        cmp al, '\'
+        je .compare
+        cmp al, ':'
+        je .compare
+        cmp al, '/'
+        jne .differ
+.compare:
+        lea di, [bx + 1]
 .cmp:   mov al, [si]
         cmp al, 'a'
         jb .upper
@@ -2330,14 +2345,17 @@ probe_dos_open:
         ja .upper
         sub al, 20h
 .upper: cmp al, [cs:di]
-        jne .next
+        jne .differ
         inc si
         inc di
         loop .cmp
         pop si
+        pop ax
         jmp .found
-.next:  pop si
-        add bx, COPY_SIZE
+.differ:
+        pop si
+        pop ax
+.next:  add bx, COPY_SIZE
         jmp .file
 .found: mov [cs:copy_at], bx
         pop di
@@ -2352,7 +2370,7 @@ probe_dos_open:
         push cs
         pop ds
         mov dx, [cs:copy_at]
-        add dx, OBJ_NAME_LEN    ; its copy's path
+        add dx, 1 + OBJ_NAME_LEN  ; its copy's path
         pushf
         call far [cs:old21]
         pop dx
@@ -2361,7 +2379,7 @@ probe_dos_open:
         pop word [cs:obj_scratch]  ; (POP keeps the flags: CF clear, AX the handle)
         push bx
         mov bx, [cs:copy_at]
-        mov bx, [cs:bx + OBJ_NAME_LEN + COPY_PATH]  ; (its flag: set to 1)
+        mov bx, [cs:bx + 1 + OBJ_NAME_LEN + COPY_PATH]  ; (its flag: set to 1)
         mov word [cs:bx], 1
         pop bx
         retf 2
@@ -2377,14 +2395,24 @@ old21       dd 0
 obj_scratch dw 0
 copy_at     dw 0
 resources_on dw 0               ; 1 once the game has opened D:\RESOURCE.GFF (PROBE_CHUNK_ID)
-; the files with copies: the game's name (12 letters), the copy's path, the flag set when opened
+scripts_on dw 0                 ; 1 once the game has opened D:\GPLDATA.GFF (Kalzith's conversation)
+region_on dw 0                  ; 1 once the game has opened D:\RGN29.GFF (Kalzith in the pens)
+; the files with copies: the name's length, the game's name (up to 12 letters), the copy's path,
+; the flag set when opened
 COPY_PATH equ 16
-COPY_SIZE equ OBJ_NAME_LEN + COPY_PATH + 2
+COPY_SIZE equ 1 + OBJ_NAME_LEN + COPY_PATH + 2
+%macro COPY 3
+        db %strlen(%1), %1
+        times OBJ_NAME_LEN - %strlen(%1) db 0
+        db %2
+        times COPY_PATH - %strlen(%2) db 0
+        dw %3
+%endmacro
 copies:
-        db 'SEGOBJEX.GFF', 'D:\SEGOBJEX.GFF', 0
-        dw objects_on
-        db 'RESOURCE.GFF', 'D:\RESOURCE.GFF', 0
-        dw resources_on
+        COPY 'SEGOBJEX.GFF', 'D:\SEGOBJEX.GFF', objects_on
+        COPY 'RESOURCE.GFF', 'D:\RESOURCE.GFF', resources_on
+        COPY 'GPLDATA.GFF', 'D:\GPLDATA.GFF', scripts_on
+        COPY 'RGN29.GFF', 'D:\RGN29.GFF', region_on
         db 0
 
 ; CAT'S GRACE (RULE_CATS_GRACE): Flaming Sphere (spell 14), given Strength's record and the
