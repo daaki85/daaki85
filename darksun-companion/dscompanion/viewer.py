@@ -16,7 +16,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
-from . import art, dicelog, game, launch, partyview, spellbook, theme, values
+from . import __version__, art, dicelog, game, launch, partyview, spellbook, theme, values
 from .dicelog import DiceLog, DiceLogError
 from .guestmem import GuestMemory
 from .layout import Layout
@@ -64,7 +64,7 @@ class Viewer:
         self.art = art.GameArt(launch.find_game_dir())
         self._images: List[tk.PhotoImage] = []  # Tk shows an image only while it's referenced
 
-        root.title(f"{theme.NAME} - {layout.game or 'party viewer'}")
+        root.title(f"{theme.NAME} {__version__} - {layout.game or 'party viewer'}")
         root.geometry("1320x780")
         theme.apply(root)
         root.protocol("WM_DELETE_WINDOW", self.close)

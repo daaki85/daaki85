@@ -33,7 +33,8 @@ game itself, in the game's own lettering and windows:
   - class levels up to 10 (the game stops at 9).
 - **New items and thief play:** a Ring of Protection +1 to find in the arena;
   gear for Kurzak, Legcrusher and Pehtucl in the slave pens (a short sword
-  and a Cloak of Protection among it), with icons of their own; Thieves'
+  and a Cloak of Protection among it), with icons of their own; the rest of
+  the bone scale armour, with a Bone Helm, where its chest piece lies; Thieves'
   Tools for every thief;
   picking anyone's pockets; and no more thief skill penalty for what a thief
   holds.
@@ -53,7 +54,10 @@ folder.
 
 ## Getting started
 
-1. Download this repository (**Code → Download ZIP**) and unzip it anywhere.
+1. Download the latest release from the
+   [Releases page](https://github.com/daaki85/darksun-companion-mod/releases)
+   (`Templars-Ledger-<version>.zip`) and unzip it anywhere. (Or this repository
+   as it stands: **Code → Download ZIP**.)
 2. In the `darksun-companion` folder, double-click **`Start Templar's Ledger.bat`**.
    The first time, it offers to install 64-bit Python if you don't have it.
 3. On the Ledger's **Options** tab, pick the rule changes and additions you
@@ -65,6 +69,9 @@ folder.
 double-click, with the options as last set.)
 
 ## Changelog
+
+Release **1.0.0** is everything below, pull requests #1 to #11. Its notes are
+in [`release-notes/v1.0.0.md`](release-notes/v1.0.0.md).
 
 ### Pull request #11 ([in review](https://github.com/daaki85/darksun-companion-mod/pull/11))
 
