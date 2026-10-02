@@ -422,6 +422,9 @@ def _has_scroll(gd, it, index: int, spell: int) -> bool:
                for t in lists for _, data in it.chain(t))
 
 
+CREATURES_SEEN = 128  # creature records searched for him (the pens have 34)
+
+
 def stock(gd, given: set, cats_grace: bool) -> List[str]:
     """In the pens, Kalzith gets those of his scrolls not yet given this game (GIVEN: a key for
     each, updated; Cat's Grace only with its rule on). The scrolls given, by name."""
@@ -429,9 +432,13 @@ def stock(gd, given: set, cats_grace: bool) -> List[str]:
     if gd.region() != REGION:
         return []
     out = []
-    for index in sorted(set(gd.combatants().values())):
-        rec = gd.creature(index)
-        if gd.creature_name(index) != NAME or len(rec) < game.CREATURE_SIZE:
+    # (found by name among the region's creatures: not among the first 256 objects, where he
+    # is not - the pens' 304th)
+    table = gd.creatures(CREATURES_SEEN)
+    name = NAME.encode("ascii") + b"\0"
+    for index in range(game.PARTY_SIZE, len(table) // game.CREATURE_SIZE):
+        at = index * game.CREATURE_SIZE
+        if table[at + game.CREATURE_NAME:at + game.CREATURE_NAME + len(name)] != name:
             continue
         it = ring.Items(gd)
         for spell, name, price in SCROLLS:
