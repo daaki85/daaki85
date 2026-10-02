@@ -243,12 +243,21 @@ def draw_back_gear(rows: Rows, body: Rows, parts: sp.Parts, pad: int, bow: bool,
 # the brow, in the helm's material's faded colours, and its ornament. Item type: style.
 FEATHER, STONE, SPIKES = "feather", "stone", "spikes"
 HELMS: Dict[int, str] = {5: FEATHER, 109: FEATHER, 89: STONE, game.BONE_HELM_TYPE: SPIKES}
-HELM_COLOURS = {  # (outline, body, light, shade)
-    FEATHER: (207, 205, 206, 194),  # faded leather
-    STONE: (22, 25, 27, 23),  # dull iron
-    SPIKES: (194, 214, 215, 206),  # weathered bone
+HELM_COLOURS = {  # dark to light, close in tone (the hair's own shading showing through them)
+    FEATHER: (204, 207, 205, 194),  # faded leather
+    STONE: (210, 211, 212, 24),  # dull iron
+    SPIKES: (207, 194, 206, 213),  # weathered bone
 }
-FEATHER_GREYS, STONE_RED = (211, 213, 215), 196
+FEATHER_GREYS, STONE_RED = (210, 212, 211), 195
+
+_LIGHT: Dict[int, float] = {}
+
+
+def set_palette(colours: List[Tuple[int, int, int]]) -> None:
+    """The palette (art.palette_colours): each colour's brightness, for blending a helm into the
+    hair under it."""
+    _LIGHT.clear()
+    _LIGHT.update({i: (0.3 * r + 0.59 * g + 0.11 * b) / 255 for i, (r, g, b) in enumerate(colours)})
 
 
 # The circlet's half-width round each model's head (the head's own, not its hair's), by hand
@@ -257,13 +266,14 @@ CIRCLET_HALF = {2072: 4, 2074: 4}  # (3 for the rest)
 
 def draw_helm(rows: Rows, parts: sp.Parts, item_type: int, pad: int, model: int = 0) -> None:
     """A circlet on the (padded) picture ROWS: a band round the head at the brow, as wide as the
-    head itself (big hair spreading past it), its ends a row lower where it curves round the head
-    (from the side, toward the back of it), and the helm's ornament: a feather standing from it, a
-    stone at the front, or spikes of bone rising over the hair."""
+    head itself, its ends curving round the temples (from the side, toward the back of the head),
+    blended into what is under it: each pixel the helm's shade as light as the hair or skin it
+    covers, no outline; and the helm's ornament: a short feather, a small stone at the front, or
+    low spikes of bone over the hair."""
     style = HELMS.get(item_type)
     if style is None or not parts.head:
         return
-    outline, body, light, shade = HELM_COLOURS[style]
+    shades = HELM_COLOURS[style]
     h = parts.head
     half = CIRCLET_HALF.get(model, 3)
     y = h.brow + pad
@@ -273,41 +283,44 @@ def draw_helm(rows: Rows, parts: sp.Parts, item_type: int, pad: int, model: int 
     else:
         middle = (h.left + h.right) // 2 + pad
         a, b = middle - half, middle + half
+
+    def blend(x, yy, lift=0.0):
+        under = rows[yy][x]
+        light = _LIGHT.get(under, 0.5) if under is not None else 0.5
+        i = min(len(shades) - 1, max(0, int((light * 1.8 + lift) * (len(shades) - 1) + 0.5)))
+        rows[yy][x] = shades[i]
     cells = []
     for x in range(a, b + 1):
         if parts.facing == sp.SIDE:
-            dy = 1 if x < a + (b - a) // 3 else 0  # (lower toward the back of the head)
+            dy = 1 if x < a + (b - a) // 3 else 0
         else:
-            dy = 1 if x in (a, b) else 0  # (round the temples)
+            dy = 1 if x in (a, b) else 0
         if 0 <= y + dy < len(rows) and 0 <= x < len(rows[y + dy]) and rows[y + dy][x] is not None:
             cells.append((x, y + dy))
     if not cells:
         return
+    for x, yy in cells:
+        blend(x, yy, 0.1)
     xs = [x for x, _ in cells]
     first, last = min(xs), max(xs)
-    for x, yy in cells:
-        rows[yy][x] = outline if x in (first, last) else (light if x == first + 1 else shade if x == last - 1 else body)
     centre = (first + last) // 2 if parts.facing != sp.SIDE else last - 1
-
-    def top(x):  # (the head's top in column x: what rises from the band rises over the hair)
-        return next((yy for yy in range(len(rows)) if rows[yy][x] is not None), y)
     if style == SPIKES:
         for x in ([first + 1, centre, last - 1] if parts.facing != sp.SIDE else [centre - 2, centre]):
-            tall = 3 if x == centre else 2
+            tall = 2 if x == centre else 1
             for k in range(1, tall + 1):
-                rows[y - k][x] = light if k < tall else body
-            rows[y - tall - 1][x] = outline
+                if rows[y - k][x] is None:
+                    rows[y - k][x] = shades[1 if k == tall else 2]
+                else:
+                    blend(x, y - k, 0.15)
     elif style == STONE and parts.facing in (sp.FRONT, sp.SIDE):
         rows[y][centre] = STONE_RED
-        if parts.facing == sp.FRONT:
-            rows[y - 1][centre] = outline
     elif style == FEATHER:
         x = centre - (2 if parts.facing == sp.SIDE else 0)
-        tip = min(y - 4, top(x) - 2)
-        for k, yy in enumerate(range(y - 1, tip - 1, -1)):
-            rows[yy][x] = FEATHER_GREYS[k % 2]
-            if 1 <= k <= 3:
-                rows[yy][x + (-1 if parts.facing == sp.SIDE else 1)] = FEATHER_GREYS[2]
+        for k, yy in enumerate(range(y - 1, y - 4, -1)):
+            if rows[yy][x] is None:
+                rows[yy][x] = FEATHER_GREYS[k % 2]
+            else:
+                blend(x, yy, 0.2)
 
 
 def armed(rows: Rows, model: int, frame: int, combat: bool, weapons: Dict[str, Tuple[int, int]],
