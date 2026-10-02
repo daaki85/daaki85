@@ -9,11 +9,12 @@ name search and a live hex view of a record that highlights bytes as they
 change. Click a byte to see it decoded as each value type.
 """
 
+import re
 import struct
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from . import art, dicelog, game, launch, partyview, spellbook, theme, values
 from .dicelog import DiceLog, DiceLogError
@@ -157,6 +158,12 @@ class Viewer:
         for tag, colour in theme.LOG_COLOURS.items():
             self.dice_text.tag_configure(tag, foreground=colour)
         self.dice_text.tag_configure("round", underline=True, spacing1=8)  # a gap before each round
+        # names: each party member's in a colour of their own, monsters' in one (configured last,
+        # so they show over the line's own colour)
+        for n, colour in enumerate(theme.PARTY_COLOURS):
+            self.dice_text.tag_configure(f"member{n}", foreground=colour, font="LedgerFixedBold")
+        self.dice_text.tag_configure("monster", foreground=theme.MONSTER_COLOUR, font="LedgerFixedBold")
+        self._monster_names: Set[str] = set()  # every monster seen in a fight this session
 
         talk = ttk.Frame(tabs, padding=6)
         tabs.add(talk, text="Dialogue", underline=1)
@@ -795,8 +802,41 @@ class Viewer:
         if at_end:
             self.talk_text.see("end")
 
+    def _log_names(self) -> List[Tuple[str, str]]:
+        """(name, tag) for the dice log's names: the party's by place, then the monsters met in
+        fights (longest first, so "Mountain Stalker" wins over a "Stalker" inside it)."""
+        party: Dict[str, str] = {}
+        try:
+            g = self.dice.game if self.dice is not None and self.dice.attached else None
+            if g is not None:
+                for n in range(game.PARTY_SIZE):
+                    name = g.creature_name(n)
+                    if name and not name.startswith("creature "):  # (an empty place in the party)
+                        party.setdefault(name, f"member{n}")
+                for index in set(g.combatants().values()):
+                    name = g.creature_name(index)
+                    if index >= game.PARTY_SIZE and name and name not in party:
+                        self._monster_names.add(name)
+        except (struct.error, IndexError, ValueError, AttributeError):
+            pass
+        names = list(party.items()) + [(m, "monster") for m in self._monster_names if m not in party]
+        return sorted(names, key=lambda pair: -len(pair[0]))
+
+    def _colour_names(self, line: str, names: List[Tuple[str, str]]) -> None:
+        """Tag each name in the line just added (the last line of the log)."""
+        row = int(self.dice_text.index("end-1c").split(".")[0]) - 1
+        taken: List[Tuple[int, int]] = []
+        for name, tag in names:
+            for found in re.finditer(r"(?<!\w)" + re.escape(name) + r"(?!\w)", line):
+                start, end = found.span()
+                if any(start < b and a < end for a, b in taken):
+                    continue
+                taken.append((start, end))
+                self.dice_text.tag_add(tag, f"{row}.{start}", f"{row}.{end}")
+
     def _append_dice(self, lines: List[str]) -> None:
         at_end = self.dice_text.yview()[1] >= 0.999
+        names = self._log_names() if lines else []
         for line in lines:
             tag = ("round" if line.startswith(("Round ", "Initiative: ")) else
                    "turn" if line.endswith("'s turn") else
@@ -806,6 +846,7 @@ class Viewer:
                    "detail" if line.startswith("    ") else
                    "damage" if line.startswith("  ") or " damage: " in line else "other")
             self.dice_text.insert("end", line + "\n", tag)
+            self._colour_names(line, names)
         excess = int(self.dice_text.index("end-1c").split(".")[0]) - MAX_LOG_LINES
         if excess > 0:
             self.dice_text.delete("1.0", f"{excess + 1}.0")

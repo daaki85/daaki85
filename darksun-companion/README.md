@@ -240,7 +240,11 @@ switches) to hide the details and keep the rest; they
 come back when it's ticked again. In the window, each kind has its colour
 (hits green, misses grey, damage amber, saves blue, turns sand, rounds
 underlined with a gap above), but the words say the same thing, so nothing
-depends on telling colours apart.
+depends on telling colours apart. Names stand out in bold: each party member
+in a colour of their own (cyan, magenta, peach and white, by place in the
+party) and every monster and other creature in red, so who acts and who is
+hit can be followed down the log. Every colour has at least 4.5:1 contrast
+with the log's background (WCAG 2.0 AA, as AODA asks).
 
 **Show unlabelled rolls** also lists everything else the game randomises
 (creatures wandering, animations and so on), as raw numbers with where in the

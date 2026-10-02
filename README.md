@@ -93,6 +93,9 @@ folder.
   plain ones. The launcher writes a copy of the game's objects file with them
   in its own folder; the game folder is untouched.
 
+- **Names in colour in the dice log:** each party member's in a colour of
+  their own, monsters' in red, bold, all at 4.5:1 contrast or more.
+
 **Fixed**
 - **A monster's AC in its Look box** could be an earlier fight's creature's
   (the game reuses creature records): a slig in the first arena fight showed
