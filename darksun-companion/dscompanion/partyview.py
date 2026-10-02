@@ -137,31 +137,11 @@ class Card(ttk.Frame):
             self.figure.configure(image=self.image or "")
 
 
-class PartyCards(ttk.Frame):
+class PartyCards(theme.ScrollArea):
     """Four cards, two by two like the game's party screen, scrolling when the text is large."""
 
     def __init__(self, parent, count: int):
         super().__init__(parent)
-        # the cards scroll with the wheel, and with the arrow and page keys once the
-        # area has the keyboard focus (outlined in yellow, like the other controls)
-        self.canvas = tk.Canvas(self, background=theme.STONE, takefocus=1, highlightthickness=2,
-                                highlightbackground=theme.STONE, highlightcolor=theme.FOCUS)
-        scroll = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
-        self.canvas.configure(yscrollcommand=scroll.set)
-        scroll.pack(side="right", fill="y")
-        self.canvas.pack(side="left", fill="both", expand=True)
-        self.inner = ttk.Frame(self.canvas, padding=4)
-        window = self.canvas.create_window(0, 0, window=self.inner, anchor="nw")
-        self.inner.bind("<Configure>", lambda _e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
-        self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(window, width=e.width))
-        for key, amount, what in (("<Up>", -1, "units"), ("<Down>", 1, "units"), ("<Prior>", -1, "pages"),
-                                  ("<Next>", 1, "pages")):
-            self.canvas.bind(key, lambda _e, a=amount, w=what: self.canvas.yview_scroll(a, w))
-        self.canvas.bind("<Home>", lambda _e: self.canvas.yview_moveto(0))
-        self.canvas.bind("<End>", lambda _e: self.canvas.yview_moveto(1))
-        self.bind_all("<MouseWheel>", self._wheel, add="+")
-        self.bind_all("<Button-4>", self._wheel, add="+")
-        self.bind_all("<Button-5>", self._wheel, add="+")
         self.cards: List[Card] = []
         for i in range(count):
             card = Card(self.inner, i)
@@ -169,13 +149,3 @@ class PartyCards(ttk.Frame):
             self.cards.append(card)
         for c in (0, 1):
             self.inner.columnconfigure(c, weight=1, uniform="card")
-
-    def _wheel(self, event) -> None:
-        """Scroll the cards when the pointer is over them."""
-        widget = self.winfo_containing(event.x_root, event.y_root)
-        while widget is not None and widget is not self:
-            widget = widget.master
-        if widget is None:
-            return
-        step = -1 if getattr(event, "num", 0) == 4 or getattr(event, "delta", 0) > 0 else 1
-        self.canvas.yview_scroll(step, "units")

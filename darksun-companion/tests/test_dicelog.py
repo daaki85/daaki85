@@ -8,6 +8,7 @@ from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from dscompanion import tracker as tracker_module
 from dscompanion import dicelog, game, names
 from dscompanion.dicelog import AcDetail, DiceLog, Entry, KIND_AC, KIND_ROLL, KIND_SAVE
 from dscompanion.textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, DialogueEntry, TextBuffer
@@ -829,6 +830,43 @@ class NewLinesTests(unittest.TestCase):
         self.assertEqual(tracker.check(2.2), [])  # waits for the others' XP
         self.assertEqual(tracker.check(3.0), ["XP: Dag +125 (for Mountain Stalker 500)"])
 
+    def test_pockets_tried_after_a_save_forgotten_on_loading_it(self):
+        """A pocket tried (and the thief caught) after the game was saved can be tried again once
+        that save is loaded: the game's clock goes back past the try."""
+        log = make_game()
+        log.load_picked(["Dag|41|7|Trader@500", "Dag|41|8|Guard"])  # (the second from an older version)
+        set_clock(log, 1000)
+        log.lines(now=1.0)
+        self.assertIsNone(log.take_picked())
+        log._remember_pick("Dag|41|9|Slave")
+        self.assertEqual(log.take_picked(), ["Dag|41|7|Trader@500", "Dag|41|8|Guard", "Dag|41|9|Slave@1000"])
+        set_clock(log, 1300)
+        log.lines(now=2.0)
+        self.assertIsNone(log.take_picked())  # time moving on forgets nothing
+        set_clock(log, 800)  # the game saved at 800, loaded
+        log.lines(now=3.0)
+        self.assertEqual(log.take_picked(), ["Dag|41|7|Trader@500"])
+        self.assertEqual(log.picked, {"Dag|41|7|Trader"})
+
+    def test_xp_taken_and_given_back(self):
+        """Going between areas the game takes the XP away and gives it back: nothing logged. A
+        loss that stays is logged once LOSS_WAIT has passed; a gain after a loss, as the net."""
+        log = make_game()
+        tracker, m = log.tracker, log.guest.mem
+        struct.pack_into("<I", m, SHEETS, 1000)
+        self.assertEqual(tracker.check(1.0), [])
+        struct.pack_into("<I", m, SHEETS, 443)  # -557
+        self.assertEqual(tracker.check(2.0) + tracker.check(3.0), [])
+        struct.pack_into("<I", m, SHEETS, 1000)  # back
+        self.assertEqual(tracker.check(4.0) + tracker.check(5.0) + tracker.check(200.0), [])
+        struct.pack_into("<I", m, SHEETS, 900)  # a loss that stays
+        self.assertEqual(tracker.check(201.0) + tracker.check(202.0), [])
+        self.assertEqual(tracker.check(202.0 + tracker_module.LOSS_WAIT), ["XP: Dag -100"])
+        struct.pack_into("<I", m, SHEETS, 800)
+        tracker.check(300.0), tracker.check(301.0)
+        struct.pack_into("<I", m, SHEETS, 1050)  # back, and 150 more
+        self.assertEqual(tracker.check(302.0) + tracker.check(303.0), ["XP: Dag +150"])
+
     def test_level_up_without_hit_points(self):
         log = make_game()
         tracker, m = log.tracker, log.guest.mem
@@ -1020,6 +1058,16 @@ class RoundAndTurnTests(unittest.TestCase):
         self.assertEqual(self.round(600), "Round 1: Dag 25")
         self.assertEqual(self.round(660), "Round 2: Dag 25")
         self.assertEqual(self.round(5000), "Round 1: Dag 25")  # a new fight
+
+    def test_monsters_acs_forgotten_in_a_new_fight(self):
+        """The game reuses creature records: an AC from an earlier fight (the opening fight's
+        Defiler, AC -9) isn't the new monster's in its Look box; the party's are kept."""
+        self.round(600)
+        self.log.last_ac.update({0: 4, 7: -9})
+        self.assertEqual(self.round(660), "Round 2: Dag 25")
+        self.assertEqual(self.log.last_ac, {0: 4, 7: -9})  # the same fight
+        self.round(5000)
+        self.assertEqual(self.log.last_ac, {0: 4})
 
     def test_whose_turn(self):
         m = self.log.guest.mem

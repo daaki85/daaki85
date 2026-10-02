@@ -77,17 +77,20 @@ RING_TYPE = 102
 # metal short sword, and a cloak of protection, whose plus counts for AC and, worn (CLOAK),
 # on saves as a ring's does
 GAME_TYPES = 115
-SHORT_SWORD_TYPE, CLOAK_TYPE = GAME_TYPES, GAME_TYPES + 1
+SHORT_SWORD_TYPE, CLOAK_TYPE, BONE_HELM_TYPE = GAME_TYPES, GAME_TYPES + 1, GAME_TYPES + 2
 # The companion's rule changes (DSCLOG's RULES): helms count AC 1, boots add a move in a fight;
 # AD&D's two-weapon penalties; spells saved against with the spell save; no doubled d20
 RULE_HELMS, RULE_BOOTS, RULE_TWO_WEAPONS, RULE_SPELL_SAVE, RULE_NO_DOUBLE = 1, 2, 4, 8, 16
 RULE_CATS_GRACE = 32  # Cat's Grace in Flaming Sphere's place
 RULE_STEALTH = 64  # a thief hiding in shadows and moving silently backstabs (stealth.py)
 RULE_LEVEL_10 = 128  # class levels go up to 10 (the game stops at 9)
+RULE_THIEF_TABLE = 256  # thief skills from AD&D's table and Dark Sun's DEX adjustments
+RULE_HALF_GIANT = 512  # half-giants wield two-handed weapons in one hand
 # the Options' setting for each, all on unless unticked
 RULE_SETTINGS = (("helm_ac", RULE_HELMS), ("boots_move", RULE_BOOTS), ("two_weapons", RULE_TWO_WEAPONS),
                  ("spell_save", RULE_SPELL_SAVE), ("no_doubled_save", RULE_NO_DOUBLE),
-                 ("cats_grace", RULE_CATS_GRACE), ("stealth", RULE_STEALTH), ("level_10", RULE_LEVEL_10))
+                 ("cats_grace", RULE_CATS_GRACE), ("stealth", RULE_STEALTH), ("level_10", RULE_LEVEL_10),
+                 ("thief_table", RULE_THIEF_TABLE), ("half_giant_hands", RULE_HALF_GIANT))
 # Cat's Grace (RULE_CATS_GRACE): Flaming Sphere (wizard level 2) gets Strength's record and the
 # name, and DSCLOG sends it to Strength's code, which rolls 1d6 into an effect of its own (54,
 # a number the game leaves unused) that adds to DEX, at most 24, as Strength's adds to STR.
@@ -470,10 +473,37 @@ THIEF_PER_LEVEL = 4
 # dice log's copy of the game empties it (gamepatch.py), so the Ledger reads it
 THIEF_PENALTY_LIST, PENALTY_LIST_END = 0xD0, 13
 THIEF_PENALTY_SLOTS = tuple(EQUIP_SLOTS.index(s) for s in ("legs", "ammo", "left hand", "right hand"))
+# RULE_THIEF_TABLE (DSCLOG's PROBE_THIEF_SKILL does the same in the game): a skill is AD&D's
+# average for the thief level (1-10, by skill) in place of the game's base + 4 a level, plus the
+# game's race adjustment (Dark Sun's own numbers already), plus Dark Sun's DEX adjustment (AD&D's
+# table to 19, the Dark Sun rules' past it, 9-22; none for the last three skills) in place of the
+# game's DEX formula
+AD_D_THIEF = ((30, 35, 40, 45, 50, 55, 60, 65, 70, 80),  # pick pockets
+              (25, 29, 33, 37, 42, 47, 52, 57, 62, 67),  # open locks
+              (20, 25, 30, 35, 40, 45, 50, 55, 60, 65),  # find/remove traps
+              (15, 21, 27, 33, 40, 47, 55, 62, 70, 78),  # move silently
+              (10, 15, 20, 25, 31, 37, 43, 49, 56, 63),  # hide in shadows
+              (10, 10, 15, 15, 20, 20, 25, 25, 30, 30),  # hear noise
+              (85, 86, 87, 88, 90, 92, 94, 96, 98, 99),  # climb walls
+              (0, 0, 0, 20, 25, 30, 35, 40, 45, 50))     # read languages
+DEX_FIRST = 9
+DEX_ADJUST = ((-15, -10, -10, -20, -10), (-10, -5, -10, -15, -5), (-5, 0, -5, -10, 0), (0, 0, 0, -5, 0),  # 9-12
+              (0, 0, 0, 0, 0), (0, 0, 0, 0, 0), (0, 0, 0, 0, 0), (0, 5, 0, 0, 0),  # 13-16
+              (5, 10, 0, 5, 5), (10, 15, 5, 10, 10), (15, 20, 10, 15, 15),  # 17-19
+              (20, 25, 12, 20, 17), (25, 27, 15, 25, 20), (27, 30, 17, 30, 22))  # 20-22
+
+
+def dex_adjustment(dex: int, skill: int) -> int:
+    """Dark Sun's DEX adjustment to a thief skill (DEX below 9 as 9, above 22 as 22)."""
+    if skill >= len(DEX_ADJUST[0]):
+        return 0
+    return DEX_ADJUST[min(max(dex, DEX_FIRST), DEX_FIRST + len(DEX_ADJUST) - 1) - DEX_FIRST][skill]
+
+
 # AD&D's ranger: hide in shadows and move silently by ranger level (1-10), the Ledger's own
 # (the game gives rangers no thief skills); race and DEX adjust them as a thief's
-RANGER_HIDE = (10, 15, 20, 25, 31, 37, 43, 49, 56, 63)
-RANGER_MOVE = (15, 21, 27, 33, 40, 47, 55, 62, 70, 78)
+RANGER_HIDE = AD_D_THIEF[4]
+RANGER_MOVE = AD_D_THIEF[3]
 # Effects that rule skills out (the chance can't come up), and ones that make a skill certain
 THIEF_BLOCKED = {8: (0, 1, 2, 3, 4, 6, 7), 17: tuple(range(8)), 11: tuple(range(8)), 3: tuple(range(8)),
                  34: tuple(range(8)), 47: (1, 2, 3, 4, 5, 6, 7), 20: (0, 4), 25: (4,), 49: (0, 1, 6), 19: (7,)}
@@ -985,14 +1015,23 @@ class GameData:
         table = self.guest.read((self.load_seg + THIEF_TABLE_SEG) * 16, THIEF_ARMOUR + 8)
         signed_byte = lambda offset: struct.unpack_from("b", table, offset)[0]
         race, dex = sheet[SHEET_RACE], rec[CREATURE_ABILITIES + 1]
-        parts = [("base", signed_byte(THIEF_BASE + skill)),
-                 (f"thief level {level}", level * THIEF_PER_LEVEL)]
+        if self.rules & RULE_THIEF_TABLE:
+            parts = [(f"thief level {level}", AD_D_THIEF[skill][min(level, 10) - 1])]
+        else:
+            parts = [("base", signed_byte(THIEF_BASE + skill)),
+                     (f"thief level {level}", level * THIEF_PER_LEVEL)]
         if 1 <= race <= 8:
             parts.append((RACE_NAMES[race], signed_byte(THIEF_RACE + race * 8 + skill)))
+        parts.append((f"DEX {dex}", self._dex_part(table, dex, skill)))
+        return [(what, n) for what, n in parts if n or what in ("base", parts[0][0])]
+
+    def _dex_part(self, table: bytes, dex: int, skill: int) -> int:
+        """DEX's adjustment to a thief skill: Dark Sun's table (RULE_THIEF_TABLE), else the game's
+        formula (each point below its low costs 5, above its high gives 5, above its top 3 less)."""
+        if self.rules & RULE_THIEF_TABLE:
+            return dex_adjustment(dex, skill)
         low, high, top = (table[o + skill] for o in (THIEF_DEX_LOW, THIEF_DEX_HIGH, THIEF_DEX_TOP))
-        dex_part = -5 * max(low - dex, 0) + 5 * max(dex - high, 0) - 3 * max(dex - top, 0)
-        parts.append((f"DEX {dex}", dex_part))
-        return [(what, n) for what, n in parts if n or what == "base"]
+        return -5 * max(low - dex, 0) + 5 * max(dex - high, 0) - 3 * max(dex - top, 0)
 
     def thief_skills(self, creature: int) -> List[Tuple[str, int]]:
         """[(skill, chance before armour and the situation), ...] for a thief, else []: the skills
@@ -1033,8 +1072,7 @@ class GameData:
         parts = [(f"ranger level {level}", (RANGER_HIDE if skill == 4 else RANGER_MOVE)[min(level, 10) - 1])]
         if 1 <= race <= 8:
             parts.append((RACE_NAMES[race], signed_byte(THIEF_RACE + race * 8 + skill)))
-        low, high, top = (table[o + skill] for o in (THIEF_DEX_LOW, THIEF_DEX_HIGH, THIEF_DEX_TOP))
-        parts.append((f"DEX {dex}", -5 * max(low - dex, 0) + 5 * max(dex - high, 0) - 3 * max(dex - top, 0)))
+        parts.append((f"DEX {dex}", self._dex_part(table, dex, skill)))
         return [(what, n) for what, n in parts if n or what.startswith("ranger")]
 
     def ranger_skill_now(self, creature: int, skill: int) -> Optional[int]:

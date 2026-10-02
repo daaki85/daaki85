@@ -14,12 +14,13 @@ from tkinter import font as tkfont
 from tkinter import ttk
 from typing import Tuple
 
-from .palette import (AMBER, BUTTON, BUTTON_LIT, DARK, DEEP, EDGE_LIT, FOCUS, GREEN, LOG_COLOURS, NAME, PALE,  # noqa: F401
+from .palette import (AMBER, BUTTON, BUTTON_LIT, DARK, DEEP, EDGE_LIT, FOCUS, GREEN, LOG_COLOURS, MONSTER_COLOUR,
+                      NAME, PALE, PARTY_COLOURS,  # noqa: F401
                       PANEL, PSI_BLUE, ROCK, SAND, SHADOW, STONE, SUBTITLE, YELLOW)
 
 # Named fonts, so Ctrl + / Ctrl - can enlarge all text at once
 BASE_SIZES = {"TkDefaultFont": 10, "TkTextFont": 10, "TkFixedFont": 10, "TkHeadingFont": 10,
-              "TkMenuFont": 10, "LedgerHeading": 10, "LedgerTitle": 20, "LedgerSmall": 9}
+              "TkMenuFont": 10, "LedgerHeading": 10, "LedgerTitle": 20, "LedgerSmall": 9, "LedgerFixedBold": 10}
 _scale = 1.0
 _fonts = {}  # tkinter deletes a named font when its Font object goes, so keep them
 
@@ -33,9 +34,11 @@ def make_fonts(root: tk.Misc) -> None:
     serif = _family("Georgia", "Times New Roman", "DejaVu Serif", "Liberation Serif", "Times")
     for name, family, weight, slant in (("LedgerHeading", serif, "bold", "roman"),
                                         ("LedgerTitle", serif, "bold", "roman"),
-                                        ("LedgerSmall", "TkDefaultFont", "normal", "italic")):
+                                        ("LedgerSmall", "TkDefaultFont", "normal", "italic"),
+                                        ("LedgerFixedBold", "TkFixedFont", "bold", "roman")):  # the log's names
         if name not in _fonts:
-            family = tkfont.nametofont("TkDefaultFont").actual("family") if family == "TkDefaultFont" else family
+            if family in ("TkDefaultFont", "TkFixedFont"):
+                family = tkfont.nametofont(family).actual("family")
             _fonts[name] = tkfont.Font(root, name=name, family=family, weight=weight, slant=slant,
                                        size=BASE_SIZES[name])
     set_scale(root, _scale)
@@ -164,6 +167,54 @@ def _rock(width: int, height: int, seed: int = 7) -> tk.PhotoImage:
     image = tk.PhotoImage(width=width, height=height)
     image.put(" ".join(rows))
     return image
+
+
+class ScrollArea(ttk.Frame):
+    """A frame (INNER) that scrolls up and down when it's taller than the window: with the
+    scrollbar, the wheel over it, and the arrow, page, Home and End keys once the area has the
+    keyboard focus (outlined in yellow, like the other controls)."""
+
+    def __init__(self, parent, padding=4):
+        super().__init__(parent)
+        self.canvas = tk.Canvas(self, background=STONE, takefocus=1, highlightthickness=2,
+                                highlightbackground=STONE, highlightcolor=FOCUS)
+        scroll = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.inner = ttk.Frame(self.canvas, padding=padding)
+        window = self.canvas.create_window(0, 0, window=self.inner, anchor="nw")
+        self.inner.bind("<Configure>", lambda _e: self._fit())
+        self.canvas.bind("<Configure>", lambda e: (self.canvas.itemconfigure(window, width=e.width), self._fit()))
+        for key, amount, what in (("<Up>", -1, "units"), ("<Down>", 1, "units"), ("<Prior>", -1, "pages"),
+                                  ("<Next>", 1, "pages")):
+            self.canvas.bind(key, lambda _e, a=amount, w=what: self.scroll(a, w))
+        self.canvas.bind("<Home>", lambda _e: self.canvas.yview_moveto(0))
+        self.canvas.bind("<End>", lambda _e: self.canvas.yview_moveto(1))
+        self.bind_all("<MouseWheel>", self._wheel, add="+")
+        self.bind_all("<Button-4>", self._wheel, add="+")
+        self.bind_all("<Button-5>", self._wheel, add="+")
+
+    def _fit(self) -> None:
+        """The scrolled region: the inner frame, and no less than the window (so a frame that
+        fits stays put at the top)."""
+        height = max(self.inner.winfo_reqheight(), self.canvas.winfo_height())
+        self.canvas.configure(scrollregion=(0, 0, self.canvas.winfo_width(), height))
+
+    def scroll(self, amount: int, what: str = "units") -> None:
+        self.canvas.yview_scroll(amount, what)
+
+    def _wheel(self, event) -> None:
+        """Scroll when the pointer is over the area."""
+        try:
+            widget = self.winfo_containing(event.x_root, event.y_root)
+        except (KeyError, tk.TclError):  # (over a pop-up menu or another window)
+            return
+        while widget is not None and widget is not self:
+            widget = widget.master
+        if widget is None:
+            return
+        self.scroll(-1 if getattr(event, "num", 0) == 4 or getattr(event, "delta", 0) > 0 else 1)
 
 
 class Banner(tk.Canvas):

@@ -54,6 +54,8 @@ VEC_TYPES_FILL equ 0xE8    ; PROBE_TYPES_FILL
 VEC_LEVEL equ 0xE7         ; PROBE_LEVEL
 VEC_HD_ROLL equ 0xE6       ; PROBE_HD_ROLL
 VEC_HD_CON equ 0xE5        ; PROBE_HD_CON
+VEC_THIEF_SKILL equ 0xE4   ; PROBE_THIEF_SKILL
+VEC_TWO_HANDED equ 0xE3    ; PROBE_TWO_HANDED
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -1750,6 +1752,7 @@ RING_TYPE  equ 102
 HELM_LEATHER equ 5              ; the helm item types: Helm, Dapartea's Helm; Helm of
 HELM_METAL   equ 89             ; Contemplation; and a leather one no object uses (Helm of
 HELM_OTHER   equ 109            ; Might, made by a script)
+HELM_BONE    equ 117            ; (and the companion's bone helm, of TYPES)
 FINGER     equ 4                ; the item's slot byte while worn on a finger (the left
 FINGER2    equ 11               ; hand's, then the right's)
 CLOAK      equ 12               ; ... and on the back
@@ -1775,6 +1778,8 @@ probe_ring_ac:
         cmp cx, HELM_METAL
         je .is
         cmp cx, HELM_OTHER
+        je .is
+        cmp cx, HELM_BONE
         je .is
         iret
 .is:    push ax
@@ -1921,6 +1926,8 @@ RULE_NO_DOUBLE equ 16
 RULE_CATS_GRACE equ 32          ; (the companion also gives Flaming Sphere Strength's record and the name)
 RULE_STEALTH equ 64             ; (the companion rolls the hiding and moving silently, and sets STEALTH)
 RULE_LEVEL_10 equ 128          ; class levels go up to 10, not 9
+RULE_THIEF_TABLE equ 256        ; thief skills from AD&D's table and Dark Sun's DEX adjustments
+RULE_HALF_GIANT equ 512         ; half-giants wield two-handed weapons in one hand
 FOOT       equ 13               ; the item's slot byte while worn on the feet
 THINGS_SEG equ 0x3972 - 0x4356  ; the things table's segment, relative to DS
 
@@ -2090,6 +2097,127 @@ probe_hd_con:
 .cmp:   cmp al, dl
         pop dx
         retf 2
+
+; PROBE_THIEF_SKILL: INT VEC_THIEF_SKILL, then "jc" past the game's DEX formula, replaces
+; "mov ax,si / shl ax,2 / add dx,ax / mov si,dx" (9 bytes) in the game's thief skill routine,
+; where DX is the skill's base plus the race's adjustment, SI the thief level, ES:0 the game's
+; thief tables (the base at +skill), and the game's [BP+8] the skill, [BP-0Ch] DEX. Without
+; RULE_THIEF_TABLE (or a thief level), the game's sum (SI = DX + 4 a level), CF clear: on to
+; the game's DEX formula. With it, SI = AD&D's average for the level (THIEF_TABLE, levels past
+; 10 as 10) + the race's adjustment + Dark Sun's DEX adjustment (DEX_TABLE, DEX 9-22), CF set:
+; past the game's DEX formula, to its armour and effects (dscompanion/game.py does the same sums).
+probe_thief_skill:
+        sti
+        test word [cs:rules], RULE_THIEF_TABLE
+        jz .game
+        cmp si, 1
+        jl .game
+        push ax
+        push bx
+        mov bx, [bp+8]
+        and bx, 7
+        mov al, [es:bx]         ; the game's base, out
+        cbw
+        sub dx, ax
+        mov ax, si
+        cmp ax, 10
+        jbe .level
+        mov ax, 10
+.level: dec ax
+        imul bx, bx, 10
+        add bx, ax
+        mov al, [cs:thief_table+bx]
+        mov ah, 0
+        add dx, ax
+        mov bx, [bp+8]
+        and bx, 7
+        cmp bx, 5               ; DEX adjusts the first five
+        jae .done
+        mov ax, [bp-0Ch]
+        cmp ax, 9
+        jge .low
+        mov ax, 9
+.low:   cmp ax, 22
+        jle .high
+        mov ax, 22
+.high:  sub ax, 9
+        imul ax, ax, 5
+        add bx, ax
+        mov al, [cs:dex_table+bx]
+        cbw
+        add dx, ax
+.done:  mov si, dx
+        pop bx
+        pop ax
+        push bp
+        mov bp, sp
+        or word [bp+6], 1       ; CF in the flags IRET restores: past the game's DEX formula
+        pop bp
+        iret
+.game:  shl si, 2
+        add si, dx
+        push bp
+        mov bp, sp
+        and word [bp+6], 0FFFEh
+        pop bp
+        iret
+; PROBE_TWO_HANDED: INT VEC_TWO_HANDED replaces "test byte es:[bx+0Fh],40h" (5 bytes: INT + 3
+; NOPs), the two-handed bit of an item type (ES:BX), where the inventory screen puts a weapon in
+; a hand: of the other hand's ("Two handed weapon in use") and of the one going in ("Need two
+; free hands"). With RULE_HALF_GIANT, for a half-giant on show the answer is "not two-handed"
+; (ZF set); otherwise the game's test. RETF 2 keeps the flags. (The game's own check that both
+; hands don't hold heavy weapons, over 30 each, still stands.)
+WHO_SEG equ 0x348 - 0x4356      ; the segment of the character on show's number (+25Bh), from DS
+HALF_GIANT equ 5
+probe_two_handed:
+        sti
+        test word [cs:rules], RULE_HALF_GIANT
+        jz .test
+        push ax
+        push es
+        push bx
+        mov ax, ds
+        add ax, WHO_SEG
+        mov es, ax
+        imul ax, [es:0x25B], 0x47
+        les bx, [0x1661]
+        add bx, ax              ; ES:BX = the sheet of the character on show
+        cmp byte [es:bx + 0x18], HALF_GIANT
+        pop bx
+        pop es
+        pop ax
+        jne .test
+        cmp ax, ax              ; ZF: not two-handed, for a half-giant
+        retf 2
+.test:  test byte [es:bx + 0x0F], 0x40
+        retf 2
+
+; AD&D's average thief skills, levels 1-10, a row per skill (game.AD_D_THIEF)
+thief_table:
+        db 30, 35, 40, 45, 50, 55, 60, 65, 70, 80     ; pick pockets
+        db 25, 29, 33, 37, 42, 47, 52, 57, 62, 67     ; open locks
+        db 20, 25, 30, 35, 40, 45, 50, 55, 60, 65     ; find/remove traps
+        db 15, 21, 27, 33, 40, 47, 55, 62, 70, 78     ; move silently
+        db 10, 15, 20, 25, 31, 37, 43, 49, 56, 63     ; hide in shadows
+        db 10, 10, 15, 15, 20, 20, 25, 25, 30, 30     ; hear noise
+        db 85, 86, 87, 88, 90, 92, 94, 96, 98, 99     ; climb walls
+        db 0, 0, 0, 20, 25, 30, 35, 40, 45, 50        ; read languages
+; Dark Sun's DEX adjustments, DEX 9-22, a row per DEX: pick, open, traps, move, hide (game.DEX_ADJUST)
+dex_table:
+        db -15, -10, -10, -20, -10
+        db -10, -5, -10, -15, -5
+        db -5, 0, -5, -10, 0
+        db 0, 0, 0, -5, 0
+        db 0, 0, 0, 0, 0
+        db 0, 0, 0, 0, 0
+        db 0, 0, 0, 0, 0
+        db 0, 5, 0, 0, 0
+        db 5, 10, 0, 5, 5
+        db 10, 15, 5, 10, 10
+        db 15, 20, 10, 15, 15
+        db 20, 25, 12, 20, 17
+        db 25, 27, 15, 25, 20
+        db 27, 30, 17, 30, 22
 
 ; PROBE_DOS_OPEN: the DOS services (INT 21h), hooked. Opening a file (AH=3Dh) whose name ends in
 ; SEGOBJEX.GFF, the game's objects and their pictures, opens the companion's copy instead
@@ -2360,7 +2488,10 @@ extra_types:
         ; for AC (bit 80h of +0Fh, as armour's) with an AC of its own of 0
         db 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x0A, 0x00, 0x40, 0x08, 0x00, 0x00
         db 0x00, 0x00, 0x00, 0x80, 0xFF, 0x1F, 0x00, 0x01
-        times (TYPES_EXTRA - 2) * TYPE_SIZE db 0
+        ; a bone helm: the Helm's type (5), of bone (to go with the bone scale armour)
+        db 0x00, 0x00, 0x00, 0x00, 0x0F, 0x00, 0xFA, 0x00, 0x01, 0x06, 0x00, 0x00
+        db 0x00, 0x00, 0x00, 0x80, 0x6F, 0x16, 0x00, 0x00
+        times (TYPES_EXTRA - 3) * TYPE_SIZE db 0
 ; the names, numbered from NAMES_OWN (322): the companion's items' (the same as the companion's
 ; NAMES in dscompanion/names.py), the rest blank until it writes more
 extra_names:
@@ -2490,7 +2621,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 32
+        mov cx, 34
 .check:
         lodsb
         mov ah, 35h
@@ -2602,6 +2733,12 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_HD_CON
         mov dx, probe_hd_con
         int 21h
+        mov ax, 2500h + VEC_THIEF_SKILL
+        mov dx, probe_thief_skill
+        int 21h
+        mov ax, 2500h + VEC_TWO_HANDED
+        mov dx, probe_two_handed
+        int 21h
         mov ax, 3521h           ; DOS itself last: opening the objects file (PROBE_DOS_OPEN)
         int 21h
         mov [old21], bx
@@ -2625,7 +2762,7 @@ install:                        ; DS = ES = PSP, CS = the image
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
 busy    db 'DSCLOG: interrupts 60h-65h or E5h-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED
 
         align 16, db 0
 image_len equ $ - $$

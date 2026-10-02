@@ -54,7 +54,9 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   boots a move more in a fight, AD&D's two-weapon penalties, spells saved
   against with the spell save, DEX rather than a doubled d20 on saves against
   fire, cold and electricity, a new spell (Cat's Grace), thieves and rangers
-  hiding in shadows to attack from behind, and class levels up to 10 (see
+  hiding in shadows to attack from behind, class levels up to 10, and thief
+  skills from AD&D's table with Dark Sun's race and DEX adjustments, and
+  half-giants wielding two-handed weapons in one hand (see
   [Rule changes](#rule-changes)). And thieves no longer lose skill for what
   they hold (see [Thief skills](#thief-skills)).
 - **A Ring +1** (+1 AC, +1 on saving throws) found by searching the Tied-up
@@ -172,6 +174,13 @@ pockets, the rule changes); the slave pens' gear and the cooked vulture work
 there too. If anything goes wrong it says so in a message box and
 writes the details to `play.log`.
 
+**If DOSBox closes by itself:** when the game stops with an error, DOSBox now
+waits with the game's message on screen ("The game stopped with an error",
+then press a key), rather than closing over it. With the game started from the
+Ledger, the dice log also says how DOSBox closed: `DOSBox closed: it crashed
+(an access violation, code C0000005h)` means DOSBox itself failed, not the
+game. Either message, and what was happening at the time, says where to look.
+
 **Checking a save file (no game needed):** drag a `SAVEnn.SAV` file from the
 game folder onto **`Show Save.bat`**.
 
@@ -239,7 +248,11 @@ switches) to hide the details and keep the rest; they
 come back when it's ticked again. In the window, each kind has its colour
 (hits green, misses grey, damage amber, saves blue, turns sand, rounds
 underlined with a gap above), but the words say the same thing, so nothing
-depends on telling colours apart.
+depends on telling colours apart. Names stand out in bold: each party member
+in a colour of their own (cyan, magenta, peach and white, by place in the
+party) and every monster and other creature in red, so who acts and who is
+hit can be followed down the log. Every colour has at least 4.5:1 contrast
+with the log's background (WCAG 2.0 AA, as AODA asks).
 
 **Show unlabelled rolls** also lists everything else the game randomises
 (creatures wandering, animations and so on), as raw numbers with where in the
@@ -415,6 +428,10 @@ the chance out as:
   copy of the game empties it. The Ledger reads the list from the running
   game, so its numbers match whichever game it is.
 - plus the situation's bonus or penalty (a hard lock, say).
+
+With **Thief skills from AD&D's table** ticked (see
+[Thief skills from AD&D's table](#thief-skills-from-adds-table)), the first
+two and the DEX part are AD&D's instead.
 
 Only characters with thief levels have the skills; everyone else's chance is 0.
 The character's condition must be Okay (the status the character screen shows
@@ -807,6 +824,7 @@ game cycles, so they flicker like fire):
 | **Cloak of Protection +1** | every other pixel of its lightest folds violet |
 | **Ring of Protection +1**, Pehtucl's | its gold band violet |
 | **Ring of Protection +1**, the arena's | its gold band in the cycling fire colours |
+| **Bone Helm** ([the bone scale set](#the-bone-scale-set)) | the leather Helm's, each shade of leather made the bone scale armour's of the same brightness |
 
 ![Dream's backpack: under a long sword, the Short Sword, Leather Chest Armor +1, the Cloak of Protection +1, and Pehtucl's and the arena's Rings of Protection +1](docs/icons.png)
 
@@ -816,7 +834,7 @@ palette file, are each region's to set (red in the slave pens).
 
 How: the game reads its objects' pictures from `SEGOBJEX.GFF`. When it starts
 the game, the launcher writes `dos\SEGOBJEX.GFF`: the game's file (only read)
-with five objects and their pictures added at its end, its index grown to
+with six objects and their pictures added at its end, its index grown to
 list them (in order of number, as the game looks them up) and a new table of
 contents after them (`dscompanion/icons.py`). The helper has the game open
 that copy instead of its own (its `INT 21h` hook: it opens the copy when the
@@ -824,6 +842,27 @@ game opens `SEGOBJEX.GFF`, and notes that it has), and the Ledger gives the
 Ledger's items those objects' pictures. In a game without the copy, the Ledger
 puts the plain pictures back; a save with the new pictures loaded in the
 original game shows those items without an icon.
+
+### The bone scale set
+
+The game has Bone Scale Chest Armor, Arm Armor and Leg Armor (objects 1033 to
+1035, in its tables as a set), but only the chest piece is ever placed. With
+the Ledger running, the first time the chest piece is in the region with the
+party, wherever it is (on the ground, in a container, or already carried), the
+rest of the set is put with it: the **Bone Scale Arm Armor**, the **Bone Scale
+Leg Armor** and a **Bone Helm**, in the same pile or container, or in the
+carrier's pack. Once a game. The log says so:
+
+```
+Beside the Bone Scale Chest Armor lie the rest of the set: its arm and leg pieces, and a helm of bone.
+```
+
+The arm and leg pieces are the game's own, with its own icons. The game has
+no helm of bone, so the Bone Helm is an item type of the Ledger's own (the
+leather Helm's, of bone, AC 1 with **Helms give AC 1** like the game's helms),
+with an icon in the bone scale's colours (see [Item icons](#item-icons)).
+
+![Dream's pack with the bone scale set: the chest, arm and leg pieces, and the Bone Helm under the pointer with its name](docs/bonescale.png)
 
 ### Picking pockets
 
@@ -867,7 +906,9 @@ the last try on that person.
 A thief can go on trying the same person until **caught** (both rolls failed)
 or until they take the coins; after that, that person keeps a hand on their
 pockets for good. The Ledger remembers who in `settings.json`,
-for this party. The Trustee is left to his own conversation. What happens is
+for this party, with the time on the game's clock: load a game saved before
+the try and the clock goes back past it, so the try is forgotten and the
+person can be tried again. The Trustee is left to his own conversation. What happens is
 added to the conversation's text (use its arrow to scroll down to it if the
 text is long) and to the dice log:
 
@@ -891,7 +932,7 @@ the helper shows the result instead of the game's "nothing happens".
 
 ### Rule changes
 
-Eight changes to the game's rules, each with its own box under **Rule changes**
+Ten changes to the game's rules, each with its own box under **Rule changes**
 on the Options tab (all on by default; they take effect in games started with
 the dice log, while the Ledger runs or with **Play Dark Sun (in-game rolls)**,
 which uses the Options as last set). Untick one and the game's own rule is back
@@ -1051,6 +1092,67 @@ helper, which, where the game has just worked out whether an attack is from
 behind and a backstab (`INT EAh`), makes the hidden thief's next one so, by
 the game's own conditions for a backstab (a thief, in melee, a weapon of
 weight 40 or less).
+
+#### Thief skills from AD&D's table
+
+The game's thief skills come out high: a 3rd-level elf thief with DEX 22 has
+move silently 66 and hide in shadows 61. AD&D gives 27 and 20 at 3rd level
+before race and DEX. The game adds 4 a level to a base of its own, and its DEX
+formula gives move silently and hide in shadows less than Dark Sun's table at
+high DEX, and some other skills more. With **Thief skills from AD&D's table**
+ticked, a skill is:
+
+- AD&D's average for the thief level (the Player's Handbook's table, up to
+  10th level),
+- plus the race's adjustment, the game's own (already the Dark Sun rules'
+  numbers: an elf +5 pick pockets, −5 open locks, +5 move silently, +10 hide
+  in shadows, +5 hear noise),
+- plus DEX's: AD&D's table up to 19, the Dark Sun rules' exceptional DEX
+  past it, for the first five skills (hear noise, climb walls and read
+  languages have none):
+
+| DEX | Pick pockets | Open locks | Find/remove traps | Move silently | Hide in shadows |
+|---|---|---|---|---|---|
+| 9 | −15 | −10 | −10 | −20 | −10 |
+| 10 | −10 | −5 | −10 | −15 | −5 |
+| 11 | −5 | 0 | −5 | −10 | 0 |
+| 12 | 0 | 0 | 0 | −5 | 0 |
+| 13-15 | 0 | 0 | 0 | 0 | 0 |
+| 16 | 0 | +5 | 0 | 0 | 0 |
+| 17 | +5 | +10 | 0 | +5 | +5 |
+| 18 | +10 | +15 | +5 | +10 | +10 |
+| 19 | +15 | +20 | +10 | +15 | +15 |
+| 20 | +20 | +25 | +12 | +20 | +17 |
+| 21 | +25 | +27 | +15 | +25 | +20 |
+| 22 | +27 | +30 | +17 | +30 | +22 |
+
+then the situation and effects as before. So Azil, a 3rd-level elf thief with
+DEX 22: pick pockets 40 + 5 + 27 = 72, open locks 58, find traps 47, move
+silently 62, hide in shadows 52, hear noise 20, climb walls 87. A ranger's
+move silently and hide in shadows take the same race and DEX adjustments.
+Untick it for the game's numbers.
+
+How: where the game's thief skill routine adds 4 a level, the helper
+(`INT E4h`) puts AD&D's number for the level in place of the game's base and
+level, adds the DEX table's, and jumps past the game's DEX formula to its
+armour and effects. The Ledger's screens and the inventory screen's panel
+work the chances out the same way.
+
+#### Half-giants' two-handed weapons
+
+Half-giants stand up to twelve feet tall. With **Half-giants wield
+two-handed weapons in one hand** ticked, a half-giant can hold a two-handed
+weapon (a two-handed sword, a halberd, a bow) in one hand, with a shield or a
+light weapon in the other. The game's own rule that the two hands can't both
+hold heavy weapons (over 30 in weight each) still stands, so no half-giant
+holds two two-handed weapons. With two weapons ready, the two-weapon penalties
+apply as for anyone. The inventory screen still writes "2 handed" in the
+weapon's line: that is its kind, not a limit.
+
+How: the inventory screen checks a weapon type's two-handed bit (+0Fh, 40h)
+twice when something goes into a hand: the other hand's ("Two handed weapon in
+use") and the one going in ("Need two free hands"). The helper (`INT E3h`)
+answers both for the character on show, "not two-handed" for a half-giant.
 
 **Levels up to 10.** The game stops every class at level 9 (its manual's
 tables end there too). With **Class levels go up to 10** ticked, each class
@@ -1397,7 +1499,7 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    movement `INT FBh` (for boots), a key the conversation window doesn't know
    `INT FCh` and an item used on the map `INT FDh` (for
    [picking pockets](#picking-pockets)), the two-weapon adjustment `INT FEh`
-   and the doubling of a save's d20 `INT F0h`, Cat's Grace `INT EDh`-`INT EFh` and a hidden thief's attack `INT EAh` and the class level cap `INT E7h` and a thief's hit dice `INT E6h` and `INT E5h` (for
+   and the doubling of a save's d20 `INT F0h`, Cat's Grace `INT EDh`-`INT EFh` and a hidden thief's attack `INT EAh` and the class level cap `INT E7h` and a thief's hit dice `INT E6h` and `INT E5h` and the thief skills `INT E4h` and two-handed weapons `INT E3h` (for
    [rule changes](#rule-changes)), and
    where the game makes room for its name table and reads it in `INT ECh` and
    `INT EBh` (for [new item names](#new-item-names)), and its item type table
@@ -1506,12 +1608,16 @@ The party pane has two tabs:
 
 The other side has the **Dice log**, **Dialogue**, **Spells** and **Memory
 tools** tabs, and **Options** (Alt+O) with the Ledger's switches: what the
-dice log shows (unlabelled rolls, details), what it adds to the game (each
-turn's rolls and how much they say, monster descriptions, the Ring +1,
-picking pockets, and a button that gives each thief a set of Thieves' Tools
-now) and the rule changes (helms, boots, two weapons, the spell save, doubled
-saves, Cat's Grace, hiding in shadows, levels up to 10). The switches for the
-game are remembered for next time.
+dice log shows (unlabelled rolls, details), what it shows in the game (each
+turn's rolls and how much they say, monster descriptions) and the rule
+changes (helms, boots, two weapons, the spell save, doubled saves, Cat's
+Grace, hiding in shadows, levels up to 10, the thief skill table,
+half-giants' two-handed weapons), with the
+Ledger's additions to play after them: the Ring +1, picking pockets, and a
+button that gives each thief a set of Thieves' Tools now. The switches for the
+game are remembered for next time. In a window too small to show them all,
+the tab scrolls (scrollbar, mouse wheel, or arrow and page keys once it has
+the focus).
 
 ![The Options tab](docs/options.png)
 

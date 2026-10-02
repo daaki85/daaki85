@@ -51,10 +51,18 @@ LOG_COLOURS = {
     "other": YELLOW,
 }
 
+# Names in the dice log: each party member's (by place in the party) in a colour of their own,
+# every monster's in one, so who acts and who is hit stand out within a line's colour. The names
+# are bold, and the text says who it is, so nothing depends on the colours alone
+PARTY_COLOURS = ("#6FD8E8", "#F48CF4", "#FFB86B", "#FFFFFF")  # cyan, magenta, peach, white
+MONSTER_COLOUR = "#FF7070"  # red
+
 # Every (text, background) pair the window uses
 TEXT_PAIRS: Dict[str, Tuple[str, str]] = {
     **{f"log {k}": (v, DEEP) for k, v in LOG_COLOURS.items()},
     "log text": (PALE, DEEP),
+    **{f"log, party member {n + 1}'s name": (c, DEEP) for n, c in enumerate(PARTY_COLOURS)},
+    "log, a monster's name": (MONSTER_COLOUR, DEEP),
     "dialogue": (AMBER, DEEP),
     "speaker": (YELLOW, DEEP),
     "dialogue, chosen reply": (GREEN, DEEP),

@@ -28,6 +28,8 @@ game itself, in the game's own lettering and windows:
   - a new spell, Cat's Grace;
   - thieves hiding in shadows and moving silently to backstab, and rangers
     to attack from behind;
+  - thief skills from AD&D's table, with Dark Sun's race and DEX adjustments;
+  - half-giants wielding two-handed weapons in one hand;
   - class levels up to 10 (the game stops at 9).
 - **New items and thief play:** a Ring of Protection +1 to find in the arena;
   gear for Kurzak, Legcrusher and Pehtucl in the slave pens (a short sword
@@ -58,7 +60,45 @@ folder.
 
 ## Changelog
 
-### Pull request #8 ([in review](https://github.com/daaki85/darksun-companion-mod/pull/8))
+### Pull request #9 ([in review](https://github.com/daaki85/darksun-companion-mod/pull/9))
+
+**Added**
+- **Rule change: thief skills from AD&D's table.** A skill is AD&D's average
+  for the thief level, plus the race's adjustment, plus Dark Sun's DEX
+  adjustment (AD&D's table to 19, the Dark Sun rules' to 22). The game added 4
+  a level to a base of its own and used a DEX formula, which gave a 3rd-level
+  thief move silently and hide in shadows 10 to 20 points too high. Rangers'
+  two chances take the same adjustments.
+- **The bone scale set:** where the Bone Scale Chest Armor is found, its arm and
+  leg pieces (the game's own, never placed) and a new Bone Helm, coloured to
+  match, are found with it.
+- **Rule change: half-giants wield two-handed weapons in one hand,** with a
+  shield or a light weapon in the other (the game's rule against two heavy
+  weapons still stands).
+- **Names in colour in the dice log:** each party member's in a colour of
+  their own, monsters' in red, bold, all at 4.5:1 contrast or more.
+
+**Fixed**
+- **A game that stops with an error** leaves its message on screen (DOSBox
+  waits for a key instead of closing), and the dice log says how DOSBox
+  closed, telling a crash of DOSBox's own apart.
+- **Picking a pocket after loading a save:** a try made after the save (the
+  thief caught) is forgotten when it's loaded, so that person can be tried
+  again.
+- **XP taken away and given back between areas** (the game does it as the
+  party moves on) is no longer logged as a loss and a gain; a loss that stays
+  is logged after a minute.
+- **A monster's AC in its Look box** could be an earlier fight's creature's
+  (the game reuses creature records): a slig in the first arena fight showed
+  the opening fight's Defiler's AC −9. The Ledger now forgets monsters' ACs
+  when a new fight begins.
+
+**Changed**
+- **The Options tab scrolls** when the window is too small to show it all.
+- **Options:** the Ring +1, picking pockets and the thieving tools button sit
+  under Rule changes, with the other changes to play.
+
+### Pull request #8 ([merged 2026-10-02](https://github.com/daaki85/darksun-companion-mod/pull/8))
 
 **Added**
 - **Rule change: levels up to 10.** Every class can reach 10th level, at

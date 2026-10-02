@@ -39,6 +39,14 @@ class LaunchTests(unittest.TestCase):
         self.assertLess(lines.index(r"lh d:\dsclog.exe"), lines.index(r"d:\dsunlog.exe"))
         self.assertLess(lines.index("c:"), lines.index(r"d:\dsunlog.exe"))  # run from the game folder
         self.assertEqual(lines[-2:], ["exit", ""])
+        # a game stopping with an error (not its own Exit to DOS: 0) leaves its message up
+        self.assertLess(lines.index(r"d:\dsunlog.exe"), lines.index("if errorlevel 1 pause"))
+
+    def test_dosbox_closing_said_in_the_log(self):
+        self.assertEqual(launch.closed_line(0), "DOSBox closed.")
+        self.assertIn("crashed (an access violation, code C0000005h)", launch.closed_line(3221225477))
+        self.assertIn("C0000005h", launch.closed_line(-1073741819))  # (the same, as a signed int)
+        self.assertEqual(launch.closed_line(3), "DOSBox closed with exit code 3.")
 
     def test_a_window_three_times_the_game_unless_asked_otherwise(self):
         self.assertEqual(launch.display_lines({}),

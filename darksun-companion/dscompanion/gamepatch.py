@@ -39,7 +39,7 @@ VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY = 0xED, 0xEE, 0xEF
 VEC_NAMES_SIZE, VEC_NAMES_FILL = 0xEC, 0xEB
 VEC_STEALTH = 0xEA
 VEC_TYPES_SIZE, VEC_TYPES_FILL = 0xE9, 0xE8
-VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON = 0xE7, 0xE6, 0xE5
+VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED = 0xE7, 0xE6, 0xE5, 0xE4, 0xE3
 
 
 class Patch(NamedTuple):
@@ -152,6 +152,16 @@ PATCHES = (
     # ended by 13: the legs, the quiver and both hands) made empty, so nothing does
     Patch("thief_slots", 0x44F70, bytes.fromhex("060001000a0003000d00"), bytes.fromhex("0d000d000d000d000d00")),
     Patch("hd_con", 0x87779, bytes.fromhex("263a870100"), _interrupt(VEC_HD_CON, 5)),
+    # a thief skill: base + race + 4 a level, "mov ax,si / shl ax,2 / add dx,ax / mov si,dx"
+    # (DSCLOG does it, or with the rule AD&D's table and Dark Sun's DEX adjustment, then "jc"
+    # past the game's DEX formula to its armour and effects at 80386h)
+    # putting a weapon in a hand on the inventory screen: "test byte es:[bx+0Fh],40h", the
+    # two-handed bit, of the other hand's weapon and of the one going in (DSCLOG answers "not
+    # two-handed" for a half-giant with the rule on)
+    Patch("two_handed_other", 0x6F33F, bytes.fromhex("26f6470f40"), _interrupt(VEC_TWO_HANDED, 5)),
+    Patch("two_handed_new", 0x6F3CC, bytes.fromhex("26f6470f40"), _interrupt(VEC_TWO_HANDED, 5)),
+    Patch("thief_skill", 0x80307, bytes.fromhex("8bc6c1e00203d08bf2"),
+          bytes((0xCD, VEC_THIEF_SKILL, 0x72, 0x80386 - 0x8030B)) + b"\x90" * 5),
     # (not changed: DSCLOG reads the segment this "mov dx,<segment>" loads, the pointer's items')
     Patch("use_item_seg", 0x73A14, bytes.fromhex("ba8003"), bytes.fromhex("ba8003")),
     # The data path is argv[0] cut after its last \ or :, kept at DS:4B81h. The

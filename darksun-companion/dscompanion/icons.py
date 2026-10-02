@@ -8,11 +8,14 @@ cycles: 240-248, fire): from the plain item's icon.
 - the Rings of Protection +1: the gold band violet for Pehtucl's, in the fire colours for the
   arena's (the Tied-up Prisoner's), so the two can be told apart.
 
+- the Bone Helm (bonescale.py): the leather Helm's, each shade of leather made the bone scale
+  armour's of the same brightness (BONE).
+
 Violet is 35-37 of the palette, which no region changes (232-239, violet in RESOURCE.GFF's
 palette, are each region's own: red in the slave pens).
 
 The game reads object pictures from SEGOBJEX.GFF. The game folder is never changed: the launcher
-writes a copy of that file next to the patched game (the dos folder, D: in DOSBox) with five
+writes a copy of that file next to the patched game (the dos folder, D: in DOSBox) with six
 objects added, and DSCLOG has the game open the copy instead (its INT 21h hook, PROBE_DOS_OPEN).
 An object (OJFF) is an item's picture number negated; its word +0Ch names its icon (a BMP chunk),
 and a BMP chunk of its own number is its picture on the map, here the plain item's.
@@ -89,6 +92,14 @@ def glow(rows: Rows, which: Callable[[int, int, int], bool], colours: Tuple[int,
              for x, p in enumerate(r)] for y, r in enumerate(rows)]
 
 
+# the leather Helm's shades -> the bone scale armour's (its icons' mauves) of the same brightness
+BONE = {129: 207, 128: 205, 134: 58, 135: 194, 136: 206, 137: 59, 138: 60, 139: 61, 140: 61}
+
+
+def recolour(rows: Rows, colours: Dict[int, int]) -> Rows:
+    return [[colours.get(p, p) if p is not None else None for p in r] for r in rows]
+
+
 # (name, the plain item's picture, the new object's number, its icon's number, the icon made from
 # the plain one's)
 ICONS: Tuple[Tuple[str, int, int, int, Callable[[Rows], Rows]], ...] = (
@@ -99,6 +110,7 @@ ICONS: Tuple[Tuple[str, int, int, int, Callable[[Rows], Rows]], ...] = (
      lambda r: glow(r, lambda p, x, y: p in (0x8A, 0x8B, 0x8C) and (x + y) % 2 == 0, VIOLET)),
     ("Pehtucl's Ring of Protection +1", 0xFA1C, 2430, 2435, lambda r: glow(r, lambda p, x, y: p == 0x3A, VIOLET)),
     ("Ring of Protection +1", 0xFA1C, 2431, 2436, lambda r: glow(r, lambda p, x, y: p == 0x3A, FIRE)),
+    ("Bone Helm", 0xFC03, 2437, 2438, lambda r: recolour(r, BONE)),
 )
 PICTURES: Dict[str, int] = {name: 0x10000 - number for name, _, number, _, _ in ICONS}  # an item's +0
 
@@ -222,6 +234,8 @@ def which(rec: bytes) -> Optional[str]:
     if len(rec) < game.ITEM_SIZE:
         return None
     kind, = struct.unpack_from("<H", rec, game.ITEM_TYPE)
+    if kind == game.BONE_HELM_TYPE:
+        return "Bone Helm"
     plus = struct.unpack("b", rec[game.ITEM_PLUS:game.ITEM_PLUS + 1])[0]
     if kind == game.SHORT_SWORD_TYPE:
         return "Short Sword"

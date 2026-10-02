@@ -9,11 +9,12 @@ name search and a live hex view of a record that highlights bytes as they
 change. Click a byte to see it decoded as each value type.
 """
 
+import re
 import struct
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from . import art, dicelog, game, launch, partyview, spellbook, theme, values
 from .dicelog import DiceLog, DiceLogError
@@ -157,6 +158,12 @@ class Viewer:
         for tag, colour in theme.LOG_COLOURS.items():
             self.dice_text.tag_configure(tag, foreground=colour)
         self.dice_text.tag_configure("round", underline=True, spacing1=8)  # a gap before each round
+        # names: each party member's in a colour of their own, monsters' in one (configured last,
+        # so they show over the line's own colour)
+        for n, colour in enumerate(theme.PARTY_COLOURS):
+            self.dice_text.tag_configure(f"member{n}", foreground=colour, font="LedgerFixedBold")
+        self.dice_text.tag_configure("monster", foreground=theme.MONSTER_COLOUR, font="LedgerFixedBold")
+        self._monster_names: Set[str] = set()  # every monster seen in a fight this session
 
         talk = ttk.Frame(tabs, padding=6)
         tabs.add(talk, text="Dialogue", underline=1)
@@ -266,8 +273,10 @@ class Viewer:
 
     def _build_options(self, tabs: ttk.Notebook) -> None:
         """The Options tab: what the dice log shows, and what the Ledger adds to the game."""
-        options = ttk.Frame(tabs, padding=6)
-        tabs.add(options, text="Options", underline=0)
+        # it scrolls, for a window too small (or text too large) to show it all
+        area = theme.ScrollArea(tabs, padding=6)
+        tabs.add(area, text="Options", underline=0)
+        options = area.inner
         settings = launch.load_settings()
         log = ttk.LabelFrame(options, text="Dice log", padding=6)
         log.pack(fill="x")
@@ -314,19 +323,24 @@ class Viewer:
                 ("cats_grace", "Cat's Grace in Flaming Sphere's place (DEX + 1d6, at most 24, like Strength)"),
                 ("stealth", "Thieves hide in shadows and move silently to backstab, rangers to attack from behind "
                             "(no enemy beside them; thieves half the chance in daylight, rangers indoors)"),
-                ("level_10", "Class levels go up to 10 (the game stops at 9; no spells past 5th level are needed)"))):
+                ("level_10", "Class levels go up to 10 (the game stops at 9; no spells past 5th level are needed)"),
+                ("thief_table", "Thief skills from AD&D's table by level, with Dark Sun's race and DEX adjustments "
+                                "(the game adds 4 a level to a base of its own, and DEX by a formula)"),
+                ("half_giant_hands", "Half-giants wield two-handed weapons in one hand (a shield or a light "
+                                     "weapon in the other; two heavy weapons still can't be held)"))):
             self.rule_vars[key] = tk.BooleanVar(value=bool(settings.get(key, True)))
             ttk.Checkbutton(rules, text=text, variable=self.rule_vars[key],
                             command=self._popups_changed).pack(anchor="w", pady=(4 if n else 0, 0))
-        # the companion's own item: a Ring +1 on the Tied-up Prisoner in the arena (ring.py)
+        # the companion's own additions, with the rule changes: a Ring +1 on the Tied-up Prisoner in
+        # the arena (ring.py), picking pockets, and the thieves' tools
         self.arena_ring = tk.BooleanVar(value=bool(settings.get("arena_ring", True)))
-        ttk.Checkbutton(in_game, text="A Ring of Protection +1 on the arena's Tied-up Prisoner (search his body)",
+        ttk.Checkbutton(rules, text="A Ring of Protection +1 on the arena's Tied-up Prisoner (search his body)",
                         variable=self.arena_ring, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
         self.pickpockets = tk.BooleanVar(value=bool(settings.get("pickpockets", True)))
-        ttk.Checkbutton(in_game, text="P in a conversation: the leader, a thief, tries the other's pockets "
+        ttk.Checkbutton(rules, text="P in a conversation: the leader, a thief, tries the other's pockets "
                         "(until caught)", variable=self.pickpockets,
                         command=self._popups_changed).pack(anchor="w", pady=(4, 0))
-        ttk.Button(in_game, text="Give thieving tools now", command=self.give_tools).pack(anchor="w", pady=(4, 0))
+        ttk.Button(rules, text="Give thieving tools now", command=self.give_tools).pack(anchor="w", pady=(4, 0))
 
     def give_tools(self) -> None:
         """A set of thieving tools for each thief in the party without one, right away (they
@@ -437,6 +451,15 @@ class Viewer:
         else:
             self.status.set(f"Starting Shattered Lands from {game_dir}...")
         self.next_try = time.monotonic() + RETRY_SECONDS
+        self._start_state()
+
+    def _dosbox_closed(self) -> None:
+        """DOSBox started from here has closed: say how, in the log (an exit code a crash of
+        DOSBox's own gives, such as C0000005h on Windows, is told apart from the game ending)."""
+        if self.dosbox is None or self.dosbox.poll() is None:
+            return
+        code, self.dosbox = self.dosbox.returncode, None
+        self._append_dice([launch.closed_line(code)])
         self._start_state()
 
     def _start_state(self) -> None:
@@ -585,6 +608,7 @@ class Viewer:
     # ---- dice log ---------------------------------------------------------------
 
     def _dice_tick(self) -> None:
+        self._dosbox_closed()
         try:
             self._dice_step()
         except ProcessError as e:
@@ -608,7 +632,7 @@ class Viewer:
                 self.dice.monster_info = self.monster_info.get()
                 self.dice.arena_ring = self.arena_ring.get()
                 self.dice.pickpockets = self.pickpockets.get()
-                self.dice.picked = launch.pickpocketed()
+                self.dice.load_picked(launch.pickpocketed())
                 self.dice.tools_given = launch.tools_given()
                 self.dice.rules = self._rules()
             try:
@@ -627,8 +651,8 @@ class Viewer:
             self._append_dice(lines)
         self.round_line.set(self._round_text())
         picked = self.dice.take_picked()
-        if picked:
-            launch.add_pickpocketed(picked)
+        if picked is not None:
+            launch.set_pickpocketed(picked)
         given = self.dice.take_tools_given()
         if given:
             launch.add_tools_given(given)
@@ -791,8 +815,41 @@ class Viewer:
         if at_end:
             self.talk_text.see("end")
 
+    def _log_names(self) -> List[Tuple[str, str]]:
+        """(name, tag) for the dice log's names: the party's by place, then the monsters met in
+        fights (longest first, so "Mountain Stalker" wins over a "Stalker" inside it)."""
+        party: Dict[str, str] = {}
+        try:
+            g = self.dice.game if self.dice is not None and self.dice.attached else None
+            if g is not None:
+                for n in range(game.PARTY_SIZE):
+                    name = g.creature_name(n)
+                    if name and not name.startswith("creature "):  # (an empty place in the party)
+                        party.setdefault(name, f"member{n}")
+                for index in set(g.combatants().values()):
+                    name = g.creature_name(index)
+                    if index >= game.PARTY_SIZE and name and name not in party:
+                        self._monster_names.add(name)
+        except (struct.error, IndexError, ValueError, AttributeError):
+            pass
+        names = list(party.items()) + [(m, "monster") for m in self._monster_names if m not in party]
+        return sorted(names, key=lambda pair: -len(pair[0]))
+
+    def _colour_names(self, line: str, names: List[Tuple[str, str]]) -> None:
+        """Tag each name in the line just added (the last line of the log)."""
+        row = int(self.dice_text.index("end-1c").split(".")[0]) - 1
+        taken: List[Tuple[int, int]] = []
+        for name, tag in names:
+            for found in re.finditer(r"(?<!\w)" + re.escape(name) + r"(?!\w)", line):
+                start, end = found.span()
+                if any(start < b and a < end for a, b in taken):
+                    continue
+                taken.append((start, end))
+                self.dice_text.tag_add(tag, f"{row}.{start}", f"{row}.{end}")
+
     def _append_dice(self, lines: List[str]) -> None:
         at_end = self.dice_text.yview()[1] >= 0.999
+        names = self._log_names() if lines else []
         for line in lines:
             tag = ("round" if line.startswith(("Round ", "Initiative: ")) else
                    "turn" if line.endswith("'s turn") else
@@ -802,6 +859,7 @@ class Viewer:
                    "detail" if line.startswith("    ") else
                    "damage" if line.startswith("  ") or " damage: " in line else "other")
             self.dice_text.insert("end", line + "\n", tag)
+            self._colour_names(line, names)
         excess = int(self.dice_text.index("end-1c").split(".")[0]) - MAX_LOG_LINES
         if excess > 0:
             self.dice_text.delete("1.0", f"{excess + 1}.0")
