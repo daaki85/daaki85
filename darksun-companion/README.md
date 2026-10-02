@@ -116,9 +116,12 @@ install anything into the game folder.
 
 **One-time setup**
 
-1. Download this project: on its GitHub page click **Code → Download ZIP**,
-   and unzip it anywhere.
-   The files you need are in the `darksun-companion` folder.
+1. Download the latest release, `Templars-Ledger-<version>.zip`, from the
+   [Releases page](https://github.com/daaki85/darksun-companion-mod/releases),
+   and unzip it anywhere: the files you need are in its
+   `Templars-Ledger-<version>` folder. (Or the project as it stands: on its
+   GitHub page click **Code → Download ZIP**; the files are then in its
+   `darksun-companion` folder.)
 2. Python: the first time you double-click one of the `.bat` files, it
    checks for a 64-bit Python 3.8 or later. If there is none, it asks
    whether to install it with Windows' own package manager (winget): that
@@ -135,7 +138,7 @@ no packaged program to trust.
 
 **Every time you play (recommended)**
 
-1. Double-click **`Start Templar's Ledger.bat`** in the `darksun-companion`
+1. Double-click **`Start Templar's Ledger.bat`** in that
    folder. The Ledger opens on its own.
 2. On its **Options** tab, pick what you want: the rule changes, the Ring +1,
    picking pockets, each turn's rolls in the game and so on (see

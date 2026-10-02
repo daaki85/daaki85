@@ -1,0 +1,41 @@
+# Publishes a release when a version tag (v1.0.0, ...) is pushed: the tests, then a zip of the
+# darksun-companion folder as the tag has it, with the notes in release-notes/<tag>.md.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: x64
+      - name: Tests
+        working-directory: darksun-companion
+        run: python -m unittest discover -s tests
+      - name: The version matches the tag
+        shell: bash
+        run: |
+          version=$(python -c "import sys; sys.path.insert(0, 'darksun-companion'); import dscompanion; print(dscompanion.__version__)")
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "dscompanion.__version__ is $version, the tag $GITHUB_REF_NAME"; exit 1; }
+      - name: Zip
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          git archive --format=zip --prefix="Templars-Ledger-$version/" -o "Templars-Ledger-$version.zip" "$GITHUB_REF_NAME":darksun-companion
+      - name: Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" "Templars-Ledger-$version.zip" \
+            --title "Templar's Ledger $version" --notes-file "release-notes/$GITHUB_REF_NAME.md"
