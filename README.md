@@ -40,6 +40,9 @@ game itself, in the game's own lettering and windows:
   holds.
 - **A mini-quest:** the cooked vulture, at last good for something (Dinos
   cooks it for the party).
+- **What the party wears, on the map:** weapons, shields, bows, armour, helms,
+  cloaks, boots and belts on their figures, walking and fighting, changing as
+  their gear does.
 
 The game folder is never modified, and your save files only keep what you'd
 expect from play: the items the Ledger hands out, the XP it gives. For the dice
@@ -70,10 +73,31 @@ double-click, with the options as last set.)
 
 ## Changelog
 
-Release **1.0.0** is everything below, pull requests #1 to #11. Its notes are
-in [`release-notes/v1.0.0.md`](release-notes/v1.0.0.md).
+Release **1.0.0** is pull requests #1 to #13. Its notes are in
+[`release-notes/v1.0.0.md`](release-notes/v1.0.0.md).
 
-### Pull request #11 ([in review](https://github.com/daaki85/darksun-companion-mod/pull/11))
+### Pull request #14 (in review)
+
+**Added**
+- **What the party wears, on the map:** each character's figure shows their
+  weapons and shields (each kind its shape, in its material's colours), bow
+  and quiver on the back, armour (their own clothing recoloured toward its
+  material), helms as circlets, cloaks (the game's own cloak, fitted to them),
+  boots and belts, walking and fighting, and changes as soon as their gear
+  does. On by default; a switch on the Options tab.
+
+### Pull request #13 ([merged 2026-10-02](https://github.com/daaki85/darksun-companion-mod/pull/13))
+
+**Added**
+- **The Release workflow can be run by hand**, making the version's tag.
+
+### Pull request #12 ([merged 2026-10-02](https://github.com/daaki85/darksun-companion-mod/pull/12))
+
+**Added**
+- **Release 1.0.0:** the version, its release notes, and a workflow that
+  builds the release zip.
+
+### Pull request #11 ([merged 2026-10-02](https://github.com/daaki85/darksun-companion-mod/pull/11))
 
 **Added**
 - **Cat's Grace looks like itself:** its own icon (a lean, fox-like cat's face

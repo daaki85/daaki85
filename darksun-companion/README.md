@@ -72,6 +72,9 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   things worth taking from them (see [The slave pens' gear](#the-slave-pens-gear)).
 - **Icons of their own** for the Ledger's magic items and the Short Sword,
   made from the game's (see [Item icons](#item-icons)).
+- **What the party wears, on the map:** their weapons and shields, bows and
+  quivers, armour, helms, cloaks, boots and belts show on their figures, and
+  change when their gear does (see [What the party wears](#what-the-party-wears)).
 
 Nothing in the game folder or your save files is changed, except that a game
 you save keeps what the Ledger has handed out or changed in play: the Ring +1,
@@ -861,6 +864,41 @@ game opens `SEGOBJEX.GFF`, and notes that it has), and the Ledger gives the
 Ledger's items those objects' pictures. In a game without the copy, the Ledger
 puts the plain pictures back; a save with the new pictures loaded in the
 original game shows those items without an icon.
+
+### What the party wears
+
+The party's figures on the map and in fights show what each one wears, and
+change as soon as their gear does (switch it off on the Options tab to see the
+game's own). The game draws each race and sex the same whatever they carry;
+the Ledger keeps the artist's pictures and adds to them, frame by frame,
+walking and fighting:
+
+| Worn | Shown |
+|---|---|
+| **Weapons and shields** | in the hands, each kind its shape (dagger, sword, club, mace, axe, polearm, gythka, staff, a round shield), in its material's colours (wood, bone, stone, obsidian, metal); two-handed ones carried upright, swung in a fight |
+| **Bows and slings** | the bow and quiver on the back (the game draws the bow when shooting), a sling or chatkcha at the hip |
+| **Armour** | the character's own clothing recoloured toward its material, shade for shade (leather, bone, chain, plate, scale...): the chest piece above the waist, arm pieces at the wrists, leg pieces below the waist |
+| **Helms** | a circlet at the brow blended into the hair: a feather on leather, a dark stone on iron, low spikes on bone |
+| **Cloaks** | the human and half-elf woman's own cloak (its folds and swing as she walks and fights) fitted to the wearer, under the hair, in the cloak's colours; hers takes them too |
+| **Boots and belts** | the feet and the waist recoloured |
+
+The colours are muted ones no region's palette changes. A thri-kreen shows
+only weapons and shields (all it can use). Two party members of the same race
+and sex share a figure in the game, so the first of them is shown.
+
+![The arena: the party as the game draws them, and as the Ledger shows them (a bow and quiver, clubs, leather)](docs/gear.png)
+
+How: the party's figures are objects 300 to 313 in `SEGOBJEX.GFF` (300 and
+the figure picked at character creation). The launcher's copy of the file
+(see [Item icons](#item-icons)) gives each its own walking and fighting
+pictures, the game's with room round them, at a fixed size with room to
+spare and a marker at the end. While the game runs, when someone's worn items
+change, the Ledger draws their pictures anew (`dscompanion/spritegear.py`,
+from where `dscompanion/spriteparts.py` finds the head, hair, hands and the
+rest in each frame) and writes them over the copies the game has loaded,
+which it draws from at once, and into the copy of the file, so a picture the
+game loads again (in a fight, in another area) comes dressed
+(`dscompanion/sprites.py`).
 
 ### The bone scale set
 
