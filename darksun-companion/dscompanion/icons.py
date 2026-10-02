@@ -204,24 +204,24 @@ def with_chunks(data: bytes, added: gff.Chunks) -> bytes:
 
 # Cat's Grace's spell icon (RESOURCE.GFF), for Flaming Sphere's (ICON 21014) with that rule:
 # Strength's tile (ICON 21023: the spell Cat's Grace works as) in a tawny cat's golds, its glyph a
-# lean cat's face in the game's dark line, with the light line below and right of it that its
+# cat's paw print in the game's dark line, with the light line below and right of it that its
 # glyphs have. DSCLOG asks for it in Flaming Sphere's place (PROBE_CHUNK_ID).
 RESOURCE_FILE = "RESOURCE.GFF"
 STRENGTH_ICON, GRACE_ICON = 21023, 21900
 GRACE_FILL = {163: 168, 76: 169, 77: 65, 75: 168, 78: 170, 134: 205}
 GRACE_FRAME = {60: 170, 145: 169, 147: 170, 133: 205, 203: 207, 134: 205}
 GLYPH, GLYPH_LIGHT = 204, 170
-CAT_FACE = (  # (a lean, fox-like face: the one liked best)
-    "....D......D....",
+CAT_PAW = (  # (a paw print: four toes over the pad)
+    ".....DD..DD.....",
+    "....DDD..DDD....",
     "....DD....DD....",
-    "....D.D..D.D....",
-    "....D..DD..D....",
-    "....D......D....",
-    "....D.D..D.D....",
-    "....D......D....",
-    ".....D.DD.D.....",
-    "......D..D......",
-    ".......DD.......",
+    ".DD..........DD.",
+    ".DDD........DDD.",
+    "..DD..DDDD..DD..",
+    ".....DDDDDD.....",
+    "....DDDDDDDD....",
+    "....DDDDDDDD....",
+    ".....DDDDDD.....",
 )
 CAT_TOP = 3
 
@@ -239,7 +239,7 @@ def cat_icon(strength: Rows) -> Rows:
                 out[y][x] = out[y][x - 1] if x > 1 else 169
             else:
                 out[y][x] = GRACE_FILL.get(p, 169)
-    glyph = {(x, CAT_TOP + j) for j, line in enumerate(CAT_FACE) for x, ch in enumerate(line) if ch == "D"}
+    glyph = {(x, CAT_TOP + j) for j, line in enumerate(CAT_PAW) for x, ch in enumerate(line) if ch == "D"}
     for x, y in glyph:
         if (x + 1, y + 1) not in glyph and 0 < x + 1 < n - 1 and 0 < y + 1 < n - 1:
             out[y + 1][x + 1] = GLYPH_LIGHT

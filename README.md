@@ -88,6 +88,9 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
   the hand. Two characters of the same race and sex each show their own
   gear. On by default; a switch on the Options tab.
 
+**Changed**
+- **Cat's Grace's icon** is a cat's paw print instead of a cat's face.
+
 ### Pull request #13 ([merged 2026-10-02](https://github.com/daaki85/darksun-companion-mod/pull/13))
 
 **Added**

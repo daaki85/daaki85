@@ -1085,8 +1085,8 @@ one taken), so Cat's Grace takes the place of Flaming Sphere, the weakest
 level 2 spell: 2d4 fire damage once, whatever the caster's level. While the
 box is ticked (it is by default), every character and monster who would cast
 Flaming Sphere casts Cat's Grace instead, under that name on the USE screen,
-with an icon of its own (Strength's tile in a tawny cat's golds, a lean cat's
-face in the game's dark line) and its own description in the box a right-click
+with an icon of its own (Strength's tile in a tawny cat's golds, a cat's paw
+print in the game's dark line) and its own description in the box a right-click
 on it opens; untick it and Flaming Sphere is back.
 
 ![Cat's Grace on the USE screen: its icon, and its description](docs/catsgrace.png)
