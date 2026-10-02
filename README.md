@@ -66,7 +66,7 @@ double-click, with the options as last set.)
 
 ## Changelog
 
-### Pull request #11 (in review)
+### Pull request #11 ([in review](https://github.com/daaki85/darksun-companion-mod/pull/11))
 
 **Added**
 - **Cat's Grace looks like itself:** its own icon (a lean, fox-like cat's face
