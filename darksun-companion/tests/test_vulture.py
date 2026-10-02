@@ -8,7 +8,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dscompanion import dicelog, game, vulture
+from dscompanion import dicelog, game, tools, vulture
 from test_dicelog import CREATURES, DS, HDR, ITEMS, LOAD_SEG, SHEETS, STALKER, set_clock
 from test_slots import set_character, with_tables
 
@@ -110,6 +110,44 @@ class VultureTests(unittest.TestCase):
         self.assertTrue(lines[0].startswith("Dinos cooks the vulture"))
         self.assertEqual(struct.unpack_from("<H", self.m, HDR + dicelog.TSR_USE_TAKEN)[0], 2)  # used up
         self.assertTrue(bytes(self.m[HDR + 0x600:HDR + 0x600 + 12]).startswith(b"Dinos's eyes"))
+
+
+    def ask(self, item, rec):
+        """DSCLOG asks about ITEM (REC) used on object 0x30, Dinos: the lines, and the reply's text."""
+        log = self.log
+        self.m[ITEMS + item * game.ITEM_SIZE:ITEMS + (item + 1) * game.ITEM_SIZE] = rec
+        table = (LOAD_SEG + game.COMBATANTS_SEG) * 16 + game.COMBATANTS_OFF
+        struct.pack_into("<Bh", self.m, table + 0x30 * 3, 2, DINOS)
+        struct.pack_into("<H", self.m, HDR + dicelog.TSR_USE_ITEM, item)
+        struct.pack_into("<H", self.m, HDR + dicelog.TSR_USE_WHO, 0x30)
+        seq = struct.unpack_from("<H", self.m, HDR + dicelog.TSR_USE_SEQ)[0] + 1
+        struct.pack_into("<H", self.m, HDR + dicelog.TSR_USE_SEQ, seq)
+        struct.pack_into("<H", self.m, HDR + dicelog.TSR_HDR_OFF, 0)
+        struct.pack_into("<H", self.m, HDR + dicelog.TSR_PICK_OFF, 0x600)
+        lines = log._answer_use()
+        return lines, bytes(self.m[HDR + 0x600:HDR + 0x700]).split(b"\0")[0].decode("cp437")
+
+    def test_fighting_is_the_games_flag(self):
+        """A fight is on while the game's flag (DS:1168h) says so: not for the minutes after it,
+        as when only the game clock was looked at (it hardly moves outside fights: Dinos wouldn't
+        take the vulture until the party rested)."""
+        log = self.log
+        set_clock(log, 5000)
+        log._round_time = 4990  # (a round a moment ago, by the clock)
+        struct.pack_into("<H", self.m, DS * 16 + game.IN_COMBAT, 0)
+        self.assertFalse(log._fighting())
+        struct.pack_into("<H", self.m, DS * 16 + game.IN_COMBAT, 1)
+        self.assertTrue(log._fighting())
+
+    def test_no_pockets_picked_in_a_fight(self):
+        """The thieves' tools do nothing in a fight (they stay on the pointer); out of one, they try."""
+        struct.pack_into("<H", self.m, DS * 16 + game.IN_COMBAT, 1)
+        lines, text = self.ask(71, tools.ITEM)
+        self.assertEqual((lines, text), ([tools.NOT_IN_A_FIGHT], tools.NOT_IN_A_FIGHT))
+        self.assertEqual(struct.unpack_from("<H", self.m, HDR + dicelog.TSR_USE_TAKEN)[0], 1)
+        struct.pack_into("<H", self.m, DS * 16 + game.IN_COMBAT, 0)
+        lines, text = self.ask(71, tools.ITEM)
+        self.assertNotEqual(text, tools.NOT_IN_A_FIGHT)
 
 
 if __name__ == "__main__":

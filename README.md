@@ -47,20 +47,63 @@ folder.
 
 **Everything else is in [`darksun-companion/README.md`](darksun-companion/README.md):**
 - requirements;
-- how to start it (one double-click on Windows);
+- how to start it on Windows;
 - every log line explained;
 - how it works.
 
 ## Getting started
 
 1. Download this repository (**Code → Download ZIP**) and unzip it anywhere.
-2. In the `darksun-companion` folder, double-click **`Start Game with Dice Log.bat`**.
+2. In the `darksun-companion` folder, double-click **`Start Templar's Ledger.bat`**.
    The first time, it offers to install 64-bit Python if you don't have it.
-3. The game and Templar's Ledger start together.
+3. On the Ledger's **Options** tab, pick the rule changes and additions you
+   want (they're remembered).
+4. Press **Start the game** at the top left. The game starts with your options,
+   and the Ledger follows it.
+
+(`Start Game with Dice Log.bat` starts the game and the Ledger together in one
+double-click, with the options as last set.)
 
 ## Changelog
 
-### Pull request #9 ([in review](https://github.com/daaki85/darksun-companion-mod/pull/9))
+### Pull request #11 ([in review](https://github.com/daaki85/darksun-companion-mod/pull/11))
+
+**Added**
+- **Cat's Grace looks like itself:** its own icon (a lean, fox-like cat's face
+  on gold) and its own description in the spell box, instead of Flaming
+  Sphere's.
+
+**Fixed**
+- **The slave pens' gear given twice** (a second short sword on Kurzak after
+  his was lifted, two Leather Chest Armor +1 on Legcrusher) to a game loaded
+  after it was given: none of it is given where it is already in the game.
+- **Prices:** Leather Chest Armor +1 is worth 3000 (it was 10), the Cloak of
+  Protection +1 5000 and the Rings of Protection +1 5000, as magic items;
+  ones already in a game are repriced.
+- **Dinos takes the vulture as soon as a fight is over** (he wouldn't until the
+  party rested): the Ledger now reads the game's own combat flag.
+- **Thieves' Tools can't be used in a fight**, only out of one.
+- **The dice log and the Dialogue tab keep up with the newest lines** (they
+  stopped following them, and lines that came while another tab was open
+  were out of view); scrolling up to read back still holds the place.
+- **The bone scale set added twice** to a game loaded after it was added: it is
+  now added only where none of its pieces is.
+- **No more log lines for the Ledger's items** handed out (the slave pens'
+  gear, the bone scale set): they're there to be found.
+- **The Bone Helm** can only be worn by those who can wear bone scale armour
+  (not thieves).
+
+**Changed**
+- **Getting started:** open the Ledger first, pick the options, then **Start
+  the game** from it.
+
+### Pull request #10 ([merged 2026-10-02](https://github.com/daaki85/darksun-companion-mod/pull/10))
+
+**Fixed**
+- **Half-giants' two-handed weapons in one hand:** the rule didn't take
+  effect (the helper looked for the character on show in the wrong place).
+
+### Pull request #9 ([merged 2026-10-02](https://github.com/daaki85/darksun-companion-mod/pull/9))
 
 **Added**
 - **Rule change: thief skills from AD&D's table.** A skill is AD&D's average

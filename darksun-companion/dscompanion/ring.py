@@ -40,7 +40,8 @@ RULE_NAMES = ((6, "Helm", game.RULE_HELMS, " (AC 1)"), (145, "Dapartea's Helm", 
               (107, "Helm/Contempltn", game.RULE_HELMS, " (AC 1)"), (236, "Helm of Might", game.RULE_HELMS, " (AC 1)"),
               (43, "Boots", game.RULE_BOOTS, " (+1 Move)"), (286, "Serpent Boots", game.RULE_BOOTS, " (+1 Move)"))
 # the game's own record for a Ring (from SEGOBJEX), not worn (slot 255), with a plus of 1
-RING = bytes.fromhex("1cfa0000" "0f27" "f401" "0f27" "6600" "00000000" "06" "ff") + \
+VALUE = 5000  # its price (the game's Ring's 500, made a magic ring's)
+RING = bytes.fromhex("1cfa0000" "0f27") + struct.pack("<H", VALUE) + bytes.fromhex("0f27" "6600" "00000000" "06" "ff") + \
     struct.pack("<Hb", NAME_ENTRY, 1)
 MESSAGE = "{who} takes the Ring of Protection +1 (+1 AC, +1 on saves) from the Tied-up Prisoner's body."
 MAX_ITEMS = 200  # items followed before giving up (a damaged list)

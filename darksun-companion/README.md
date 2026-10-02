@@ -133,17 +133,25 @@ code in `dscompanion`, and the dice log helper's source (`dos\dsclog.asm`,
 which builds `dos\DSCLOG.EXE`, the small DOS program DOSBox loads). There is
 no packaged program to trust.
 
-**Every time you play**
+**Every time you play (recommended)**
 
-Double-click **`Start Game with Dice Log.bat`** in the `darksun-companion`
-folder. It starts Shattered Lands (through GOG's own DOSBox) with the dice log
-helper loaded, and opens Templar's Ledger next to it. The game gets its
-in-game additions too: each turn's rolls shown in the game if you want them
-(tick **Show each turn's rolls in the game** on the Options tab), THAC0,
-saves and thief skills on the inventory and View Character screens, and spell
-slots on the USE screen. Your saves are the same ones the game normally uses.
-The first time, it looks for the game in the usual GOG folders; if it can't
-find it, it asks you where the game is installed and remembers the answer.
+1. Double-click **`Start Templar's Ledger.bat`** in the `darksun-companion`
+   folder. The Ledger opens on its own.
+2. On its **Options** tab, pick what you want: the rule changes, the Ring +1,
+   picking pockets, each turn's rolls in the game and so on (see
+   [Using the viewer](#using-the-viewer) and [Rule changes](#rule-changes)).
+   They're remembered for next time.
+3. Pick the **Game window** size at the top if you like, then press **Start
+   the game** (top left).
+
+That starts Shattered Lands (through GOG's own DOSBox) with the dice log helper
+loaded and your options in force, and the Ledger picks it up once DOSBox is up.
+The game gets its in-game additions too: each turn's rolls shown in the game if
+you want them, THAC0, saves and thief skills on the inventory and View
+Character screens, and spell slots on the USE screen. Your saves are the same
+ones the game normally uses. The first time, it looks for the game in the usual
+GOG folders; if it can't find it, it asks you where the game is installed and
+remembers the answer.
 
 DOSBox opens in a window three times the game's size (960x720), not full
 screen. To change that, pick **Game window** at the top of the Ledger:
@@ -159,12 +167,11 @@ pick Triple.
 Load your game. The party's stats fill in by themselves, and rolls appear in
 the **Dice log** tab as they happen.
 
-**`Start Templar's Ledger.bat`** opens the Ledger on its own. If the game isn't
-running, its **Start the game** button (top left) starts it with the dice log,
-as `Start Game with Dice Log.bat` does (asking where the game is the first
-time), and the Ledger picks it up once DOSBox is up. With the game started the
-normal way instead, the Ledger still shows the party, but the dice log will
-say the game was started without it.
+**Game and Ledger in one double-click:** **`Start Game with Dice Log.bat`**
+starts the game with the dice log and opens the Ledger next to it, with the
+options as you last set them on the Options tab. With the game started the
+normal way instead (GOG's own shortcut), the Ledger still shows the party, but
+the dice log will say the game was started without it.
 
 **Just the game, with the in-game additions, no Ledger window:** double-click
 **`Play Dark Sun (in-game rolls).bat`**. The dice log runs unseen and stops
@@ -232,7 +239,6 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 | `    no hit point roll: that comes only when the highest class level rises (still 3rd)` | A multi-class character's level in one class went up without raising their highest level: the game gives no hit points for it. |
 | `Cilla's 3rd Ranger level: hit points d10 = 2, raised to 3 for CON 21` | The hit point roll for a new level: the class's die (d8 clerics and druids, d10 fighters, gladiators and rangers, d4 preservers, d6 psionicists and thieves), never less than 2, 3 or 4 with CON 20, 21-22 or 23+, and doubled for half-giants. After level 9 or 10 there's no roll, just a fixed gain (thieves roll at 10th too with [levels up to 10](#rule-changes)). |
 | `Cilla hides in shadows: d100 = 21, needs 27 or less (54, halved in daylight) -> hidden` / `  Cilla moves silently: ...` | A thief's or ranger's hiding and moving silently at the start of their turn (the [stealth rule](#rule-changes)). |
-| `(Kurzak now carries Metal Short Sword, Leather Helm (AC 1))` | The Ledger's items given to someone in the slave pens (see [The slave pens' gear](#the-slave-pens-gear)). |
 | `Dinos cooks the vulture and the party eats with him: ... +100 XP each, and restored as after a full rest` | The cooked vulture used on Dinos (see [The cooked vulture](#the-cooked-vulture)). |
 | `Character creation, STR 17: best of four 4d4 (7, 11, 9, 10) = 11, +4, +1 dwarf = 16, raised to 17 (the Fighter's prime requisite)` | An ability score rolled on the character creation screen (see below). |
 | `Character creation, hit points 15: Fighter d10 per level: 7 + 9; Thief d6 per level: 5 + 1 = 22, / 2 classes = 11, +4 CON 16 = 15` | The new character's hit points: a die for every level of every class, divided by the number of classes, plus CON's bonus (see below). |
@@ -253,6 +259,10 @@ in a colour of their own (cyan, magenta, peach and white, by place in the
 party) and every monster and other creature in red, so who acts and who is
 hit can be followed down the log. Every colour has at least 4.5:1 contrast
 with the log's background (WCAG 2.0 AA, as AODA asks).
+
+The log keeps its newest line in view. Scroll up to read back and it stays
+where you are; scroll to the bottom again and it follows the new lines once
+more. The Dialogue tab does the same.
 
 **Show unlabelled rolls** also lists everything else the game randomises
 (creatures wandering, animations and so on), as raw numbers with where in the
@@ -786,13 +796,19 @@ coins once it has counted them, so the item goes back to the game's free list.
 ### The slave pens' gear
 
 With the Ledger running, the first time the party is in the slave pens the
-three who run them get things of the Ledger's own (the log says who gets what):
+three who run them get things of the Ledger's own (the log doesn't say: they're
+there to be found):
 
 | Who | Gear | Can a thief lift it? |
 |---|---|---|
 | **Kurzak**, the guards' leader | a metal **Short Sword** (1d6, in his pack) and a leather **Helm** (worn) | the sword, yes |
 | **Legcrusher**, the half-giant | **Leather Chest Armor +1** (worn) | no |
 | **Pehtucl**, the head templar (the Templar in the pens' south-west corner with the Obsidian Bloodwrath) | a **Cloak of Protection +1** (worn) and a **Ring of Protection +1** (worn) | the ring, yes; not the cloak |
+
+They're priced as magic items: Leather Chest Armor +1 3000, the Cloak and the
+Ring 5000 each. Nothing is given where it's in the game already (a game saved
+after it was given, loaded again), and a short sword lifted from Kurzak isn't
+replaced.
 
 The Cloak of Protection works as the [Ring +1](#the-ring-1) does, from the
 cloak slot: +1 AC and +1 on every saving throw. Kill them, or pick their
@@ -851,15 +867,14 @@ the Ledger running, the first time the chest piece is in the region with the
 party, wherever it is (on the ground, in a container, or already carried), the
 rest of the set is put with it: the **Bone Scale Arm Armor**, the **Bone Scale
 Leg Armor** and a **Bone Helm**, in the same pile or container, or in the
-carrier's pack. Once a game. The log says so:
-
-```
-Beside the Bone Scale Chest Armor lie the rest of the set: its arm and leg pieces, and a helm of bone.
-```
+carrier's pack. Once a game, and never where any of the three already is (a
+game saved after they were added, loaded again). The log doesn't say: they're
+there to be found.
 
 The arm and leg pieces are the game's own, with its own icons. The game has
 no helm of bone, so the Bone Helm is an item type of the Ledger's own (the
-leather Helm's, of bone, AC 1 with **Helms give AC 1** like the game's helms),
+leather Helm's, of bone, AC 1 with **Helms give AC 1** like the game's helms,
+worn by those who can wear the bone scale armour: not thieves),
 with an icon in the bone scale's colours (see [Item icons](#item-icons)).
 
 ![Dream's pack with the bone scale set: the chest, arm and leg pieces, and the Bone Helm under the pointer with its name](docs/bonescale.png)
@@ -883,7 +898,8 @@ can try anyone's, two ways, with the thief as the party's leader (keys 1-4):
   inventory screen, pick the tools up, go back to the
   game with them on the pointer, and click someone in sight: the result comes
   up in the game's message window, and the tools stay on the pointer for the
-  next one. (Clicking open ground drops them, as with anything carried.)
+  next one. (Clicking open ground drops them, as with anything carried.) Not in
+  a fight: there's no time for it then, and the tools stay on the pointer.
 - **P in a conversation.** In a conversation, press **P**.
 
 Either way, the Ledger rolls the leader's pick pockets chance as
@@ -1020,8 +1036,12 @@ The game has no room for a new spell (wizard spells are numbers 1-68, every
 one taken), so Cat's Grace takes the place of Flaming Sphere, the weakest
 level 2 spell: 2d4 fire damage once, whatever the caster's level. While the
 box is ticked (it is by default), every character and monster who would cast
-Flaming Sphere casts Cat's Grace instead, under that name on the USE screen;
-untick it and Flaming Sphere is back.
+Flaming Sphere casts Cat's Grace instead, under that name on the USE screen,
+with an icon of its own (Strength's tile in a tawny cat's golds, a lean cat's
+face in the game's dark line) and its own description in the box a right-click
+on it opens; untick it and Flaming Sphere is back.
+
+![Cat's Grace on the USE screen: its icon, and its description](docs/catsgrace.png)
 
 How: the Ledger gives Flaming Sphere (spell 14) Strength's record (range,
 duration, whom it can be cast on) and the name, in the game's memory. The
@@ -1032,6 +1052,14 @@ abilities from its own scores and its effects, adds that to DEX the way
 Strength's adds to STR (`INT EFh`). When the spell runs out, the game works
 the abilities out again without it. A game saved while Cat's Grace lasts and
 loaded without the dice log simply ignores the effect it doesn't know.
+The description: the game reads a spell's text from RESOURCE.GFF (chunk SPIN,
+the spell's number + 1) into a buffer for the box; after the read
+(`INT E2h`) the helper puts Cat's Grace's in, in the game's words for
+Strength's. The icon: the launcher writes `dos\RESOURCE.GFF`, the game's file
+(only read) with the icon added (number 21900), which the helper has the game
+open in place of its own (as `SEGOBJEX.GFF`, see [Item icons](#item-icons));
+where the game's two routines that read a chunk begin (`INT E1h`), the helper
+has Flaming Sphere's icon (21014) read as that one.
 
 **Hiding in shadows to backstab.** The game never rolls hide in shadows, and a
 thief only backstabs a target that has turned to face someone else. With
@@ -1499,14 +1527,16 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    movement `INT FBh` (for boots), a key the conversation window doesn't know
    `INT FCh` and an item used on the map `INT FDh` (for
    [picking pockets](#picking-pockets)), the two-weapon adjustment `INT FEh`
-   and the doubling of a save's d20 `INT F0h`, Cat's Grace `INT EDh`-`INT EFh` and a hidden thief's attack `INT EAh` and the class level cap `INT E7h` and a thief's hit dice `INT E6h` and `INT E5h` and the thief skills `INT E4h` and two-handed weapons `INT E3h` (for
+   and the doubling of a save's d20 `INT F0h`, Cat's Grace `INT EDh`-`INT EFh` and a hidden thief's attack `INT EAh` and the class level cap `INT E7h` and a thief's hit dice `INT E6h` and `INT E5h` and the thief skills `INT E4h` and two-handed weapons `INT E3h` and Cat's
+   Grace's description and icon `INT E2h` and `INT E1h` (for
    [rule changes](#rule-changes)), and
    where the game makes room for its name table and reads it in `INT ECh` and
    `INT EBh` (for [new item names](#new-item-names)), and its item type table
    `INT E9h` and `INT E8h` (for [the slave pens' gear](#the-slave-pens-gear)), and
    the copy looks for its data files in the current
    folder rather than next to itself. The helper also hooks DOS's `INT 21h`, to
-   open the launcher's copy of `SEGOBJEX.GFF` (see [Item icons](#item-icons)). DOSBox runs it from the game folder, so
+   open the launcher's copies of `SEGOBJEX.GFF` and `RESOURCE.GFF` (see
+   [Item icons](#item-icons)). DOSBox runs it from the game folder, so
    it uses your saves as usual.
 2. `dos\DSCLOG.EXE` (source in `dos\dsclog.asm`) is a tiny DOS program loaded
    into upper memory before the game, so the game loses no memory. It answers

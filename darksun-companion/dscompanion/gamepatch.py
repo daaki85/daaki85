@@ -40,6 +40,7 @@ VEC_NAMES_SIZE, VEC_NAMES_FILL = 0xEC, 0xEB
 VEC_STEALTH = 0xEA
 VEC_TYPES_SIZE, VEC_TYPES_FILL = 0xE9, 0xE8
 VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED = 0xE7, 0xE6, 0xE5, 0xE4, 0xE3
+VEC_SPELL_TEXT, VEC_CHUNK_ID = 0xE2, 0xE1
 
 
 class Patch(NamedTuple):
@@ -160,6 +161,13 @@ PATCHES = (
     # two-handed" for a half-giant with the rule on)
     Patch("two_handed_other", 0x6F33F, bytes.fromhex("26f6470f40"), _interrupt(VEC_TWO_HANDED, 5)),
     Patch("two_handed_new", 0x6F3CC, bytes.fromhex("26f6470f40"), _interrupt(VEC_TWO_HANDED, 5)),
+    # a spell's description read in (RESOURCE.GFF's SPIN chunk) for its box: "add sp,0Ch" after the
+    # read (DSCLOG makes Flaming Sphere's Cat's Grace's with that rule)
+    # the two routines that load a GFF chunk (type, number): their stack check "cmp [9Ch],sp"
+    # (DSCLOG does it, and asks for Cat's Grace's icon in Flaming Sphere's place with that rule)
+    Patch("chunk_load", 0x29EA7, bytes.fromhex("39269c00"), _interrupt(VEC_CHUNK_ID, 4)),
+    Patch("chunk_find", 0x29E37, bytes.fromhex("39269c00"), _interrupt(VEC_CHUNK_ID, 4)),
+    Patch("spell_text", 0x8C74F, bytes.fromhex("83c40c"), _interrupt(VEC_SPELL_TEXT, 3)),
     Patch("thief_skill", 0x80307, bytes.fromhex("8bc6c1e00203d08bf2"),
           bytes((0xCD, VEC_THIEF_SKILL, 0x72, 0x80386 - 0x8030B)) + b"\x90" * 5),
     # (not changed: DSCLOG reads the segment this "mov dx,<segment>" loads, the pointer's items')

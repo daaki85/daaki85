@@ -185,6 +185,12 @@ def prepare_patched_game(game_dir: str) -> Optional[str]:
             icons.write_objects(objects, os.path.join(DOS_DIR, icons.OBJECTS_FILE))
     except (gff.GffError, OSError, KeyError, struct.error, ValueError):
         pass  # no icons of our own: the game's plain ones
+    try:
+        resources = _find_file(game_dir, icons.RESOURCE_FILE)
+        if resources:
+            icons.write_resources(resources, os.path.join(DOS_DIR, icons.RESOURCE_FILE))
+    except (gff.GffError, OSError, KeyError, struct.error, ValueError, IndexError):
+        pass  # no Cat's Grace icon: Flaming Sphere's
     return None
 
 

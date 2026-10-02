@@ -72,8 +72,7 @@ class NpcItemTests(unittest.TestCase):
 
     def test_placed_once(self):
         given = set()
-        lines = npcitems.place(self.gd, given)
-        self.assertEqual(len(lines), 3)
+        self.assertEqual(npcitems.place(self.gd, given), [])  # (nothing for the log)
         head, chest, cloak = (game.EQUIP_SLOTS.index(s) for s in ("head", "chest", "cloak"))
         sword, helm = self.carried(KURZAK)[1], self.carried(KURZAK)[0]
         self.assertEqual(helm, (head, 6, 5, 0))
@@ -85,6 +84,49 @@ class NpcItemTests(unittest.TestCase):
         self.assertEqual(len(given), 5)
         self.assertEqual(npcitems.place(self.gd, given), [])  # once a game
         self.assertEqual(len(self.carried(KURZAK)), 3)
+
+    def test_not_again_in_a_save_that_has_them(self):
+        """A game saved after the things were given, loaded where the given-once keys are missing:
+        nothing is given twice (the pens' things are found in the game), and the keys come back."""
+        npcitems.place(self.gd, set())
+        counts = [len(self.carried(c)) for c in (KURZAK, LEGCRUSHER, PEHTUCL)]
+        given = set()
+        self.assertEqual(npcitems.place(self.gd, given), [])
+        self.assertEqual([len(self.carried(c)) for c in (KURZAK, LEGCRUSHER, PEHTUCL)], counts)
+        self.assertEqual(len(given), 5)
+
+    def test_a_lifted_sword_not_given_again(self):
+        """Kurzak's sword, lifted by a thief (now in Dag's pack), isn't given to him again."""
+        npcitems.place(self.gd, set())
+        it = ring.Items(self.gd)
+        thing, = struct.unpack_from("<h", self.gd.creature(KURZAK), 8 + 4)
+        sword = next(i for i, data in it.chain(thing) if struct.unpack_from("<H", data, game.ITEM_TYPE)[0] == game.SHORT_SWORD_TYPE)
+        rec = bytearray(it.item(sword))
+        struct.pack_into("<H", rec, game.ITEM_TYPE, 5)  # (gone from him: here, made something else)
+        self.m[ITEMS + sword * game.ITEM_SIZE:ITEMS + (sword + 1) * game.ITEM_SIZE] = rec
+        struct.pack_into("<hhh", self.m, CREATURES + 8, game.NO_ITEM, game.NO_ITEM, 404)
+        struct.pack_into("<Bh", self.m, THINGS + 404 * 3, game.THING_ITEM, 83)
+        self.m[ITEMS + 83 * game.ITEM_SIZE:ITEMS + 84 * game.ITEM_SIZE] = npcitems.SWORD  # in Dag's pack
+        given = set()
+        npcitems.place(self.gd, given)
+        swords = [i for t in range(ring.THING_COUNT) for i, data in ring.Items(self.gd).chain(t)
+                  if struct.unpack_from("<H", data, game.ITEM_TYPE)[0] == game.SHORT_SWORD_TYPE]
+        self.assertEqual(swords, [83])
+
+    def test_priced_as_magic_items(self):
+        """Given at a magic item's price; ones given before (Leather Chest Armor +1 at 10) repriced."""
+        npcitems.place(self.gd, set())
+        price = lambda c, n: [struct.unpack_from("<H", data, npcitems.ITEM_VALUE)[0]
+                              for _, data in ring.Items(self.gd).chain(struct.unpack_from("<h", self.gd.creature(c), 8 + 4)[0])][n]
+        self.assertEqual(price(LEGCRUSHER, 0), 3000)
+        self.assertEqual(sorted([price(PEHTUCL, 0), price(PEHTUCL, 1)]), [5000, 5000])
+        it = ring.Items(self.gd)
+        thing, = struct.unpack_from("<h", self.gd.creature(LEGCRUSHER), 8 + 4)
+        armour = next(iter(it.chain(thing)))[0]
+        struct.pack_into("<H", self.m, ITEMS + armour * game.ITEM_SIZE + npcitems.ITEM_VALUE, 10)
+        self.assertEqual(npcitems.reprice(self.gd), 1)
+        self.assertEqual(price(LEGCRUSHER, 0), 3000)
+        self.assertEqual(npcitems.reprice(self.gd), 0)
 
     def test_worn_slot_taken(self):
         """A helm on Kurzak's head already: his goes in a backpack cell."""
