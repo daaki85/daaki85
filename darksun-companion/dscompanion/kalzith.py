@@ -59,8 +59,9 @@ SCROLLS = ((8, "Magic Missile", 100), (4, "Color Spray", 100), (12, "Blur", 250)
            (game.FLAMING_SPHERE, "Cat's Grace", 250), (32, "Lightning Bolt", 500), (29, "Haste", 500))
 SCROLL_TYPE = 0x60  # the game's spell scrolls (its objects 1400-1418)
 SCROLL_TEMPLATE = "88fa01000f2700000f2760000000000105ff7f0000"  # its scroll of spell 1 (object 1400)
-SCROLL_OBJECT = 1400  # the game's first scroll object: his k-th scroll is object 1400 + k (the shop
-# shows items of one object as one: six of 1400 showed as a single scroll)
+SCROLL_FROM = 1400  # the game's first scroll object, which his scrolls' objects copy
+SCROLL_OBJECT = OBJECT + 1  # his k-th scroll is object 1001 + k: one each (the shop shows items of
+# one object as one: six of 1400 showed as a single scroll), none of the game's (1001-1009 unused)
 ITEM_OBJECT, ITEM_SPELL, ITEM_SPELL_AGAIN, ITEM_VALUE, ITEM_LINK = 0x00, 0x02, 0x0F, 0x06, 0x08
 
 
@@ -92,6 +93,9 @@ def object_chunks(chunks) -> Dict[Tuple[str, int], bytes]:
     obj = bytearray(chunks[("OJFF", DINOS)])  # a person's object (not a fighter's), with his picture
     obj[OJFF_PICTURE:OJFF_PICTURE + 2] = chunks[("OJFF", DEFILER)][OJFF_PICTURE:OJFF_PICTURE + 2]
     out = {("OJFF", OBJECT): bytes(obj), ("RDFF", OBJECT): bytes(rec)}
+    if ("OJFF", SCROLL_FROM) in chunks:
+        for k in range(len(SCROLLS)):
+            out[("OJFF", SCROLL_OBJECT + k)] = chunks[("OJFF", SCROLL_FROM)]
     return out
 
 

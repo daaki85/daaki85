@@ -132,7 +132,9 @@ class KalzithTests(unittest.TestCase):
         self.assertEqual(rec[kalzith.RDFF_CLASS], kalzith.DEFILER_CLASS)
         p = kalzith.OJFF_PICTURE
         self.assertEqual(out[("OJFF", kalzith.OBJECT)], bytes(range(p)) + bytes(range(100 + p, 102 + p)) + bytes(range(p + 2, 16)))
-        self.assertNotIn(("BMP ", kalzith.OBJECT), out)  # (his picture is the Defiler's, by number)
+        self.assertNotIn(("BMP ", kalzith.OBJECT), out)
+        out = kalzith.object_chunks({**chunks, ("OJFF", kalzith.SCROLL_FROM): b"scroll"})
+        self.assertEqual([out.get(("OJFF", kalzith.OBJECT + 1 + k)) for k in range(6)], [b"scroll"] * 6)  # (his picture is the Defiler's, by number)
         self.assertGreaterEqual(kalzith.OBJECT, 520)  # (past the game's object table)
         self.assertEqual(kalzith.object_chunks({}), {})
 
@@ -155,7 +157,7 @@ class KalzithTests(unittest.TestCase):
     def test_scroll(self):
         """The game's own spell scroll, teaching the spell at the price."""
         rec = kalzith.scroll(32, 500, 4)
-        self.assertEqual(struct.unpack_from("<h", rec, 0)[0], -1404)  # (each his own object)
+        self.assertEqual(struct.unpack_from("<h", rec, 0)[0], -(kalzith.OBJECT + 5))  # (each his own object)
         self.assertEqual(struct.unpack_from("<H", rec, kalzith.ITEM_LINK)[0], game.NO_ITEM)
         self.assertEqual(len(rec), game.ITEM_SIZE)
         self.assertEqual(struct.unpack_from("<H", rec, game.ITEM_TYPE)[0], kalzith.SCROLL_TYPE)
