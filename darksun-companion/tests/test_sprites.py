@@ -99,24 +99,36 @@ class SpriteTests(unittest.TestCase):
         self.assertEqual(dresser.objects(), {300: (0, 300), 315: (1, 300), 316: (2, 300)})
 
     def test_pointed_at_the_spare(self):
-        """On the map: the member's picture named the spare, and their slot moved to it where the
-        game has it loaded; the first member left as they were."""
+        """On the map: the member's picture named the spare and their slot emptied (the game loads
+        it); the first member left as they were; back to their own when no longer sharing; a save's
+        picture of the game's own made the Ledger's."""
         gd = FakeGame(figures=[0, 0])
         shared, spare = sprites.picture_ids(300), sprites.picture_ids(315)
-        gd.cache([shared[0], shared[1], spare[0]])
-        gd.entry(0, shared[0], 0)
-        gd.entry(1, shared[0], 0)
+        gd.entry(0, shared[0], 3)
+        gd.entry(1, shared[0], 3)
         dresser = sprites.Dresser.__new__(sprites.Dresser)
         dresser.gd = gd
+        dresser.pics = sprites.Pictures(game_chunks())
         self.assertTrue(dresser._point(1, 300, 315))
+        self.assertEqual(gd.entry_fields(1), (spare[0], sprites.NO_SLOT))
         self.assertFalse(dresser._point(0, 300, 300))
-        self.assertEqual(gd.entry_fields(1), (spare[0], 2))
-        self.assertEqual(gd.entry_fields(0), (shared[0], 0))
-        gd.entry(1, spare[0], 1)  # (in a fight: the combat picture, the spare's not loaded yet)
-        self.assertFalse(dresser._point(1, 300, 315))
-        self.assertEqual(gd.entry_fields(1), (spare[0], 1))
-        self.assertTrue(dresser._point(1, 300, 300))  # (no longer sharing: back to their own)
-        self.assertEqual(gd.entry_fields(1), (shared[0], 1))
+        self.assertEqual(gd.entry_fields(0), (shared[0], 3))
+        entry0 = gd.ds * 16 + sprites.MAP_ENTRIES
+        self.assertEqual(gd.guest.read(entry0, 1)[0] & sprites.MAP_CHANGED, 0)
+        dresser._point(0, 300, 300, redraw=True)  # (its picture rewritten: drawn again)
+        self.assertEqual(gd.guest.read(entry0, 1)[0] & sprites.MAP_CHANGED, sprites.MAP_CHANGED)
+        self.assertEqual(gd.guest.read(entry0 + sprites.MAP_ENTRY_SIZE, 1)[0] & sprites.MAP_CHANGED,
+                         sprites.MAP_CHANGED)  # (and the one moved)
+        gd.entry(1, spare[0], 4)
+        self.assertFalse(dresser._point(1, 300, 315))  # (already: left alone)
+        self.assertTrue(dresser._point(1, 300, 300))
+        self.assertEqual(gd.entry_fields(1), (shared[0], sprites.NO_SLOT))
+        gd.entry(0, 2095, 5)  # (the game's own picture, from an old save)
+        at = gd.ds * 16 + sprites.MAP_ENTRIES + sprites.MAP_ANCHOR
+        gd.guest.write(at, bytes([9, 26]))
+        self.assertTrue(dresser._point(0, 300, 300))
+        self.assertEqual(gd.entry_fields(0), (shared[0], sprites.NO_SLOT))
+        self.assertEqual(gd.guest.read(at, 2), bytes([9 + sprites.PAD, 26 + sprites.PAD]))  # (where ours has room)
 
 
 class FakeGuest:
@@ -147,11 +159,6 @@ class FakeGame:
 
     def combatants(self):
         return {c: c for c in range(len(self.figures))}
-
-    def cache(self, pictures):
-        self.guest.write(self.ds * 16 + sprites.PICTURE_CACHE_COUNT, struct.pack("<H", len(pictures)))
-        for slot, picture in enumerate(pictures):
-            self.guest.write((self.load_seg + sprites.PICTURE_CACHE_SEG) * 16 + slot * 16, struct.pack("<H", picture))
 
     def entry(self, combatant, picture, slot):
         at = self.ds * 16 + sprites.MAP_ENTRIES + combatant * sprites.MAP_ENTRY_SIZE

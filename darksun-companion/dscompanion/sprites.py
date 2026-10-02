@@ -8,7 +8,8 @@ combat picture the next chunk. In the Ledger's copy of SEGOBJEX (icons.write_obj
 
 While the game runs, when a party member's worn items change the Ledger rebuilds their object's
 two pictures (the same size) and writes them over the copies the game has loaded (found by the
-marker), which it draws from at once.
+marker), and marks their things on the map changed (MAP_FLAGS), so the game draws them again at
+once.
 
 Two party members of the same race and sex share an object, and the game loads a picture once and
 draws everyone with it from the same place in its picture cache. So the copy also has a spare pair
@@ -16,9 +17,9 @@ for each party place (SPARES, after the 14), each with room for any model: a mem
 earlier member already has is drawn in the spare pair of their place. Each thing on the map (the
 table at MAP_ENTRIES, one entry per combatant) names the picture it is drawn with (+18h, the
 walking one; its combat one is the next) and the slot in the game's picture cache it is drawn from
-(+0Fh). The Ledger names the member's spare picture there, and the game loads it itself the next
-time the member changes pose (moves, swings); where the spare is already loaded, the Ledger points
-the slot at it at once.
+(+0Fh). The Ledger names the member's spare picture there and empties the slot, and the game loads
+the picture itself and draws them with it at once. The same puts right a save from before the copy,
+whose party still names the game's own pictures.
 """
 
 import struct
@@ -33,9 +34,13 @@ SPARES = range(314, 314 + game.PARTY_SIZE)  # (each party place's spare pair: 31
 # Things on the map: 32 bytes each, by combatant; +0Fh the picture-cache slot it is drawn from,
 # +18h its walking picture's number
 MAP_ENTRIES, MAP_ENTRY_SIZE, MAP_SLOT, MAP_PICTURE = 0x6694, 32, 0x0F, 0x18
-# The game's picture cache: 16 bytes a picture (its number first), at this segment from the load
-# segment; how many there are, in DS
-PICTURE_CACHE_SEG, PICTURE_CACHE_COUNT, PICTURE_CACHE_SIZE = 0x3E60, 0x1F84, 300
+# ... and, for the party, where on its picture it stands (+7h half the width, +8h the height, of the
+# picture it was made with): ours have PAD more room left, right and above than the game's own
+MAP_ANCHOR = 0x07
+MAP_FLAGS, MAP_CHANGED = 0x00, 0x01  # (+0: bit 0 marks it changed, for the game to draw again)
+# A thing whose slot is NO_SLOT the game gives one as it goes through them (DSUN.EXE 23232h): its
+# picture loaded into the cache (the walking one, or the combat one in a fight pose), and drawn
+NO_SLOT = 0xFFFF
 OJFF_PICTURE = 0x0C
 CREATURE_FIGURE = 0x18
 PAD = 10
@@ -250,43 +255,40 @@ class Dresser:
                 out.setdefault(obj, (member, obj))
         return out
 
-    def _cache(self) -> Dict[int, int]:
-        """{picture number: its slot} in the game's picture cache."""
-        count = struct.unpack("<H", self.gd.guest.read(self.gd.ds * 16 + PICTURE_CACHE_COUNT, 2))[0]
-        count = min(count, PICTURE_CACHE_SIZE)
-        data = self.gd.guest.read((self.gd.load_seg + PICTURE_CACHE_SEG) * 16, count * 16)
-        out: Dict[int, int] = {}
-        for slot in range(len(data) // 16):
-            out.setdefault(struct.unpack_from("<H", data, slot * 16)[0], slot)
-        return out
-
-    def _point(self, member: int, figure: int, target: int) -> bool:
+    def _point(self, member: int, figure: int, target: int, redraw: bool = False) -> bool:
         """MEMBER's things on the map drawn with TARGET's pictures (their FIGURE's object's, or
-        their place's spare) where they are drawn with another of the party's: their picture
-        named, and their slot moved where TARGET's is loaded."""
+        their place's spare) where they name another of the party's, or the game's own picture of
+        the figure (a save from before the copy): the picture named, and the slot emptied, so that
+        the game loads it and draws from it at once. Each one changed (or, with REDRAW, each drawn
+        with TARGET's) marked to be drawn again."""
         wanted = picture_ids(target)
-        others = [picture_ids(o) for o in (figure,) + tuple(SPARES) if o != target]
-        cache = None
+        model = self.pics.model(figure)
+        others = {picture_ids(o)[0] for o in (figure,) + tuple(SPARES) if o != target}
+        if model is not None:
+            others.add(model)
         moved = False
         for combatant, creature in self.gd.combatants().items():
             if creature != member:
                 continue
             at = self.gd.ds * 16 + MAP_ENTRIES + combatant * MAP_ENTRY_SIZE
-            entry = self.gd.guest.read(at, MAP_ENTRY_SIZE)
-            picture, = struct.unpack_from("<H", entry, MAP_PICTURE)
-            if picture in (pair[0] for pair in others):
+            picture, = struct.unpack("<H", self.gd.guest.read(at + MAP_PICTURE, 2))
+            if redraw and picture == wanted[0]:
+                self._changed(at)
+            if picture in others:
                 self.gd.guest.write(at + MAP_PICTURE, struct.pack("<H", wanted[0]))
+                self.gd.guest.write(at + MAP_SLOT, struct.pack("<H", NO_SLOT))
+                if picture == model:  # (the game's own, smaller: drawn from where ours has room)
+                    x, y = struct.unpack("<bb", self.gd.guest.read(at + MAP_ANCHOR, 2))
+                    self.gd.guest.write(at + MAP_ANCHOR, struct.pack("<bb", min(127, x + PAD), min(127, y + PAD)))
+                self._changed(at)
                 moved = True
-            elif picture != wanted[0]:
-                continue
-            if cache is None:
-                cache = self._cache()
-            slot, = struct.unpack_from("<H", entry, MAP_SLOT)
-            for kind in (0, 1):  # (walking, combat)
-                if wanted[kind] in cache and any(cache.get(pair[kind]) == slot for pair in others):
-                    self.gd.guest.write(at + MAP_SLOT, struct.pack("<H", cache[wanted[kind]]))
-                    moved = True
         return moved
+
+    def _changed(self, at: int) -> None:
+        """The thing on the map at AT marked changed: the game gives it its picture (where its slot
+        is empty) and draws it again, then clears the mark."""
+        flags = self.gd.guest.read(at + MAP_FLAGS, 1)[0]
+        self.gd.guest.write(at + MAP_FLAGS, bytes([flags | MAP_CHANGED]))
 
     def _scan(self) -> None:
         """Where each of the party objects' pictures has a copy in the game's memory (by marker)."""
@@ -333,7 +335,7 @@ class Dresser:
                         self.gd.guest.write(start, self.chunks[pic])
                         wrote = True
             self.shown[obj] = key
-            if self._point(member, figure, obj):
+            if self._point(member, figure, obj, redraw=wrote):
                 wrote = True
             if wrote:
                 changed.append(obj)
