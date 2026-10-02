@@ -889,7 +889,7 @@ second is moved to pictures of their own. A save made before the Ledger's
 copy (whose party still names the game's own pictures) is put right as soon
 as it is loaded.
 
-![The arena: the party as the game draws them, and as the Ledger shows them (a bow and quiver, clubs, leather)](docs/gear.png)
+![The arena, three of the party as the game draws them (left) and as the Ledger shows them (right): leather armour and leggings recoloured, clubs and a sword worn at the hip, a bow on the back](docs/gear.png)
 
 How: the party's figures are objects 300 to 313 in `SEGOBJEX.GFF` (300 and
 the figure picked at character creation). The launcher's copy of the file
