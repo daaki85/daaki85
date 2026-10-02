@@ -933,6 +933,7 @@ class DiceLog:
                 before = set(self.tools_given)
                 out += npcitems.place(self.game, self.tools_given)
                 out += bonescale.place(self.game, self.tools_given)  # the bone scale armour's set
+                npcitems.reprice(self.game)  # (those given before they had a magic item's price)
                 self._tools_new += sorted(self.tools_given - before)
             if self.pickpockets:
                 tools.repaint(self.game)

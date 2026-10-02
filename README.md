@@ -79,6 +79,12 @@ folder.
   their own, monsters' in red, bold, all at 4.5:1 contrast or more.
 
 **Fixed**
+- **The slave pens' gear given twice** (a second short sword on Kurzak after
+  his was lifted, two Leather Chest Armor +1 on Legcrusher) to a game loaded
+  after it was given: none of it is given where it is already in the game.
+- **Prices:** Leather Chest Armor +1 is worth 3000 (it was 10), the Cloak of
+  Protection +1 5000 and the Rings of Protection +1 5000, as magic items;
+  ones already in a game are repriced.
 - **Dinos takes the vulture as soon as a fight is over** (he wouldn't until the
   party rested): the Ledger now reads the game's own combat flag.
 - **Thieves' Tools can't be used in a fight**, only out of one.

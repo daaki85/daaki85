@@ -798,6 +798,11 @@ there to be found):
 | **Legcrusher**, the half-giant | **Leather Chest Armor +1** (worn) | no |
 | **Pehtucl**, the head templar (the Templar in the pens' south-west corner with the Obsidian Bloodwrath) | a **Cloak of Protection +1** (worn) and a **Ring of Protection +1** (worn) | the ring, yes; not the cloak |
 
+They're priced as magic items: Leather Chest Armor +1 3000, the Cloak and the
+Ring 5000 each. Nothing is given where it's in the game already (a game saved
+after it was given, loaded again), and a short sword lifted from Kurzak isn't
+replaced.
+
 The Cloak of Protection works as the [Ring +1](#the-ring-1) does, from the
 cloak slot: +1 AC and +1 on every saving throw. Kill them, or pick their
 pockets, to have it. Each item is given once a game, and not to anyone already

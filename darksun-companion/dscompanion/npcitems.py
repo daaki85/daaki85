@@ -37,7 +37,11 @@ TSR_TYPES_OFF, TSR_TYPES_COUNT, TSR_TYPES_FIRST, TSR_TYPES_PTR = 208, 210, 212, 
 BLOODWRATH = 0x9C  # the name entry of the Templar's sword: which Templar is Pehtucl
 
 
-def _item(template: str, plus: int = 0, type_: Optional[int] = None, name: Optional[int] = None) -> bytes:
+ITEM_VALUE = 0x06  # an item's price (a word, in the game's coins)
+
+
+def _item(template: str, plus: int = 0, type_: Optional[int] = None, name: Optional[int] = None,
+          value: Optional[int] = None) -> bytes:
     """An item record from one of the game's templates (SEGOBJEX), in no list and no slot."""
     rec = bytearray.fromhex(template)
     struct.pack_into("<H", rec, game.ITEM_NEXT, game.NO_ITEM)
@@ -49,6 +53,8 @@ def _item(template: str, plus: int = 0, type_: Optional[int] = None, name: Optio
         struct.pack_into("<H", rec, game.ITEM_NAME, name)
     rec[0x0C] = 0  # (the game's cache of the item's picture; the Cloak's template has 35h)
     rec[game.ITEM_PLUS] = plus & 0xFF
+    if value is not None:
+        struct.pack_into("<H", rec, ITEM_VALUE, value)
     return bytes(rec)
 
 
@@ -56,9 +62,26 @@ def _item(template: str, plus: int = 0, type_: Optional[int] = None, name: Optio
 # Armor, the Cloak
 SWORD = _item("0afc00000000f40100003f000000000006ff1c0000", type_=SHORT_SWORD_TYPE, name=SHORT_SWORD)
 HELM = _item("03fc000000000500000005000000000004ff060000")
-CHEST_ARMOR = _item("02fc000000000a00000006000000000004ff070000", plus=1)
-CLOAK_ITEM = _item("e3fb000000001400000041003500000003ff0e0000", plus=1, type_=CLOAK_TYPE, name=CLOAK)
+# priced as magic items (the templates have the plain ones' 10 and 20: the game's Drake Armor +1 is
+# 8000, Silk Armor +2 4000, Chain Chest Armor 1500, its magic rings 30000-50000)
+CHEST_ARMOR = _item("02fc000000000a00000006000000000004ff070000", plus=1, value=3000)
+CLOAK_ITEM = _item("e3fb000000001400000041003500000003ff0e0000", plus=1, type_=CLOAK_TYPE, name=CLOAK, value=5000)
 RING_ITEM = ring.RING[:game.ITEM_NAME] + struct.pack("<H", RING) + ring.RING[game.ITEM_NAME + 2:]
+PRICES = ((CHEST_ARMOR, 3000), (CLOAK_ITEM, 5000), (RING_ITEM, ring.VALUE), (ring.RING, ring.VALUE))
+
+
+def reprice(gd: GameData) -> int:
+    """The companion's magic items given before they had these prices (anywhere in the region:
+    carried, in a container, on the ground), priced so. How many were."""
+    it = ring.Items(gd)
+    done = set()
+    for thing in range(ring.THING_COUNT):
+        for index, rec in it.chain(thing):
+            for item, value in PRICES:
+                if index not in done and _same(rec, item) and struct.unpack_from("<H", rec, ITEM_VALUE)[0] < value:
+                    gd.guest.write(it.items + index * game.ITEM_SIZE + ITEM_VALUE, struct.pack("<H", value))
+                    done.add(index)
+    return len(done)
 # each one's: (item, where it goes: worn in that slot, or None for a backpack cell). Worn
 # things go on the body (and still a backpack cell if that slot is taken)
 SLOT = {name: game.EQUIP_SLOTS.index(name) for name in ("head", "chest", "cloak")}
@@ -130,9 +153,33 @@ def place(gd: GameData, given: Set[str]) -> List[str]:
             continue
         for item, slot in ITEMS_FOR[name]:
             key = f"{gd.creature_name(0)}|npc:{name}:{struct.unpack_from('<H', item, game.ITEM_NAME)[0]:x}"
-            if key not in given and add_to(gd, index, item, slot):
+            if key in given:
+                continue
+            if already_there(gd, it, index, item):  # (a game saved after it was given, say)
+                given.add(key)
+                continue
+            if add_to(gd, index, item, slot):
                 given.add(key)  # (each once a game, whatever comes of it)
+                it = ring.Items(gd)
     return out  # (nothing in the log: the items are there to be found)
+
+
+def _same(rec: bytes, item: bytes) -> bool:
+    """REC is one of the companion's things like ITEM: the same type, name and plus."""
+    return len(rec) >= game.ITEM_SIZE and rec[game.ITEM_TYPE:game.ITEM_TYPE + 2] == item[game.ITEM_TYPE:game.ITEM_TYPE + 2] \
+        and rec[game.ITEM_NAME:game.ITEM_NAME + 3] == item[game.ITEM_NAME:game.ITEM_NAME + 3]
+
+
+def already_there(gd: GameData, it: ring.Items, index: int, item: bytes) -> bool:
+    """The item is in the game already, so isn't to be given again (the given-once keys live in
+    the settings, not in the save: a save from after it was given, loaded where the keys are
+    missing, would get a second). The Short Sword, Leather Chest Armor +1, the Cloak and
+    Pehtucl's ring are the only ones of their kind: anywhere in the region (carried by the party
+    or anyone, in a container, on the ground). The Helm is a common one: on its owner."""
+    if item is HELM:
+        lists = [struct.unpack_from("<h", gd.creature(index), o)[0] for o in game.CREATURE_ITEM_LISTS]
+        return any(_same(rec, item) for t in lists for _, rec in it.chain(t))
+    return any(_same(rec, item) for thing in range(ring.THING_COUNT) for _, rec in it.chain(thing))
 
 
 def label(gd: GameData, rec: bytes) -> str:
