@@ -144,6 +144,7 @@ def with_entity(etab: bytes) -> bytes:
 
 SPEAKS, TELLS = 115, 98  # the dialogue window's lines: his words, the narration
 LINE = 60  # the game's lines are no longer than this
+REPLY = 40  # nor its replies (the reply window cuts a longer one off)
 TITLE = ("var", 0x86, 1)  # a reply menu's title, as the game's own (the speaker)
 MORE, CLEAR = ("var", 0x86, 2), ("var", 0x86, 3)  # wait for a click, then clear the window
 MONEY = ("var", 0x89, 42)  # the party's ceramic pieces
@@ -242,12 +243,13 @@ def conversation() -> bytes:
     s.unless(("expr", [("var", 0x8D, MET), "!=", ("n", 1)]), "again")
     s.say("A gaunt man sits chained in the corner of the empty pen. Ash-grey dust clings to his "
           "robes, and the ground around him is cracked and dead.", TELLS)
+    s.page()
     s.say("Ah. The arena's champions. You broke my spell before I could finish it. Come to "
           "finish me?")
     s.op(0x16, ("n", 1), ("var", 13, MET))
     s.label("first")
-    s.menu([("You fought well. No hard feelings: in the arena, nobody chooses their enemy.", "respect", ALWAYS),
-            ("You're a defiler. You kill the land with every spell.", "accused", ALWAYS),
+    s.menu([("You fought well. No hard feelings.", "respect", ALWAYS),
+            ("You're a defiler. You kill the land.", "accused", ALWAYS),
             ("Who are you?", "who", ALWAYS),
             ("Farewell.", "bye", ALWAYS)])
 
@@ -277,7 +279,7 @@ def conversation() -> bytes:
     s.label("friend")
     s.menu([("Show us what you have.", "shop", ALWAYS),
             ("Why would a defiler help a preserver?", "why", ALWAYS),
-            ("Isn't selling spells dangerous for you?", "danger", ALWAYS),
+            ("Isn't this dangerous for you?", "danger", ALWAYS),
             ("Farewell.", "bye friend", ALWAYS)])
 
     s.label("shop")
@@ -309,7 +311,7 @@ def conversation() -> bytes:
     s.say("And the templars kill slaves with every order. We do what Athas lets us.")
     s.say("His eyes narrow.", TELLS)
     s.menu([("Fair enough. I spoke too quickly.", "respect", ALWAYS),
-            ("We should tell the templars what you're scheming.", "turn cold", ALWAYS),
+            ("We'll tell the templars about you.", "turn cold", ALWAYS),
             ("Farewell.", "bye", ALWAYS)])
 
     s.label("turn cold")
@@ -321,9 +323,9 @@ def conversation() -> bytes:
     s.label("cold")
     s.say("I have nothing to say to you. Go and tell your templars.")
     s.label("cold menu")
-    s.menu([("We were wrong. Here are 50 ceramic, as an apology.", "pay",
+    s.menu([("Here's 50 ceramic, as an apology.", "pay",
              ("expr", [MONEY, ">=", ("n", 50)])),
-            ("We're all slaves here. Let's not make enemies of each other.", "plead", ALWAYS),
+            ("We're all slaves. Let's be friends.", "plead", ALWAYS),
             ("Farewell.", "bye cold", ALWAYS)])
 
     s.label("pay")

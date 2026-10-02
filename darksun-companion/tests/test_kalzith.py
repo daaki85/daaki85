@@ -67,6 +67,8 @@ class KalzithTests(unittest.TestCase):
         texts = [s for o in ops for s in gpl.strings(o.args)]
         self.assertTrue(all(len(s) <= kalzith.LINE + 1 for s in texts if not s.startswith("  ")))
         self.assertTrue(any("Kalzith" in s for s in texts))
+        replies = [r["text"][1] for o in ops if o.code == 0x48 for r in o.args[0]["replies"]]
+        self.assertTrue(all(len(r) <= kalzith.REPLY for r in replies), [r for r in replies if len(r) > kalzith.REPLY])
         self.assertGreaterEqual(sum(1 for o in ops if o.code == 0x31), 4)
         # the friendly flag set before the shop's menu, the cold one only on the threat
         sets = [o.args for o in ops if o.code == 0x16]
@@ -83,18 +85,19 @@ class KalzithTests(unittest.TestCase):
 
     def test_objects(self):
         """His record a slave's (Dinos's) with his name, his own number and a defiler's class; his
-        object and picture the arena Defiler's."""
+        object a person's (Dinos's) with the arena Defiler's picture, and that picture his."""
         dinos = bytearray(159)
         dinos[kalzith.RDFF_NAME:kalzith.RDFF_NAME + 6] = b"Dinos\0"
         struct.pack_into("<h", dinos, kalzith.RDFF_SELF, -kalzith.DINOS)
-        chunks = {("RDFF", kalzith.DINOS): bytes(dinos), ("OJFF", kalzith.DEFILER): b"ojff",
-                  ("BMP ", kalzith.DEFILER): b"bmp"}
+        chunks = {("RDFF", kalzith.DINOS): bytes(dinos), ("OJFF", kalzith.DINOS): bytes(range(16)),
+                  ("OJFF", kalzith.DEFILER): bytes(range(100, 116)), ("BMP ", kalzith.DEFILER): b"bmp"}
         out = kalzith.object_chunks(chunks)
         rec = out[("RDFF", kalzith.OBJECT)]
         self.assertEqual(rec[kalzith.RDFF_NAME:kalzith.RDFF_NAME + 8], b"Kalzith\0")
         self.assertEqual(struct.unpack_from("<h", rec, kalzith.RDFF_SELF)[0], -kalzith.OBJECT)
         self.assertEqual(rec[kalzith.RDFF_CLASS], kalzith.DEFILER_CLASS)
-        self.assertEqual(out[("OJFF", kalzith.OBJECT)], b"ojff")
+        p = kalzith.OJFF_PICTURE
+        self.assertEqual(out[("OJFF", kalzith.OBJECT)], bytes(range(p)) + bytes(range(100 + p, 102 + p)) + bytes(range(p + 2, 16)))
         self.assertEqual(out[("BMP ", kalzith.OBJECT)], b"bmp")
         self.assertEqual(kalzith.object_chunks({}), {})
 
