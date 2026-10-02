@@ -1511,7 +1511,9 @@ turn's rolls and how much they say, monster descriptions, the Ring +1,
 picking pockets, and a button that gives each thief a set of Thieves' Tools
 now) and the rule changes (helms, boots, two weapons, the spell save, doubled
 saves, Cat's Grace, hiding in shadows, levels up to 10). The switches for the
-game are remembered for next time.
+game are remembered for next time. In a window too small to show them all,
+the tab scrolls (scrollbar, mouse wheel, or arrow and page keys once it has
+the focus).
 
 ![The Options tab](docs/options.png)
 

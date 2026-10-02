@@ -266,8 +266,10 @@ class Viewer:
 
     def _build_options(self, tabs: ttk.Notebook) -> None:
         """The Options tab: what the dice log shows, and what the Ledger adds to the game."""
-        options = ttk.Frame(tabs, padding=6)
-        tabs.add(options, text="Options", underline=0)
+        # it scrolls, for a window too small (or text too large) to show it all
+        area = theme.ScrollArea(tabs, padding=6)
+        tabs.add(area, text="Options", underline=0)
+        options = area.inner
         settings = launch.load_settings()
         log = ttk.LabelFrame(options, text="Dice log", padding=6)
         log.pack(fill="x")
