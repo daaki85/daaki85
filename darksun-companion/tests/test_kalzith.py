@@ -14,7 +14,7 @@ def labels_land(ops) -> bool:
     """Every jump in the script lands on the start of a command."""
     starts = {o.at for o in ops}
     for o in ops:
-        if o.code in (0x3E, 0x3F, 0x63, 0x64) and o.args[0][1] not in starts:
+        if o.code in (0x13, 0x3E, 0x3F, 0x63, 0x64) and o.args[0][1] not in starts:
             return False
         if o.code == 0x48 and any(r["goto"][1] not in starts for r in o.args[0]["replies"]):
             return False
@@ -69,7 +69,7 @@ class KalzithTests(unittest.TestCase):
         self.assertTrue(any("Kalzith" in s for s in texts))
         replies = [r["text"][1] for o in ops if o.code == 0x48 for r in o.args[0]["replies"]]
         self.assertTrue(all(len(r) <= kalzith.REPLY for r in replies), [r for r in replies if len(r) > kalzith.REPLY])
-        self.assertGreaterEqual(sum(1 for o in ops if o.code == 0x31), 4)
+        self.assertEqual(sum(1 for o in ops if o.code == 0x31), 1)  # (one end; parts are subroutines)
         # the friendly flag set before the shop's menu, the cold one only on the threat
         sets = [o.args for o in ops if o.code == 0x16]
         self.assertIn([("n", kalzith.FRIENDLY), ("var", 13, kalzith.ATTITUDE)], sets)
@@ -90,18 +90,21 @@ class KalzithTests(unittest.TestCase):
                 self.assertEqual(ends[0], 0x15, r["text"])
 
     def test_ifs_closed(self):
-        """Each "if" (18h then 3Eh) is closed by one 67h on each way through it, and 67h is used
-        for nothing else: the game ends a script with "BAD GPL EXIT" when they don't match."""
+        """Structured as the game's scripts: each "if" (18h, 3Eh) ends with one 67h; 3Eh goes on
+        to an "else" (3Fh) or that end; 3Fh is only an "else", going on to an end. (A 67h too
+        many or too few ends the script with "BAD GPL EXIT"; a 3Fh anywhere else does nothing.)"""
         ops = gpl.decode(kalzith.conversation(), b"")
-        ifs = sum(1 for a, b in zip(ops, ops[1:]) if a.code == 0x18 and b.code == 0x3E)
-        self.assertEqual(sum(1 for o in ops if o.code == 0x67), 2 * ifs)
-        for k, o in enumerate(ops):
-            if o.code == 0x18 and ops[k + 1].code == 0x3E:
-                # the way on: a jump to a 67h; the other way: a 67h
-                at = {x.at: j for j, x in enumerate(ops)}
-                self.assertEqual(ops[k + 2].code, 0x3F)
-                self.assertEqual(ops[at[ops[k + 2].args[0][1]]].code, 0x67)
-                self.assertEqual(ops[at[ops[k + 1].args[0][1]]].code, 0x67)
+        at = {o.at: k for k, o in enumerate(ops)}
+        ifs = [k for k, o in enumerate(ops) if o.code == 0x18 and ops[k + 1].code == 0x3E]
+        self.assertEqual(sum(1 for o in ops if o.code == 0x67), len(ifs))
+        elses = set()
+        for k in ifs:
+            target = ops[at[ops[k + 1].args[0][1]]]
+            self.assertIn(target.code, (0x3F, 0x67))
+            if target.code == 0x3F:
+                elses.add(target.at)
+                self.assertEqual(ops[at[target.args[0][1]]].code, 0x67)
+        self.assertEqual({o.at for o in ops if o.code == 0x3F}, elses)
 
     def test_apology(self):
         """The 50 ceramic apology is offered only to a party with them, and takes them."""
