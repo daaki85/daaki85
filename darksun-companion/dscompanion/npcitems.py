@@ -126,15 +126,11 @@ def place(gd: GameData, given: Set[str]) -> List[str]:
         rec = gd.creature(index)
         if name is None or len(rec) < game.CREATURE_SIZE or struct.unpack_from("<h", rec, 0)[0] <= 0:
             continue
-        added = []
         for item, slot in ITEMS_FOR[name]:
             key = f"{gd.creature_name(0)}|npc:{name}:{struct.unpack_from('<H', item, game.ITEM_NAME)[0]:x}"
             if key not in given and add_to(gd, index, item, slot):
                 given.add(key)  # (each once a game, whatever comes of it)
-                added.append(label(gd, item))
-        if added:
-            out.append(f"({name} now carries {', '.join(added)})")
-    return out
+    return out  # (nothing in the log: the items are there to be found)
 
 
 def label(gd: GameData, rec: bytes) -> str:

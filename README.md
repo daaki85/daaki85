@@ -79,6 +79,10 @@ folder.
   their own, monsters' in red, bold, all at 4.5:1 contrast or more.
 
 **Fixed**
+- **The bone scale set added twice** to a game loaded after it was added: it is
+  now added only where none of its pieces is.
+- **No more log lines for the Ledger's items** handed out (the slave pens'
+  gear, the bone scale set): they're there to be found.
 - **A game that stops with an error** leaves its message on screen (DOSBox
   waits for a key instead of closing), and the dice log says how DOSBox
   closed, telling a crash of DOSBox's own apart.

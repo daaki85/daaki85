@@ -72,8 +72,7 @@ class NpcItemTests(unittest.TestCase):
 
     def test_placed_once(self):
         given = set()
-        lines = npcitems.place(self.gd, given)
-        self.assertEqual(len(lines), 3)
+        self.assertEqual(npcitems.place(self.gd, given), [])  # (nothing for the log)
         head, chest, cloak = (game.EQUIP_SLOTS.index(s) for s in ("head", "chest", "cloak"))
         sword, helm = self.carried(KURZAK)[1], self.carried(KURZAK)[0]
         self.assertEqual(helm, (head, 6, 5, 0))

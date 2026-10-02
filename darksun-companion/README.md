@@ -232,7 +232,6 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 | `    no hit point roll: that comes only when the highest class level rises (still 3rd)` | A multi-class character's level in one class went up without raising their highest level: the game gives no hit points for it. |
 | `Cilla's 3rd Ranger level: hit points d10 = 2, raised to 3 for CON 21` | The hit point roll for a new level: the class's die (d8 clerics and druids, d10 fighters, gladiators and rangers, d4 preservers, d6 psionicists and thieves), never less than 2, 3 or 4 with CON 20, 21-22 or 23+, and doubled for half-giants. After level 9 or 10 there's no roll, just a fixed gain (thieves roll at 10th too with [levels up to 10](#rule-changes)). |
 | `Cilla hides in shadows: d100 = 21, needs 27 or less (54, halved in daylight) -> hidden` / `  Cilla moves silently: ...` | A thief's or ranger's hiding and moving silently at the start of their turn (the [stealth rule](#rule-changes)). |
-| `(Kurzak now carries Metal Short Sword, Leather Helm (AC 1))` | The Ledger's items given to someone in the slave pens (see [The slave pens' gear](#the-slave-pens-gear)). |
 | `Dinos cooks the vulture and the party eats with him: ... +100 XP each, and restored as after a full rest` | The cooked vulture used on Dinos (see [The cooked vulture](#the-cooked-vulture)). |
 | `Character creation, STR 17: best of four 4d4 (7, 11, 9, 10) = 11, +4, +1 dwarf = 16, raised to 17 (the Fighter's prime requisite)` | An ability score rolled on the character creation screen (see below). |
 | `Character creation, hit points 15: Fighter d10 per level: 7 + 9; Thief d6 per level: 5 + 1 = 22, / 2 classes = 11, +4 CON 16 = 15` | The new character's hit points: a die for every level of every class, divided by the number of classes, plus CON's bonus (see below). |
@@ -786,7 +785,8 @@ coins once it has counted them, so the item goes back to the game's free list.
 ### The slave pens' gear
 
 With the Ledger running, the first time the party is in the slave pens the
-three who run them get things of the Ledger's own (the log says who gets what):
+three who run them get things of the Ledger's own (the log doesn't say: they're
+there to be found):
 
 | Who | Gear | Can a thief lift it? |
 |---|---|---|
@@ -851,11 +851,9 @@ the Ledger running, the first time the chest piece is in the region with the
 party, wherever it is (on the ground, in a container, or already carried), the
 rest of the set is put with it: the **Bone Scale Arm Armor**, the **Bone Scale
 Leg Armor** and a **Bone Helm**, in the same pile or container, or in the
-carrier's pack. Once a game. The log says so:
-
-```
-Beside the Bone Scale Chest Armor lie the rest of the set: its arm and leg pieces, and a helm of bone.
-```
+carrier's pack. Once a game, and never where any of the three already is (a
+game saved after they were added, loaded again). The log doesn't say: they're
+there to be found.
 
 The arm and leg pieces are the game's own, with its own icons. The game has
 no helm of bone, so the Bone Helm is an item type of the Ledger's own (the

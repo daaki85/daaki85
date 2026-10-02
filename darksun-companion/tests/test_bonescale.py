@@ -35,7 +35,7 @@ class BoneScaleTests(unittest.TestCase):
     def test_with_the_chest_on_the_ground(self):
         self.put_chest()
         given = set()
-        self.assertEqual(bonescale.place(self.gd, given), [bonescale.MESSAGE])
+        self.assertEqual(bonescale.place(self.gd, given), [])  # (nothing for the log)
         self.assertEqual(chain(self.gd, PILE), [(0xFBF7, 15, 0xFF), (0xFBF6, 55, 0xFF), (0xFBF5, 56, 0xFF),
                                                 (0xFC03, game.BONE_HELM_TYPE, 0xFF)])
         self.assertEqual(given, {bonescale.KEY})
@@ -46,12 +46,21 @@ class BoneScaleTests(unittest.TestCase):
         """Already in a pack (Dag's): the rest goes in free cells of it."""
         self.put_chest(slot=0x0E)
         struct.pack_into("<hhh", self.m, CREATURES + 8, game.NO_ITEM, game.NO_ITEM, PILE)
-        lines = bonescale.place(self.gd, set())
-        self.assertEqual(lines, [bonescale.MESSAGE + " Dag finds them packed with it."])
+        given = set()
+        bonescale.place(self.gd, given)
+        self.assertEqual(given, {bonescale.KEY})
         items = chain(self.gd, PILE)
         self.assertEqual(sorted(p for p, _, _ in items), sorted([0xFBF7, 0xFBF6, 0xFBF5, 0xFC03]))
         self.assertEqual(len({slot for _, _, slot in items}), 4)  # each in a cell of its own
         self.assertTrue(all(slot >= 0x0E for _, _, slot in items))
+
+    def test_not_again_in_a_save_that_has_them(self):
+        """A game saved after the set was added, loaded where the Ledger doesn't have the key (or
+        has forgotten it): the pieces are there already, so nothing is added again."""
+        self.put_chest()
+        bonescale.place(self.gd, set())
+        self.assertEqual(bonescale.place(self.gd, set()), [])
+        self.assertEqual(len(chain(self.gd, PILE)), 4)
 
     def test_no_chest_nothing(self):
         given = set()
