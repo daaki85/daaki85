@@ -606,7 +606,7 @@ class RuleTests(RingTests):
         probe = image.find(bytes.fromhex("fb2ef706") + struct.pack("<HH", self.RULES, 512))
         self.assertGreater(probe, 0)
         self.mu.mem_write(VEC_TWO_HANDED * 4, struct.pack("<HH", probe, TSR))
-        who = (GAME_DS + 0x348 - 0x4356) & 0xFFFF
+        who = (GAME_DS + 0x3931 - 0x4356) & 0xFFFF  # (as the running game has it: DS - 0A25h)
         self.mu.mem_write(who * 16 + 0x25B, struct.pack("<H", 2))
         sheets = self.TYPES * 16 + 0x400
         self.mu.mem_write(GAME_DS * 16 + 0x1661, struct.pack("<HH", 0x400, self.TYPES))
