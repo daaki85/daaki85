@@ -60,7 +60,7 @@ folder.
 
 ## Changelog
 
-### Pull request #9 (in review)
+### Pull request #9 ([in review](https://github.com/daaki85/darksun-companion-mod/pull/9))
 
 **Added**
 - **Rule change: thief skills from AD&D's table.** A skill is AD&D's average
