@@ -453,6 +453,15 @@ class Viewer:
         self.next_try = time.monotonic() + RETRY_SECONDS
         self._start_state()
 
+    def _dosbox_closed(self) -> None:
+        """DOSBox started from here has closed: say how, in the log (an exit code a crash of
+        DOSBox's own gives, such as C0000005h on Windows, is told apart from the game ending)."""
+        if self.dosbox is None or self.dosbox.poll() is None:
+            return
+        code, self.dosbox = self.dosbox.returncode, None
+        self._append_dice([launch.closed_line(code)])
+        self._start_state()
+
     def _start_state(self) -> None:
         """"Start the game" only while there's no game to attach to."""
         running = self.guest is not None or (self.dosbox is not None and self.dosbox.poll() is None)
@@ -599,6 +608,7 @@ class Viewer:
     # ---- dice log ---------------------------------------------------------------
 
     def _dice_tick(self) -> None:
+        self._dosbox_closed()
         try:
             self._dice_step()
         except ProcessError as e:

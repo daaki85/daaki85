@@ -162,7 +162,10 @@ def write_conf(game_dir: str, path: str = CONF, dice_log: bool = True) -> str:
     lines += [f'mount d "{DOS_DIR}"', "c:"]
     # the game runs from C: (the game folder), where the patched copy looks for its files
     lines += [r"lh d:\dsclog.exe", "cls", "d:\\" + PATCHED_EXE.lower()] if dice_log else ["darksun"]
-    lines += ["exit", ""]
+    # a game that stops with an error ("Stack overflow!", "Abnormal program termination") leaves
+    # its message on screen until a key is pressed, rather than DOSBox closing over it
+    lines += ["if errorlevel 1 echo.", "if errorlevel 1 echo The game stopped with an error (above).",
+              "if errorlevel 1 pause", "exit", ""]
     with open(path, "w", newline="\r\n") as f:
         f.write("\n".join(lines))
     return path
@@ -183,6 +186,21 @@ def prepare_patched_game(game_dir: str) -> Optional[str]:
     except (gff.GffError, OSError, KeyError, struct.error, ValueError):
         pass  # no icons of our own: the game's plain ones
     return None
+
+
+# Windows' codes for a program that crashes (DOSBox itself, not the game in it)
+CRASH_CODES = {0xC0000005: "an access violation", 0xC00000FD: "a stack overflow", 0xC0000409: "a stack buffer overrun"}
+
+
+def closed_line(code: int) -> str:
+    """The log's line for DOSBox closing with exit code CODE."""
+    if code == 0:
+        return "DOSBox closed."
+    known = CRASH_CODES.get(code & 0xFFFFFFFF)
+    if known:
+        return (f"DOSBox closed: it crashed ({known}, code {code & 0xFFFFFFFF:08X}h). That is DOSBox "
+                "itself failing, not the game stopping with an error.")
+    return f"DOSBox closed with exit code {code}."
 
 
 def launch(game_dir: str) -> Tuple[subprocess.Popen, Optional[str]]:

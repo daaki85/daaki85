@@ -174,6 +174,13 @@ pockets, the rule changes); the slave pens' gear and the cooked vulture work
 there too. If anything goes wrong it says so in a message box and
 writes the details to `play.log`.
 
+**If DOSBox closes by itself:** when the game stops with an error, DOSBox now
+waits with the game's message on screen ("The game stopped with an error",
+then press a key), rather than closing over it. With the game started from the
+Ledger, the dice log also says how DOSBox closed: `DOSBox closed: it crashed
+(an access violation, code C0000005h)` means DOSBox itself failed, not the
+game. Either message, and what was happening at the time, says where to look.
+
 **Checking a save file (no game needed):** drag a `SAVEnn.SAV` file from the
 game folder onto **`Show Save.bat`**.
 

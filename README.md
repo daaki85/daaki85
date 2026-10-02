@@ -104,6 +104,9 @@ folder.
   their own, monsters' in red, bold, all at 4.5:1 contrast or more.
 
 **Fixed**
+- **A game that stops with an error** leaves its message on screen (DOSBox
+  waits for a key instead of closing), and the dice log says how DOSBox
+  closed, telling a crash of DOSBox's own apart.
 - **Picking a pocket after loading a save:** a try made after the save (the
   thief caught) is forgotten when it's loaded, so that person can be tried
   again.
