@@ -10,7 +10,7 @@ sits in the picture the way the game's own colours do.
 import math
 from typing import Dict, List, Optional, Tuple
 
-from . import spriteparts as sp
+from . import game, spriteparts as sp
 
 Rows = sp.Rows
 
@@ -239,6 +239,77 @@ def draw_back_gear(rows: Rows, body: Rows, parts: sp.Parts, pad: int, bow: bool,
             rows[y + pad][x + pad] = body[y + pad][x + pad]
 
 
+# Helms, worn as circlets and headdresses (the hair and face showing): a band round the head at
+# the brow, in the helm's material's faded colours, and its ornament. Item type: style.
+FEATHER, STONE, SPIKES = "feather", "stone", "spikes"
+HELMS: Dict[int, str] = {5: FEATHER, 109: FEATHER, 89: STONE, game.BONE_HELM_TYPE: SPIKES}
+HELM_COLOURS = {  # (outline, body, light, shade)
+    FEATHER: (207, 205, 206, 194),  # faded leather
+    STONE: (22, 25, 27, 23),  # dull iron
+    SPIKES: (194, 214, 215, 206),  # weathered bone
+}
+FEATHER_GREYS, STONE_RED = (211, 213, 215), 196
+
+
+# The circlet's half-width round each model's head (the head's own, not its hair's), by hand
+CIRCLET_HALF = {2072: 4, 2074: 4}  # (3 for the rest)
+
+
+def draw_helm(rows: Rows, parts: sp.Parts, item_type: int, pad: int, model: int = 0) -> None:
+    """A circlet on the (padded) picture ROWS: a band round the head at the brow, as wide as the
+    head itself (big hair spreading past it), its ends a row lower where it curves round the head
+    (from the side, toward the back of it), and the helm's ornament: a feather standing from it, a
+    stone at the front, or spikes of bone rising over the hair."""
+    style = HELMS.get(item_type)
+    if style is None or not parts.head:
+        return
+    outline, body, light, shade = HELM_COLOURS[style]
+    h = parts.head
+    half = CIRCLET_HALF.get(model, 3)
+    y = h.brow + pad
+    if parts.facing == sp.SIDE:  # (facing right: the forehead at the head's right)
+        front = h.right + pad - 1
+        a, b = front - 2 * half, front
+    else:
+        middle = (h.left + h.right) // 2 + pad
+        a, b = middle - half, middle + half
+    cells = []
+    for x in range(a, b + 1):
+        if parts.facing == sp.SIDE:
+            dy = 1 if x < a + (b - a) // 3 else 0  # (lower toward the back of the head)
+        else:
+            dy = 1 if x in (a, b) else 0  # (round the temples)
+        if 0 <= y + dy < len(rows) and 0 <= x < len(rows[y + dy]) and rows[y + dy][x] is not None:
+            cells.append((x, y + dy))
+    if not cells:
+        return
+    xs = [x for x, _ in cells]
+    first, last = min(xs), max(xs)
+    for x, yy in cells:
+        rows[yy][x] = outline if x in (first, last) else (light if x == first + 1 else shade if x == last - 1 else body)
+    centre = (first + last) // 2 if parts.facing != sp.SIDE else last - 1
+
+    def top(x):  # (the head's top in column x: what rises from the band rises over the hair)
+        return next((yy for yy in range(len(rows)) if rows[yy][x] is not None), y)
+    if style == SPIKES:
+        for x in ([first + 1, centre, last - 1] if parts.facing != sp.SIDE else [centre - 2, centre]):
+            tall = 3 if x == centre else 2
+            for k in range(1, tall + 1):
+                rows[y - k][x] = light if k < tall else body
+            rows[y - tall - 1][x] = outline
+    elif style == STONE and parts.facing in (sp.FRONT, sp.SIDE):
+        rows[y][centre] = STONE_RED
+        if parts.facing == sp.FRONT:
+            rows[y - 1][centre] = outline
+    elif style == FEATHER:
+        x = centre - (2 if parts.facing == sp.SIDE else 0)
+        tip = min(y - 4, top(x) - 2)
+        for k, yy in enumerate(range(y - 1, tip - 1, -1)):
+            rows[yy][x] = FEATHER_GREYS[k % 2]
+            if 1 <= k <= 3:
+                rows[yy][x + (-1 if parts.facing == sp.SIDE else 1)] = FEATHER_GREYS[2]
+
+
 def armed(rows: Rows, model: int, frame: int, combat: bool, weapons: Dict[str, Tuple[int, int]],
           pad: int = 10, armour: Tuple[int, ...] = ()) -> Rows:
     """One frame of MODEL with WEAPONS ({"right"/"left": (item type, material)} drawn in the hands;
@@ -251,6 +322,8 @@ def armed(rows: Rows, model: int, frame: int, combat: bool, weapons: Dict[str, T
         for item_type in armour:
             if item_type in ARMOUR:
                 draw_armour(out, model, parts, item_type, pad)
+    if "helm" in weapons and parts.facing is not None and model != sp.KREEN:
+        draw_helm(out, parts, weapons["helm"][0], pad, model)
     body = [list(r) for r in out]
     missile = weapons.get("missile")
     if missile or "ammo" in weapons:  # (the bow, quiver, sling or chatkcha carried)

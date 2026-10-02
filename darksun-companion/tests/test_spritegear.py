@@ -134,6 +134,18 @@ class WeaponTests(unittest.TestCase):
         before = [[colours[ch] for ch in line] for line in cloak]
         self.assertEqual(drawn(before, sg.armed(before, 2099, 0, False, {}, PAD, armour=(6,))), {})
 
+    def test_circlet(self):
+        """A helm is a band at the brow, the face below it as it was; the bone helm's spikes rise
+        over the head; no helm on a thri-kreen."""
+        before = rows()
+        p = sp.find(before, 2095, 0)
+        new = drawn(before, sg.armed(before, 2095, 0, False, {"helm": (sg.game.BONE_HELM_TYPE, 1)}, PAD))
+        self.assertTrue(new)
+        self.assertTrue(set(new.values()) <= set(sg.HELM_COLOURS[sg.SPIKES]))
+        self.assertTrue(all(y <= p.head.brow + 1 + PAD for _, y in new))  # (nothing on the face)
+        self.assertTrue(any(y < p.head.top + PAD for _, y in new))  # (the spikes)
+        self.assertEqual(drawn(before, sg.armed(before, sp.KREEN, 0, False, {"helm": (5, 5)}, PAD)), {})
+
     def test_tables(self):
         self.assertEqual(len(sg.WALK_GRIPS), sp.WALK_FRAMES)
         self.assertEqual(len(sg.COMBAT_POSES), sp.COMBAT_FRAMES)
