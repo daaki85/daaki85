@@ -72,8 +72,11 @@ class KalzithTests(unittest.TestCase):
         self.assertEqual(sum(1 for o in ops if o.code == 0x31), 1)  # (one end; parts are subroutines)
         # the friendly flag set before the shop's menu, the cold one only on the threat
         sets = [o.args for o in ops if o.code == 0x16]
-        self.assertIn([("n", kalzith.FRIENDLY), ("var", 13, kalzith.ATTITUDE)], sets)
-        self.assertIn([("n", kalzith.COLD), ("var", 13, kalzith.ATTITUDE)], sets)
+        self.assertIn([("n", 1), ("var", 13, kalzith.FRIENDLY)], sets)
+        self.assertIn([("n", 1), ("var", 13, kalzith.COLD)], sets)
+        # (the game's global flags are bits: none set to anything but 0 or 1, none the game's own)
+        flags = [a for a in sets if a[1][1] == 13]
+        self.assertTrue(all(a[0][1] in (0, 1) and a[1][2] > 755 for a in flags), flags)
 
     def test_menus(self):
         """Each menu is the game's kind: in a loop (63h ... 64h), and each reply a subroutine

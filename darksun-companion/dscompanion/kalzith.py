@@ -48,9 +48,9 @@ RDFF_SELF, RDFF_NAME, RDFF_NAME_SIZE = 0x10, 0x32, 8  # the record's own object 
 RDFF_CLASS, RDFF_LEVEL = 0x6F, 0x72  # (as the arena Defiler's: a defiler, of level 9)
 DEFILER_CLASS, LEVEL = 18, 5
 
-# his state, in two of the game's global flags (it uses 1-755): met him; 1 friendly, 2 cold
-MET, ATTITUDE = 760, 761
-FRIENDLY, COLD = 1, 2
+# his state, in three of the game's global flags (bits; it uses 1-755, a save keeps 808): met
+# him, friendly, cold
+MET, FRIENDLY, COLD = 760, 761, 762
 
 # The scrolls: (spell, its name, price in ceramic pieces). Cat's Grace is the game's Flaming Sphere
 # (14) under the companion's rule, so it is sold only while the rule is on.
@@ -317,7 +317,7 @@ def _is(var, value) -> tuple:
 def conversation() -> bytes:
     """Kalzith's conversation (script SCRIPT)."""
     s = _Script()
-    attitude, met = ("var", 0x8D, ATTITUDE), ("var", 0x8D, MET)
+    friendly, cold_, met = (("var", 0x8D, f) for f in (FRIENDLY, COLD, MET))
 
     def farewell():
         s.page()
@@ -341,7 +341,8 @@ def conversation() -> bytes:
 
     def respect():
         s.clear()
-        s.flag(ATTITUDE, FRIENDLY)
+        s.flag(FRIENDLY, 1)
+        s.flag(COLD, 0)
         s.say("Hm. Slaves with manners. Rarer than water. Keep your voice down.")
         s.page()
         s.say("I have something you might want. I scribe spells on scraps of hide, at night. A "
@@ -388,7 +389,7 @@ def conversation() -> bytes:
 
     def turn_cold():
         s.clear()
-        s.flag(ATTITUDE, COLD)
+        s.flag(COLD, 1)
         s.say("Then go and tell them, and see whom they believe. I have nothing more to say to you.")
         s.page()
 
@@ -431,8 +432,8 @@ def conversation() -> bytes:
 
     s.op(BEGIN)  # (every script of the game's opens so; its talk commands start after it)
     s.op(0x54, ("n", PORTRAIT))
-    s.when(_is(attitude, COLD), cold,
-           lambda: s.when(_is(attitude, FRIENDLY),
+    s.when(_is(cold_, 1), cold,
+           lambda: s.when(_is(friendly, 1),
                           lambda: (s.say("Back again? Keep your voice down."), s.call("friend")),
                           lambda: (s.when(_is(met, 1), lambda: s.say("You again. Well?"), meeting),
                                    first())))
