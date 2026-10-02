@@ -884,7 +884,10 @@ walking and fighting:
 
 The colours are muted ones no region's palette changes. A thri-kreen shows
 only weapons and shields (all it can use). Two party members of the same race
-and sex share a figure in the game, so the first of them is shown.
+and sex each show their own equipment: the game gives them one figure, so the
+second is moved to pictures of their own once the game has loaded them, which
+it does the first time they swing, shoot or are hit in a fight (until then,
+and on the map before that, they look like the first).
 
 ![The arena: the party as the game draws them, and as the Ledger shows them (a bow and quiver, clubs, leather)](docs/gear.png)
 
@@ -898,7 +901,11 @@ from where `dscompanion/spriteparts.py` finds the head, hair, hands and the
 rest in each frame) and writes them over the copies the game has loaded,
 which it draws from at once, and into the copy of the file, so a picture the
 game loads again (in a fight, in another area) comes dressed
-(`dscompanion/sprites.py`).
+(`dscompanion/sprites.py`). The copy also has a spare pair of pictures for each
+party place. Each thing on the map names the picture it is drawn with and the
+slot in the game's picture cache it is drawn from; for a second member of the
+same figure the Ledger names their spare there, the game loads it the next
+time they change pose, and the Ledger points their slot at it.
 
 ### The bone scale set
 

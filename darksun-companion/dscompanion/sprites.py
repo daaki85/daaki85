@@ -8,8 +8,17 @@ combat picture the next chunk. In the Ledger's copy of SEGOBJEX (icons.write_obj
 
 While the game runs, when a party member's worn items change the Ledger rebuilds their object's
 two pictures (the same size) and writes them over the copies the game has loaded (found by the
-marker), which it draws from at once. Two party members of the same race and sex share an object,
-so the first of them is shown.
+marker), which it draws from at once.
+
+Two party members of the same race and sex share an object, and the game loads a picture once and
+draws everyone with it from the same place in its picture cache. So the copy also has a spare pair
+for each party place (SPARES, after the 14), each with room for any model: a member whose figure an
+earlier member already has is drawn in the spare pair of their place. Each thing on the map (the
+table at MAP_ENTRIES, one entry per combatant) names the picture it is drawn with (+18h, the
+walking one; its combat one is the next) and the slot in the game's picture cache it is drawn from
+(+0Fh). The Ledger names the member's spare picture there, and the game loads it itself the next
+time the member changes pose (moves, swings); where the spare is already loaded, the Ledger points
+the slot at it at once.
 """
 
 import struct
@@ -20,6 +29,13 @@ from .game import GameData
 
 SPRITE_BASE = 2450  # (pairs: object 300's walking picture 2450, its combat one 2451, ...)
 PARTY_OBJECTS = range(300, 314)
+SPARES = range(314, 314 + game.PARTY_SIZE)  # (each party place's spare pair: 314 + the member)
+# Things on the map: 32 bytes each, by combatant; +0Fh the picture-cache slot it is drawn from,
+# +18h its walking picture's number
+MAP_ENTRIES, MAP_ENTRY_SIZE, MAP_SLOT, MAP_PICTURE = 0x6694, 32, 0x0F, 0x18
+# The game's picture cache: 16 bytes a picture (its number first), at this segment from the load
+# segment; how many there are, in DS
+PICTURE_CACHE_SEG, PICTURE_CACHE_COUNT, PICTURE_CACHE_SIZE = 0x3E60, 0x1F84, 300
 OJFF_PICTURE = 0x0C
 CREATURE_FIGURE = 0x18
 PAD = 10
@@ -82,17 +98,23 @@ class Pictures:
             self.frames[picture] = [[list(r) for r in art.decode_frame(d, f)[2]] for f in range(n)]
         return self.frames[picture]
 
-    def build(self, obj: int, combat: bool, gear: Dict[str, Tuple[int, int]], armour: Tuple[int, ...]) -> bytes:
+    def spare_capacity(self, combat: bool) -> int:
+        """A spare picture's size: room for any model's."""
+        return max(capacity(self.own(m + combat)) for m in sp.MODELS if ("BMP ", m + combat) in self.chunks)
+
+    def build(self, obj: int, combat: bool, gear: Dict[str, Tuple[int, int]], armour: Tuple[int, ...],
+              model: Optional[int] = None) -> bytes:
         """The object's walking (or COMBAT) picture in this outfit, at its fixed size (ValueError
-        if it doesn't fit: shown plain instead)."""
-        model = self.model(obj)
+        if it doesn't fit: shown plain instead). A spare (SPARES): MODEL's, at the spare size."""
+        model = self.model(obj) if model is None else model
         frames = self.own(model + combat)
         cloaks = self.own(sg.CLOAK_MODEL + combat)
         out = []
         for f, rows in enumerate(frames):
             template = sg.cloak_template(cloaks[f], sg.CLOAK_MODEL, f, combat) if f < len(cloaks) else None
             out.append(sg.armed(rows, model, f, combat, gear, PAD, armour, template))
-        return sized(encode_frames(out), capacity(frames), obj, combat)
+        size = self.spare_capacity(combat) if obj in SPARES else capacity(frames)
+        return sized(encode_frames(out), size, obj, combat)
 
 
 def new_chunks(chunks) -> Dict[Tuple[str, int], bytes]:
@@ -109,6 +131,12 @@ def new_chunks(chunks) -> Dict[Tuple[str, int], bytes]:
         rec = bytearray(chunks[("OJFF", obj)])
         struct.pack_into("<H", rec, OJFF_PICTURE, walk)
         out[("OJFF", obj)] = bytes(rec)
+    spare_model = next((m for m in sorted(sp.MODELS) if ("BMP ", m) in chunks and ("BMP ", m + 1) in chunks), None)
+    if spare_model is not None:  # (no object of their own: the Ledger names them on the map)
+        for obj in SPARES:
+            walk, fight = picture_ids(obj)
+            out[("BMP ", walk)] = pics.build(obj, False, {}, (), spare_model)
+            out[("BMP ", fight)] = pics.build(obj, True, {}, (), spare_model)
     return out
 
 
@@ -205,17 +233,60 @@ class Dresser:
         except (OSError, GffError, KeyError, struct.error, ValueError):
             return None
 
-    def objects(self) -> Dict[int, int]:
-        """{object: party member} (the first member with that figure)."""
-        out: Dict[int, int] = {}
+    def objects(self) -> Dict[int, Tuple[int, int]]:
+        """{object: (party member, their figure's object)}: the first member with a figure has its
+        object, any other with the same figure the spare of their place."""
+        out: Dict[int, Tuple[int, int]] = {}
         for member in range(game.PARTY_SIZE):
             rec = self.gd.creature(member)
             if len(rec) < game.CREATURE_SIZE or not rec[game.CREATURE_NAME]:
                 continue
             obj = PARTY_OBJECTS[0] + struct.unpack_from("<H", rec, CREATURE_FIGURE)[0]
-            if obj in PARTY_OBJECTS:
-                out.setdefault(obj, member)
+            if obj not in PARTY_OBJECTS or self.pics.model(obj) is None:
+                continue
+            if obj in out and SPARES[0] + member in SPARES:
+                out[SPARES[0] + member] = (member, obj)
+            else:
+                out.setdefault(obj, (member, obj))
         return out
+
+    def _cache(self) -> Dict[int, int]:
+        """{picture number: its slot} in the game's picture cache."""
+        count = struct.unpack("<H", self.gd.guest.read(self.gd.ds * 16 + PICTURE_CACHE_COUNT, 2))[0]
+        count = min(count, PICTURE_CACHE_SIZE)
+        data = self.gd.guest.read((self.gd.load_seg + PICTURE_CACHE_SEG) * 16, count * 16)
+        out: Dict[int, int] = {}
+        for slot in range(len(data) // 16):
+            out.setdefault(struct.unpack_from("<H", data, slot * 16)[0], slot)
+        return out
+
+    def _point(self, member: int, figure: int, target: int) -> bool:
+        """MEMBER's things on the map drawn with TARGET's pictures (their FIGURE's object's, or
+        their place's spare) where they are drawn with another of the party's: their picture
+        named, and their slot moved where TARGET's is loaded."""
+        wanted = picture_ids(target)
+        others = [picture_ids(o) for o in (figure,) + tuple(SPARES) if o != target]
+        cache = None
+        moved = False
+        for combatant, creature in self.gd.combatants().items():
+            if creature != member:
+                continue
+            at = self.gd.ds * 16 + MAP_ENTRIES + combatant * MAP_ENTRY_SIZE
+            entry = self.gd.guest.read(at, MAP_ENTRY_SIZE)
+            picture, = struct.unpack_from("<H", entry, MAP_PICTURE)
+            if picture in (pair[0] for pair in others):
+                self.gd.guest.write(at + MAP_PICTURE, struct.pack("<H", wanted[0]))
+                moved = True
+            elif picture != wanted[0]:
+                continue
+            if cache is None:
+                cache = self._cache()
+            slot, = struct.unpack_from("<H", entry, MAP_SLOT)
+            for kind in (0, 1):  # (walking, combat)
+                if wanted[kind] in cache and any(cache.get(pair[kind]) == slot for pair in others):
+                    self.gd.guest.write(at + MAP_SLOT, struct.pack("<H", cache[wanted[kind]]))
+                    moved = True
+        return moved
 
     def _scan(self) -> None:
         """Where each of the party objects' pictures has a copy in the game's memory (by marker)."""
@@ -241,9 +312,10 @@ class Dresser:
             self._scan()
             self._scanned = now
         changed = []
-        for obj, member in self.objects().items():
+        for obj, (member, figure) in self.objects().items():
             outfit = worn(self.gd, member) if on else ({}, ())
-            key = (repr(sorted(outfit[0].items())), outfit[1])
+            model = self.pics.model(figure)
+            key = (model, repr(sorted(outfit[0].items())), outfit[1])
             fresh = self.shown.get(obj) != key
             wrote = False
             for combat in (False, True):
@@ -252,15 +324,17 @@ class Dresser:
                     continue
                 if fresh or pic not in self.chunks:
                     try:
-                        self.chunks[pic] = self.pics.build(obj, combat, outfit[0], outfit[1])
+                        self.chunks[pic] = self.pics.build(obj, combat, outfit[0], outfit[1], model)
                     except ValueError:  # (more than there is room for: plain)
-                        self.chunks[pic] = self.pics.build(obj, combat, {}, ())
+                        self.chunks[pic] = self.pics.build(obj, combat, {}, (), model)
                     self._to_file(pic, self.chunks[pic])
                 for start in self.copies.get(pic, []):
                     if struct.unpack("<I", self.gd.guest.read(start, 4))[0] == len(self.chunks[pic]):
                         self.gd.guest.write(start, self.chunks[pic])
                         wrote = True
             self.shown[obj] = key
+            if self._point(member, figure, obj):
+                wrote = True
             if wrote:
                 changed.append(obj)
         return changed

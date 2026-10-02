@@ -84,7 +84,9 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
   and quiver on the back, armour (their own clothing recoloured toward its
   material), helms as circlets, cloaks (the game's own cloak, fitted to them),
   boots and belts, walking and fighting, and changes as soon as their gear
-  does. On by default; a switch on the Options tab.
+  does. Walking, a one-handed weapon hangs at the belt; in a fight it is in
+  the hand. Two characters of the same race and sex each show their own
+  gear. On by default; a switch on the Options tab.
 
 ### Pull request #13 ([merged 2026-10-02](https://github.com/daaki85/darksun-companion-mod/pull/13))
 

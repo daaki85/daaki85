@@ -78,6 +78,91 @@ class SpriteTests(unittest.TestCase):
             self.assertEqual(data[40:40 + len(dressed)], dressed)
             self.assertTrue(data.endswith(b"rest"))
 
+    def test_spares(self):
+        """A spare pair for each party place, with room for any model, marked after the 14."""
+        new = sprites.new_chunks(game_chunks())
+        for k, obj in enumerate(sprites.SPARES):
+            walk, fight = sprites.picture_ids(obj)
+            self.assertEqual(walk, 2478 + 2 * k)
+            self.assertTrue(new[("BMP ", walk)].endswith(sprites.MARKER + bytes([14 + k, 0])))
+            self.assertTrue(new[("BMP ", fight)].endswith(sprites.MARKER + bytes([14 + k, 1])))
+            self.assertNotIn(("OJFF", obj), new)
+        pics = sprites.Pictures(game_chunks())
+        self.assertEqual(len(pics.build(sprites.SPARES[1], False, {"right": (SWORD, METAL)}, (), 2095)),
+                         pics.spare_capacity(False))
+
+    def test_same_figure_a_spare(self):
+        """The second member of a figure is dressed in their place's spare pair."""
+        dresser = sprites.Dresser.__new__(sprites.Dresser)
+        dresser.pics = sprites.Pictures(game_chunks())
+        dresser.gd = FakeGame(figures=[0, 0, 0])
+        self.assertEqual(dresser.objects(), {300: (0, 300), 315: (1, 300), 316: (2, 300)})
+
+    def test_pointed_at_the_spare(self):
+        """On the map: the member's picture named the spare, and their slot moved to it where the
+        game has it loaded; the first member left as they were."""
+        gd = FakeGame(figures=[0, 0])
+        shared, spare = sprites.picture_ids(300), sprites.picture_ids(315)
+        gd.cache([shared[0], shared[1], spare[0]])
+        gd.entry(0, shared[0], 0)
+        gd.entry(1, shared[0], 0)
+        dresser = sprites.Dresser.__new__(sprites.Dresser)
+        dresser.gd = gd
+        self.assertTrue(dresser._point(1, 300, 315))
+        self.assertFalse(dresser._point(0, 300, 300))
+        self.assertEqual(gd.entry_fields(1), (spare[0], 2))
+        self.assertEqual(gd.entry_fields(0), (shared[0], 0))
+        gd.entry(1, spare[0], 1)  # (in a fight: the combat picture, the spare's not loaded yet)
+        self.assertFalse(dresser._point(1, 300, 315))
+        self.assertEqual(gd.entry_fields(1), (spare[0], 1))
+        self.assertTrue(dresser._point(1, 300, 300))  # (no longer sharing: back to their own)
+        self.assertEqual(gd.entry_fields(1), (shared[0], 1))
+
+
+class FakeGuest:
+    def __init__(self):
+        self.mem = bytearray(0x100000)
+        self.size = len(self.mem)
+
+    def read(self, at, n):
+        return bytes(self.mem[at:at + n])
+
+    def write(self, at, data):
+        self.mem[at:at + len(data)] = data
+
+
+class FakeGame:
+    """Party members of these FIGURES, each its own combatant; a picture cache; the map table."""
+    def __init__(self, figures):
+        self.guest = FakeGuest()
+        self.ds, self.load_seg = 0x4000, 0x100
+        self.figures = figures
+
+    def creature(self, member):
+        rec = bytearray(sprites.game.CREATURE_SIZE)
+        if member < len(self.figures):
+            rec[sprites.game.CREATURE_NAME] = ord("A")
+            struct.pack_into("<H", rec, sprites.CREATURE_FIGURE, self.figures[member])
+        return bytes(rec)
+
+    def combatants(self):
+        return {c: c for c in range(len(self.figures))}
+
+    def cache(self, pictures):
+        self.guest.write(self.ds * 16 + sprites.PICTURE_CACHE_COUNT, struct.pack("<H", len(pictures)))
+        for slot, picture in enumerate(pictures):
+            self.guest.write((self.load_seg + sprites.PICTURE_CACHE_SEG) * 16 + slot * 16, struct.pack("<H", picture))
+
+    def entry(self, combatant, picture, slot):
+        at = self.ds * 16 + sprites.MAP_ENTRIES + combatant * sprites.MAP_ENTRY_SIZE
+        self.guest.write(at + sprites.MAP_PICTURE, struct.pack("<H", picture))
+        self.guest.write(at + sprites.MAP_SLOT, struct.pack("<H", slot))
+
+    def entry_fields(self, combatant):
+        at = self.ds * 16 + sprites.MAP_ENTRIES + combatant * sprites.MAP_ENTRY_SIZE
+        return (struct.unpack("<H", self.guest.read(at + sprites.MAP_PICTURE, 2))[0],
+                struct.unpack("<H", self.guest.read(at + sprites.MAP_SLOT, 2))[0])
+
 
 if __name__ == "__main__":
     unittest.main()
