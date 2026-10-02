@@ -1021,6 +1021,16 @@ class RoundAndTurnTests(unittest.TestCase):
         self.assertEqual(self.round(660), "Round 2: Dag 25")
         self.assertEqual(self.round(5000), "Round 1: Dag 25")  # a new fight
 
+    def test_monsters_acs_forgotten_in_a_new_fight(self):
+        """The game reuses creature records: an AC from an earlier fight (the opening fight's
+        Defiler, AC -9) isn't the new monster's in its Look box; the party's are kept."""
+        self.round(600)
+        self.log.last_ac.update({0: 4, 7: -9})
+        self.assertEqual(self.round(660), "Round 2: Dag 25")
+        self.assertEqual(self.log.last_ac, {0: 4, 7: -9})  # the same fight
+        self.round(5000)
+        self.assertEqual(self.log.last_ac, {0: 4})
+
     def test_whose_turn(self):
         m = self.log.guest.mem
         struct.pack_into("<h", m, DS * 16 + game.WHOSE_TURN, 0x29)

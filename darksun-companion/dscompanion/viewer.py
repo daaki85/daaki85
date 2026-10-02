@@ -316,7 +316,9 @@ class Viewer:
                 ("cats_grace", "Cat's Grace in Flaming Sphere's place (DEX + 1d6, at most 24, like Strength)"),
                 ("stealth", "Thieves hide in shadows and move silently to backstab, rangers to attack from behind "
                             "(no enemy beside them; thieves half the chance in daylight, rangers indoors)"),
-                ("level_10", "Class levels go up to 10 (the game stops at 9; no spells past 5th level are needed)"))):
+                ("level_10", "Class levels go up to 10 (the game stops at 9; no spells past 5th level are needed)"),
+                ("thief_table", "Thief skills from AD&D's table by level, with Dark Sun's race and DEX adjustments "
+                                "(the game adds 4 a level to a base of its own, and DEX by a formula)"))):
             self.rule_vars[key] = tk.BooleanVar(value=bool(settings.get(key, True)))
             ttk.Checkbutton(rules, text=text, variable=self.rule_vars[key],
                             command=self._popups_changed).pack(anchor="w", pady=(4 if n else 0, 0))

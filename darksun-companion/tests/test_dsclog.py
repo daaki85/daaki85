@@ -17,7 +17,7 @@ from dscompanion.textlog import TextBuffer
 from dscompanion.gamepatch import (VEC_AC, VEC_DOUBLE, VEC_MSG, VEC_NEXT, VEC_RAND, VEC_RING_AC, VEC_USE_ITEM,
                                   VEC_RING_SAVE, VEC_SAVE, VEC_TEXT, VEC_TWO, VEC_GRACE_CAST, VEC_GRACE_EFFECT,
                                   VEC_GRACE_ABILITY, VEC_NAMES_FILL, VEC_NAMES_SIZE, VEC_STEALTH, VEC_TYPES_FILL,
-                                  VEC_TYPES_SIZE, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON)
+                                  VEC_TYPES_SIZE, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL)
 
 try:
     from unicorn import Uc, UC_ARCH_X86, UC_HOOK_INTR, UC_HOOK_MEM_WRITE, UC_MODE_16
@@ -554,6 +554,40 @@ class RuleTests(RingTests):
         self.rules(128)
         self.assertEqual([self.hit_dice(c) for c in (17, 12)], [10, 9])
         self.assertEqual(self.hit_dice(17, levels=10), 10)  # (a preserver's group: as it was)
+
+    def thief_skill(self, skill, level, dex, base_race):
+        """INT VEC_THIEF_SKILL with DX the skill's base + race adjustment (the game's bases at
+        ES:0), SI the thief level, the game's [BP+8] the skill and [BP-0Ch] DEX: (SI, CF), with
+        DX and ES as they were."""
+        image = load_image()
+        probe = image.find(bytes.fromhex("fb2ef706") + struct.pack("<HH", self.RULES, 256))
+        self.assertGreater(probe, 0)
+        self.mu.mem_write(VEC_THIEF_SKILL * 4, struct.pack("<HH", probe, TSR))
+        self.mu.mem_write(self.TYPES * 16, bytes([28, 18, 13, 28, 18, 23, 78, 252]))  # the game's bases
+        self.mu.mem_write(SS * 16 + BP + 8, struct.pack("<I", skill))
+        self.mu.mem_write(SS * 16 + BP - 0x0C, struct.pack("<H", dex))
+        self.run_at(bytes((0xCD, VEC_THIEF_SKILL)), es=self.TYPES, esi=level, edx=base_race, eax=0x1234, ebx=0x5678)
+        regs = [self.mu.reg_read(x) for x in (r.UC_X86_REG_AX, r.UC_X86_REG_BX, r.UC_X86_REG_ES, r.UC_X86_REG_BP)]
+        self.assertEqual(regs, [0x1234, 0x5678, self.TYPES, BP])
+        return self.mu.reg_read(r.UC_X86_REG_SI), self.mu.reg_read(r.UC_X86_REG_EFLAGS) & 1
+
+    def test_thief_skills(self):
+        """The game's sum without rule 256 (on to its DEX formula); with it, AD&D's table, the race
+        and Dark Sun's DEX adjustment (past the game's formula). Azil: 3rd level elf, DEX 22."""
+        self.rules(0)
+        self.assertEqual(self.thief_skill(1, 3, 22, 18 - 5), (13 + 12, 0))  # open locks
+        self.rules(256)
+        self.assertEqual(self.thief_skill(0, 3, 22, 28 + 5), (40 + 5 + 27, 1))  # pick pockets
+        self.assertEqual(self.thief_skill(1, 3, 22, 18 - 5), (33 - 5 + 30, 1))
+        self.assertEqual(self.thief_skill(3, 3, 22, 28 + 5), (27 + 5 + 30, 1))  # move silently
+        self.assertEqual(self.thief_skill(4, 3, 22, 18 + 10), (20 + 10 + 22, 1))  # hide
+        self.assertEqual(self.thief_skill(5, 3, 22, 23 + 5), (15 + 5, 1))  # hear noise: no DEX
+        self.assertEqual(self.thief_skill(6, 3, 22, 78), (87, 1))  # climb walls
+        self.assertEqual(self.thief_skill(4, 1, 9, 18), (10 - 10, 1))  # DEX 9
+        self.assertEqual(self.thief_skill(3, 1, 7, 28), ((15 - 20) & 0xFFFF, 1))  # below 9: as 9 (the game clamps at 0 later)
+        self.assertEqual(self.thief_skill(0, 12, 24, 28), (80 + 27, 1))  # past 10th and DEX 22
+        self.assertEqual(self.thief_skill(7, 3, 22, (252 - 256) & 0xFFFF), (0, 1))  # read languages
+        self.assertEqual(self.thief_skill(0, 0, 22, 28), (28, 0))  # no thief level: the game's
 
     def con_levels(self, cls, level):
         """INT VEC_HD_CON with AL a class's level, ES:BX its group (dice up to 9), the game's

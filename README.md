@@ -28,6 +28,7 @@ game itself, in the game's own lettering and windows:
   - a new spell, Cat's Grace;
   - thieves hiding in shadows and moving silently to backstab, and rangers
     to attack from behind;
+  - thief skills from AD&D's table, with Dark Sun's race and DEX adjustments;
   - class levels up to 10 (the game stops at 9).
 - **New items and thief play:** a Ring of Protection +1 to find in the arena;
   gear for Kurzak, Legcrusher and Pehtucl in the slave pens (a short sword
@@ -80,11 +81,23 @@ folder.
   target's DEX and shield, but is no backstab. Their two chances show on the
   inventory screen where a thief's MOVE and HIDE go, and on the Characters
   tab.
+- **Rule change: thief skills from AD&D's table.** A skill is AD&D's average
+  for the thief level, plus the race's adjustment, plus Dark Sun's DEX
+  adjustment (AD&D's table to 19, the Dark Sun rules' to 22). The game added 4
+  a level to a base of its own and used a DEX formula, which gave a 3rd-level
+  thief move silently and hide in shadows 10 to 20 points too high. Rangers'
+  two chances take the same adjustments.
 - **Item icons of their own** for the Short Sword (a shorter blade), Leather
   Chest Armor +1 (fire), the Cloak of Protection +1 (violet) and the two Rings
   of Protection +1 (Pehtucl's violet, the arena's fire), made from the game's
   plain ones. The launcher writes a copy of the game's objects file with them
   in its own folder; the game folder is untouched.
+
+**Fixed**
+- **A monster's AC in its Look box** could be an earlier fight's creature's
+  (the game reuses creature records): a slig in the first arena fight showed
+  the opening fight's Defiler's AC −9. The Ledger now forgets monsters' ACs
+  when a new fight begins.
 
 **Changed**
 - **Thief skills: no equipment penalty.** The game took 5 to 10 off some

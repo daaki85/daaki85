@@ -1213,6 +1213,11 @@ class DiceLog:
             return 0
         if self._round_time is None or now - self._round_time > FIGHT_GAP:
             self._round = 0
+            # a new fight: the game hands its creature records to new monsters, so an AC worked
+            # out for one in an earlier fight isn't this one's (the party's stay theirs)
+            for remembered in (self.last_ac, self.ac_detail):
+                for index in [i for i in remembered if i >= game.PARTY_SIZE]:
+                    del remembered[index]
         self._round_time = now
         self._round += 1
         return self._round

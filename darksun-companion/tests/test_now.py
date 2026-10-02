@@ -156,6 +156,22 @@ class ThiefTests(unittest.TestCase):
         self.assertEqual(self.log.game.thief_penalty_slots(), ())
         self.assertEqual(self.now(), [16, 39, 16, 16, 16, 16])
 
+    def test_ad_d_table(self):
+        """With RULE_THIEF_TABLE: AD&D's average for the level (4th here) and Dark Sun's DEX
+        adjustment (17: +5 pick, +10 open, +5 move and hide), the race's as the game's."""
+        m = self.log.guest.mem
+        m[CREATURES + game.CREATURE_ABILITIES + 1] = 17
+        self.log.game.rules = game.RULE_THIEF_TABLE
+        total = lambda skill: sum(n for _, n in self.log.game.thief_skill_parts(0, skill))
+        self.assertEqual([total(s) for s in range(8)], [50, 47, 35, 38, 30, 15, 88, 20])
+        self.assertEqual(self.log.game.thief_skill_parts(0, 0), [("thief level 4", 45), ("DEX 17", 5)])
+        self.log.game.rules = 0
+        self.assertEqual(self.log.game.thief_skill_parts(0, 0)[0], ("base", 0))
+
+    def test_dex_adjustment(self):
+        self.assertEqual([game.dex_adjustment(d, 3) for d in (5, 9, 12, 16, 18, 22, 24)], [-20, -20, -5, 0, 10, 30, 30])
+        self.assertEqual(game.dex_adjustment(22, 6), 0)  # climb walls: none
+
     def test_panel_shows_hiding(self):
         """The inventory screen's six (DSCLOG's STATS): hide in shadows in hear noise's place."""
         self.log.guest.mem[(LOAD_SEG + game.THIEF_TABLE_SEG) * 16 + game.THIEF_BASE + 4] = 7  # hide 7 + 16
@@ -178,7 +194,7 @@ class SettingsTests(unittest.TestCase):
         log.use_settings({"helm_ac": False, "arena_ring": False, "no_doubled_save": False})
         self.assertEqual((log.rules, log.arena_ring, log.monster_info),
                          (game.RULE_BOOTS | game.RULE_TWO_WEAPONS | game.RULE_SPELL_SAVE | game.RULE_CATS_GRACE
-                          | game.RULE_STEALTH | game.RULE_LEVEL_10,
+                          | game.RULE_STEALTH | game.RULE_LEVEL_10 | game.RULE_THIEF_TABLE,
                           False, True))
 
 

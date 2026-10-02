@@ -54,7 +54,8 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   boots a move more in a fight, AD&D's two-weapon penalties, spells saved
   against with the spell save, DEX rather than a doubled d20 on saves against
   fire, cold and electricity, a new spell (Cat's Grace), thieves and rangers
-  hiding in shadows to attack from behind, and class levels up to 10 (see
+  hiding in shadows to attack from behind, class levels up to 10, and thief
+  skills from AD&D's table with Dark Sun's race and DEX adjustments (see
   [Rule changes](#rule-changes)). And thieves no longer lose skill for what
   they hold (see [Thief skills](#thief-skills)).
 - **A Ring +1** (+1 AC, +1 on saving throws) found by searching the Tied-up
@@ -415,6 +416,10 @@ the chance out as:
   copy of the game empties it. The Ledger reads the list from the running
   game, so its numbers match whichever game it is.
 - plus the situation's bonus or penalty (a hard lock, say).
+
+With **Thief skills from AD&D's table** ticked (see
+[Thief skills from AD&D's table](#thief-skills-from-adds-table)), the first
+two and the DEX part are AD&D's instead.
 
 Only characters with thief levels have the skills; everyone else's chance is 0.
 The character's condition must be Okay (the status the character screen shows
@@ -891,7 +896,7 @@ the helper shows the result instead of the game's "nothing happens".
 
 ### Rule changes
 
-Eight changes to the game's rules, each with its own box under **Rule changes**
+Nine changes to the game's rules, each with its own box under **Rule changes**
 on the Options tab (all on by default; they take effect in games started with
 the dice log, while the Ledger runs or with **Play Dark Sun (in-game rolls)**,
 which uses the Options as last set). Untick one and the game's own rule is back
@@ -1051,6 +1056,51 @@ helper, which, where the game has just worked out whether an attack is from
 behind and a backstab (`INT EAh`), makes the hidden thief's next one so, by
 the game's own conditions for a backstab (a thief, in melee, a weapon of
 weight 40 or less).
+
+#### Thief skills from AD&D's table
+
+The game's thief skills come out high: a 3rd-level elf thief with DEX 22 has
+move silently 66 and hide in shadows 61. AD&D gives 27 and 20 at 3rd level
+before race and DEX. The game adds 4 a level to a base of its own, and its DEX
+formula gives move silently and hide in shadows less than Dark Sun's table at
+high DEX, and some other skills more. With **Thief skills from AD&D's table**
+ticked, a skill is:
+
+- AD&D's average for the thief level (the Player's Handbook's table, up to
+  10th level),
+- plus the race's adjustment, the game's own (already the Dark Sun rules'
+  numbers: an elf +5 pick pockets, −5 open locks, +5 move silently, +10 hide
+  in shadows, +5 hear noise),
+- plus DEX's: AD&D's table up to 19, the Dark Sun rules' exceptional DEX
+  past it, for the first five skills (hear noise, climb walls and read
+  languages have none):
+
+| DEX | Pick pockets | Open locks | Find/remove traps | Move silently | Hide in shadows |
+|---|---|---|---|---|---|
+| 9 | −15 | −10 | −10 | −20 | −10 |
+| 10 | −10 | −5 | −10 | −15 | −5 |
+| 11 | −5 | 0 | −5 | −10 | 0 |
+| 12 | 0 | 0 | 0 | −5 | 0 |
+| 13-15 | 0 | 0 | 0 | 0 | 0 |
+| 16 | 0 | +5 | 0 | 0 | 0 |
+| 17 | +5 | +10 | 0 | +5 | +5 |
+| 18 | +10 | +15 | +5 | +10 | +10 |
+| 19 | +15 | +20 | +10 | +15 | +15 |
+| 20 | +20 | +25 | +12 | +20 | +17 |
+| 21 | +25 | +27 | +15 | +25 | +20 |
+| 22 | +27 | +30 | +17 | +30 | +22 |
+
+then the situation and effects as before. So Azil, a 3rd-level elf thief with
+DEX 22: pick pockets 40 + 5 + 27 = 72, open locks 58, find traps 47, move
+silently 62, hide in shadows 52, hear noise 20, climb walls 87. A ranger's
+move silently and hide in shadows take the same race and DEX adjustments.
+Untick it for the game's numbers.
+
+How: where the game's thief skill routine adds 4 a level, the helper
+(`INT E4h`) puts AD&D's number for the level in place of the game's base and
+level, adds the DEX table's, and jumps past the game's DEX formula to its
+armour and effects. The Ledger's screens and the inventory screen's panel
+work the chances out the same way.
 
 **Levels up to 10.** The game stops every class at level 9 (its manual's
 tables end there too). With **Class levels go up to 10** ticked, each class
@@ -1397,7 +1447,7 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    movement `INT FBh` (for boots), a key the conversation window doesn't know
    `INT FCh` and an item used on the map `INT FDh` (for
    [picking pockets](#picking-pockets)), the two-weapon adjustment `INT FEh`
-   and the doubling of a save's d20 `INT F0h`, Cat's Grace `INT EDh`-`INT EFh` and a hidden thief's attack `INT EAh` and the class level cap `INT E7h` and a thief's hit dice `INT E6h` and `INT E5h` (for
+   and the doubling of a save's d20 `INT F0h`, Cat's Grace `INT EDh`-`INT EFh` and a hidden thief's attack `INT EAh` and the class level cap `INT E7h` and a thief's hit dice `INT E6h` and `INT E5h` and the thief skills `INT E4h` (for
    [rule changes](#rule-changes)), and
    where the game makes room for its name table and reads it in `INT ECh` and
    `INT EBh` (for [new item names](#new-item-names)), and its item type table
