@@ -52,8 +52,8 @@ MODELS: Dict[int, Tuple[str, frozenset, frozenset]] = {
 # Each model's head, in rows from the crown to the shoulders (front, back, side), by hand: where the
 # hair is wider than the shoulders the picture doesn't show where the neck is.
 HEAD_ROWS: Dict[int, Tuple[int, int, int]] = {
-    2053: (3, 5, 7), 2055: (3, 5, 7), 2059: (7, 7, 7), 2061: (7, 7, 8), 2068: (5, 6, 7), 2070: (7, 7, 7),
-    2072: (8, 9, 10), 2074: (8, 9, 10), 2093: (5, 6, 8), 2095: (5, 6, 8), 2097: (3, 3, 3), 2099: (7, 7, 8),
+    2053: (5, 5, 7), 2055: (5, 5, 7), 2059: (7, 7, 7), 2061: (7, 7, 8), 2068: (5, 6, 7), 2070: (7, 7, 7),
+    2072: (9, 9, 10), 2074: (10, 10, 11), 2093: (5, 6, 8), 2095: (5, 6, 8), 2097: (3, 3, 3), 2099: (7, 7, 8),
 }
 
 
@@ -173,6 +173,10 @@ def find(rows: Rows, model: int, frame: int, combat: bool = False) -> Parts:
     _, bands, hair_colours = MODELS[model]
     heights = HEAD_ROWS.get(model)
     head, neck = _head(rows, heights[(FRONT, BACK, SIDE).index(facing)] if heights and facing else None)
+    placed = HEADS.get((model, combat, frame))
+    if placed:  # (set by hand: top, left, right, and the row the shoulders start on)
+        top, left, right, neck = placed
+        head = Head(top, left, right, top + max(1, (neck - top) * 2 // 5))
     if model == KREEN:
         eyes = [(x, y) for y, r in enumerate(rows) for x, p in enumerate(r) if p in KREEN_EYES]
         if eyes:
@@ -197,11 +201,12 @@ def find(rows: Rows, model: int, frame: int, combat: bool = False) -> Parts:
     hair: Set[Point] = set()
     waist = neck + round((bottom - neck) * 0.42) if head else None
     if head and hair_colours:
-        lowest = waist if facing == BACK else neck + 1
-        zone = {(x, y) for y in range(head.top, min(lowest, bottom) + 1)
+        # down to the waist (long hair over the shoulders and the back); from the front, below
+        # the brow only at the sides of the head (not the face, nor the chest under it)
+        zone = {(x, y) for y in range(head.top, min(waist, bottom) + 1)
                 for x in range(head.left - 3, head.right + 4)}
-        if facing == FRONT:  # (not the face)
-            zone -= {(x, y) for y in range(head.brow + 1, neck + 1) for x in range(head.left + 2, head.right - 1)}
+        if facing == FRONT:
+            zone -= {(x, y) for y in range(head.brow + 1, waist + 1) for x in range(head.left + 2, head.right - 1)}
         for group in _clusters(rows, hair_colours, within=zone):
             if any(y <= head.brow for _, y in group):
                 hair.update(group)
@@ -243,6 +248,55 @@ def find(rows: Rows, model: int, frame: int, combat: bool = False) -> Parts:
                 feet.append((y, a, b))
     return Parts(facing, head, hair, shoulders, hands, waist, sorted(feet[:2], key=lambda f: f[1]), bottom)
 
+
+# Heads set by hand where the picture hides them (the fights' crouches and raised arms): (model,
+# combat, frame) -> (top, left, right, the row the shoulders start on)
+HEADS: Dict[Tuple[int, bool, int], Tuple[int, int, int, int]] = {
+    (2053, True, 0): (0, 7, 12, 5), (2053, True, 1): (1, 9, 14, 5), (2053, True, 2): (4, 4, 10, 8),
+    (2053, True, 3): (0, 3, 9, 5), (2053, True, 4): (0, 3, 9, 5), (2053, True, 5): (0, 3, 9, 5), (2053,
+    True, 6): (0, 5, 11, 6), (2053, True, 7): (1, 10, 16, 6), (2053, True, 8): (0, 9, 15, 6), (2053,
+    True, 12): (3, 1, 8, 9),
+    (2055, True, 0): (0, 7, 12, 5), (2055, True, 1): (1, 9, 14, 5), (2055, True, 2): (4, 4, 10, 8),
+    (2055, True, 3): (0, 3, 9, 5), (2055, True, 4): (0, 3, 9, 5), (2055, True, 5): (0, 3, 9, 5), (2055,
+    True, 6): (0, 5, 11, 6), (2055, True, 7): (1, 10, 16, 6), (2055, True, 8): (0, 9, 15, 6), (2055,
+    True, 12): (3, 1, 8, 9),
+    (2059, True, 0): (8, 3, 12, 14), (2059, True, 1): (1, 4, 15, 7), (2059, True, 2): (1, 9, 17, 7),
+    (2059, True, 3): (0, 7, 15, 7), (2059, True, 4): (9, 3, 11, 15), (2059, True, 5): (0, 10, 19, 7),
+    (2059, True, 6): (8, 6, 14, 14), (2059, True, 7): (0, 3, 14, 7), (2059, True, 8): (0, 5, 15, 8),
+    (2059, True, 12): (1, 0, 9, 10),
+    (2061, True, 0): (8, 5, 11, 14), (2061, True, 1): (1, 8, 15, 8), (2061, True, 2): (1, 9, 18, 7),
+    (2061, True, 3): (3, 2, 9, 10), (2061, True, 4): (9, 3, 11, 15), (2061, True, 5): (0, 10, 17, 7),
+    (2061, True, 6): (8, 8, 16, 14), (2061, True, 7): (1, 6, 14, 10), (2061, True, 8): (0, 9, 16, 7),
+    (2061, True, 12): (0, 4, 12, 6),
+    (2068, True, 0): (1, 3, 11, 5), (2068, True, 1): (0, 6, 14, 6), (2068, True, 2): (4, 4, 11, 8),
+    (2068, True, 3): (0, 2, 10, 6), (2068, True, 4): (0, 2, 10, 5), (2068, True, 5): (0, 2, 10, 5),
+    (2068, True, 6): (0, 3, 11, 5), (2068, True, 7): (0, 6, 15, 6), (2068, True, 8): (0, 5, 15, 6),
+    (2068, True, 12): (3, 0, 9, 9),
+    (2070, True, 0): (0, 2, 15, 8), (2070, True, 1): (1, 6, 16, 8), (2070, True, 2): (3, 3, 15, 9),
+    (2070, True, 3): (1, 1, 15, 9), (2070, True, 4): (0, 1, 15, 7), (2070, True, 5): (0, 2, 13, 7),
+    (2070, True, 6): (0, 1, 14, 7), (2070, True, 7): (1, 4, 17, 7), (2070, True, 8): (0, 3, 15, 7),
+    (2070, True, 12): (1, 0, 10, 10),
+    (2072, True, 0): (1, 8, 17, 9), (2072, True, 1): (1, 12, 22, 10), (2072, True, 2): (4, 8, 19, 12),
+    (2072, True, 3): (0, 5, 14, 9), (2072, True, 4): (0, 1, 11, 9), (2072, True, 5): (0, 5, 15, 9),
+    (2072, True, 6): (0, 9, 19, 10), (2072, True, 7): (1, 13, 24, 10), (2072, True, 8): (0, 12, 23, 9),
+    (2072, True, 12): (5, 4, 15, 12),
+    (2074, True, 0): (1, 7, 17, 11), (2074, True, 1): (0, 9, 24, 12), (2074, True, 2): (3, 6, 18, 13),
+    (2074, True, 3): (0, 3, 14, 11), (2074, True, 4): (0, 1, 11, 10), (2074, True, 5): (0, 5, 20, 11),
+    (2074, True, 6): (0, 9, 19, 9), (2074, True, 7): (0, 4, 25, 8), (2074, True, 8): (0, 10, 26, 9),
+    (2074, True, 12): (2, 1, 16, 11),
+    (2093, True, 0): (2, 6, 12, 6), (2093, True, 1): (1, 9, 16, 6), (2093, True, 2): (3, 4, 11, 8),
+    (2093, True, 3): (0, 3, 10, 6), (2093, True, 4): (0, 2, 10, 6), (2093, True, 5): (0, 3, 10, 6),
+    (2093, True, 6): (0, 4, 12, 6), (2093, True, 7): (1, 9, 17, 7), (2093, True, 8): (0, 9, 16, 7),
+    (2093, True, 12): (3, 1, 9, 9),
+    (2095, True, 0): (9, 5, 12, 14), (2095, True, 1): (0, 7, 15, 6), (2095, True, 2): (3, 9, 17, 8),
+    (2095, True, 3): (3, 2, 9, 10), (2095, True, 4): (8, 1, 10, 13), (2095, True, 5): (0, 12, 19, 6),
+    (2095, True, 6): (8, 8, 17, 14), (2095, True, 7): (1, 7, 17, 9), (2095, True, 8): (0, 8, 17, 7),
+    (2095, True, 12): (2, 1, 10, 9),
+    (2099, True, 0): (8, 4, 13, 14), (2099, True, 1): (1, 7, 16, 9), (2099, True, 2): (1, 10, 18, 7),
+    (2099, True, 3): (3, 2, 10, 10), (2099, True, 4): (9, 2, 11, 15), (2099, True, 5): (0, 10, 19, 7),
+    (2099, True, 6): (8, 8, 17, 14), (2099, True, 7): (1, 8, 18, 9), (2099, True, 8): (0, 10, 19, 7),
+    (2099, True, 12): (1, 0, 9, 10),
+}
 
 # Corrections by hand: (model, combat, frame) -> {part: value}. The half-giants' grey bands are on
 # their shoulders, elbows and knees too: from behind and from the side their hands are set here.
