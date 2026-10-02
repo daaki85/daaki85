@@ -133,17 +133,25 @@ code in `dscompanion`, and the dice log helper's source (`dos\dsclog.asm`,
 which builds `dos\DSCLOG.EXE`, the small DOS program DOSBox loads). There is
 no packaged program to trust.
 
-**Every time you play**
+**Every time you play (recommended)**
 
-Double-click **`Start Game with Dice Log.bat`** in the `darksun-companion`
-folder. It starts Shattered Lands (through GOG's own DOSBox) with the dice log
-helper loaded, and opens Templar's Ledger next to it. The game gets its
-in-game additions too: each turn's rolls shown in the game if you want them
-(tick **Show each turn's rolls in the game** on the Options tab), THAC0,
-saves and thief skills on the inventory and View Character screens, and spell
-slots on the USE screen. Your saves are the same ones the game normally uses.
-The first time, it looks for the game in the usual GOG folders; if it can't
-find it, it asks you where the game is installed and remembers the answer.
+1. Double-click **`Start Templar's Ledger.bat`** in the `darksun-companion`
+   folder. The Ledger opens on its own.
+2. On its **Options** tab, pick what you want: the rule changes, the Ring +1,
+   picking pockets, each turn's rolls in the game and so on (see
+   [Using the viewer](#using-the-viewer) and [Rule changes](#rule-changes)).
+   They're remembered for next time.
+3. Pick the **Game window** size at the top if you like, then press **Start
+   the game** (top left).
+
+That starts Shattered Lands (through GOG's own DOSBox) with the dice log helper
+loaded and your options in force, and the Ledger picks it up once DOSBox is up.
+The game gets its in-game additions too: each turn's rolls shown in the game if
+you want them, THAC0, saves and thief skills on the inventory and View
+Character screens, and spell slots on the USE screen. Your saves are the same
+ones the game normally uses. The first time, it looks for the game in the usual
+GOG folders; if it can't find it, it asks you where the game is installed and
+remembers the answer.
 
 DOSBox opens in a window three times the game's size (960x720), not full
 screen. To change that, pick **Game window** at the top of the Ledger:
@@ -159,12 +167,11 @@ pick Triple.
 Load your game. The party's stats fill in by themselves, and rolls appear in
 the **Dice log** tab as they happen.
 
-**`Start Templar's Ledger.bat`** opens the Ledger on its own. If the game isn't
-running, its **Start the game** button (top left) starts it with the dice log,
-as `Start Game with Dice Log.bat` does (asking where the game is the first
-time), and the Ledger picks it up once DOSBox is up. With the game started the
-normal way instead, the Ledger still shows the party, but the dice log will
-say the game was started without it.
+**Game and Ledger in one double-click:** **`Start Game with Dice Log.bat`**
+starts the game with the dice log and opens the Ledger next to it, with the
+options as you last set them on the Options tab. With the game started the
+normal way instead (GOG's own shortcut), the Ledger still shows the party, but
+the dice log will say the game was started without it.
 
 **Just the game, with the in-game additions, no Ledger window:** double-click
 **`Play Dark Sun (in-game rolls).bat`**. The dice log runs unseen and stops
@@ -866,7 +873,8 @@ there to be found.
 
 The arm and leg pieces are the game's own, with its own icons. The game has
 no helm of bone, so the Bone Helm is an item type of the Ledger's own (the
-leather Helm's, of bone, AC 1 with **Helms give AC 1** like the game's helms),
+leather Helm's, of bone, AC 1 with **Helms give AC 1** like the game's helms,
+worn by those who can wear the bone scale armour: not thieves),
 with an icon in the bone scale's colours (see [Item icons](#item-icons)).
 
 ![Dream's pack with the bone scale set: the chest, arm and leg pieces, and the Bone Helm under the pointer with its name](docs/bonescale.png)
