@@ -1,10 +1,18 @@
-"""Worn equipment drawn on a party member's map sprite: weapons in the hands (this module's start),
-from where spriteparts finds the hands, with each frame's grip set by hand.
+"""Worn equipment shown on a party member's map sprite, from where spriteparts finds the parts of
+each frame (set by hand where finding them goes wrong). The artist's pixels are kept wherever they
+can be: what is worn on the body recolours the character's own picture, what is carried is drawn
+on it.
 
-A weapon is drawn along a line from the hand at the frame's angle: its shape (a dagger's short
-blade, a sword's long one, a club widening to its end, ...) in its material's colours. The colours
-are muted ones from the parts of the palette no region changes (30-79 and 128-222), so the gear
-sits in the picture the way the game's own colours do.
+  * Weapons and shields in the hands (each walking and fighting pose's grip set by hand), a bow and
+    quiver on the back, a sling or chatkcha at the hip: drawn, in their material's colours.
+  * Body armour (chest, arms, legs), boots and belts: the character's own clothing, feet or waist
+    recoloured toward the material, shade for shade.
+  * Helms: a circlet at the brow, blended into the hair under it.
+  * Cloaks: the human and half-elf woman's own cloak, frame by frame, fitted to the wearer.
+
+The colours are muted ones from the parts of the palette no region changes (30-79 and 128-222), so
+the gear sits in the picture the way the game's own colours do. A thri-kreen shows only weapons and
+shields (all it can use). armed() makes one frame.
 """
 
 import math
