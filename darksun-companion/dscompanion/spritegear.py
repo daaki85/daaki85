@@ -323,8 +323,123 @@ def draw_helm(rows: Rows, parts: sp.Parts, item_type: int, pad: int, model: int 
                 blend(x, yy, 0.2)
 
 
+# Cloaks: the human and half-elf woman's own cloak (the artist's, frame by frame: its folds and
+# its swing as she walks and fights) fitted to the wearer's shoulders and height, in the cloak's
+# colours: over the back from behind (the hair over it), behind the body from the front and side.
+CLOAK_MODEL = 2099
+CLOAK_GREENS = frozenset((53, 54, 55, 56, 188, 189, 190, 191, 69, 70))
+CLOAK_COLOURS = {  # item type: shades, dark to light (None: her own green)
+    65: (204, 207, 205, 194, 206, 60),  # Cloak, Koeatl's Cloak: faded dun
+    game.CLOAK_TYPE: (17, 18, 20, 22, 24, 26),  # Cloak of Protection +1: dusk blue-grey
+    38: None,  # Living Cloak
+}
+
+
+def _cloak_shade(p: int) -> float:
+    return _LIGHT.get(p, 0.5)
+
+
+def cloak_template(rows: Rows, model: int, frame: int, combat: bool) -> Optional[Tuple[sp.Parts, Dict[sp.Point, int]]]:
+    """Her cloak in one of her frames: (her parts, {pixel: colour}), its dark fold lines with it."""
+    parts = sp.parts(rows, CLOAK_MODEL, frame, combat)
+    cloak = {}
+    for y, row in enumerate(rows):
+        for x, p in enumerate(row):
+            if p in CLOAK_GREENS:
+                cloak[(x, y)] = p
+            elif p == 254:  # (a fold line or its edge: black between greens)
+                near = sum(0 <= y + dy < len(rows) and 0 <= x + dx < len(rows[y + dy]) and rows[y + dy][x + dx] in CLOAK_GREENS
+                           for dx in (-1, 0, 1) for dy in (-1, 0, 1))
+                if near >= 3:
+                    cloak[(x, y)] = p
+    return (parts, cloak) if cloak and parts.shoulders and parts.head else None
+
+
+def draw_cloak(rows: Rows, body: Rows, model: int, parts: sp.Parts, item_type: int, pad: int,
+               template: Tuple[sp.Parts, Dict[sp.Point, int]]) -> None:
+    """The cloak of TEMPLATE (cloak_template, the same frame of hers) on the (padded) picture ROWS."""
+    her, cloak = template
+    shades = CLOAK_COLOURS.get(item_type, CLOAK_COLOURS[65])
+    if not parts.shoulders or not parts.head or parts.waist is None:
+        return
+    # where her shoulders' middle is, and her body's size, to the wearer's
+    hm = (her.head.left + her.head.right) / 2
+    wm = (parts.head.left + parts.head.right) / 2
+    her_h = max(1, her.bottom - her.shoulders[0])
+    own_h = max(1, parts.bottom - parts.shoulders[0])
+    sy_ = own_h / her_h
+    her_w = max(1, her.shoulders[2] - her.shoulders[1])
+    own_w = max(1, parts.shoulders[2] - parts.shoulders[1])
+    sx_ = max(0.7, min(1.6, own_w / her_w))
+    ramp = sorted(CLOAK_GREENS | {254}, key=_cloak_shade)
+    keep = set(parts.hair)
+    if parts.head:
+        keep |= {(x, y) for y in range(parts.head.top, parts.shoulders[0]) for x in range(parts.head.left, parts.head.right + 1)}
+    hands = list(parts.hands.values())
+    if parts.facing == sp.SIDE:  # (facing right: the cloak hangs from the back, at the left)
+        hm, wm = her.shoulders[1], parts.shoulders[1]
+    # each pixel of the wearer's picture takes her cloak's pixel at the same place (no gaps when
+    # it is fitted to a bigger body)
+    xs = [x for x, _ in cloak]
+    ys = [y for _, y in cloak]
+    x0 = int(wm + (min(xs) - hm) * sx_) - 1
+    x1 = int(wm + (max(xs) - hm) * sx_) + 2
+    y0 = int(parts.shoulders[0] + (min(ys) - her.shoulders[0]) * sy_) - 1
+    y1 = int(parts.shoulders[0] + (max(ys) - her.shoulders[0]) * sy_) + 2
+    placed: Dict[sp.Point, int] = {}
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            src = (int(round(hm + (x - wm) / sx_)), int(round(her.shoulders[0] + (y - parts.shoulders[0]) / sy_)))
+            if src in cloak:
+                placed[(x, y)] = cloak[src]
+    # no wider than the wearer (a pixel or two each side), and only what hangs from the body (no
+    # scraps where her cloak billows past an arm)
+    filled = [(x - pad, y - pad) for y, row in enumerate(body) for x, q in enumerate(row) if q is not None]
+    if filled:
+        bx0, bx1 = min(x for x, _ in filled) - 2, max(x for x, _ in filled) + 2
+        placed = {k: v for k, v in placed.items() if bx0 <= k[0] <= bx1}
+    placed = {k: v for k, v in placed.items() if k[1] >= parts.shoulders[0]}  # (it hangs from the shoulders)
+    on_body = {(x, y) for x, y in filled}
+    seen: set = set()
+    kept: Dict[sp.Point, int] = {}
+    for start in list(placed):
+        if start in seen:
+            continue
+        group, stack = [], [start]
+        seen.add(start)
+        while stack:
+            q = stack.pop()
+            group.append(q)
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    n = (q[0] + dx, q[1] + dy)
+                    if n in placed and n not in seen:
+                        seen.add(n)
+                        stack.append(n)
+        if any((q[0] + dx, q[1] + dy) in on_body for q in group for dx in (-1, 0, 1) for dy in (-1, 0, 1)) \
+                and len(group) >= 4:
+            kept.update({q: placed[q] for q in group})
+    placed = kept
+    for (x, y), p in placed.items():
+        X, Y = x + pad, y + pad
+        if not (0 <= Y < len(rows) and 0 <= X < len(rows[Y])):
+            continue
+        if (x, y) in keep or any(abs(x - hx) <= 1 and abs(y - hy) <= 1 for hx, hy in hands):
+            continue
+        over = parts.facing == sp.BACK
+        if body[Y][X] is not None and not over:
+            continue  # (behind the body)
+        if shades is None or p == 254:
+            colour = p if shades is None else shades[0]
+        else:
+            t = ramp.index(p) / max(1, len(ramp) - 1)
+            colour = shades[min(len(shades) - 1, max(1, int(t * (len(shades) - 1) + 0.5)))]
+        rows[Y][X] = colour
+
+
 def armed(rows: Rows, model: int, frame: int, combat: bool, weapons: Dict[str, Tuple[int, int]],
-          pad: int = 10, armour: Tuple[int, ...] = ()) -> Rows:
+          pad: int = 10, armour: Tuple[int, ...] = (),
+          cloak: Optional[Tuple[sp.Parts, Dict[sp.Point, int]]] = None) -> Rows:
     """One frame of MODEL with WEAPONS ({"right"/"left": (item type, material)} drawn in the hands;
     "missile": the bow, sling or chatkcha carried, "ammo": arrows, on the back or at the hip),
     padded by PAD, in ARMOUR (item types: under all the rest). Nothing in the hands in the bow
@@ -335,6 +450,19 @@ def armed(rows: Rows, model: int, frame: int, combat: bool, weapons: Dict[str, T
         for item_type in armour:
             if item_type in ARMOUR:
                 draw_armour(out, model, parts, item_type, pad)
+    if "cloak" in weapons and parts.facing is not None and model != sp.KREEN:
+        kind = weapons["cloak"][0]
+        if model == CLOAK_MODEL:  # (her own cloak, in the cloak's colours: option 2)
+            shades = CLOAK_COLOURS.get(kind, CLOAK_COLOURS[65])
+            if shades is not None:
+                ramp = sorted(CLOAK_GREENS, key=_cloak_shade)
+                for y, row in enumerate(out):
+                    for x, p in enumerate(row):
+                        if p in CLOAK_GREENS:
+                            t = ramp.index(p) / max(1, len(ramp) - 1)
+                            row[x] = shades[min(len(shades) - 1, max(1, int(t * (len(shades) - 1) + 0.5)))]
+        elif cloak is not None:
+            draw_cloak(out, [list(r) for r in out], model, parts, kind, pad, cloak)
     if "helm" in weapons and parts.facing is not None and model != sp.KREEN:
         draw_helm(out, parts, weapons["helm"][0], pad, model)
     body = [list(r) for r in out]

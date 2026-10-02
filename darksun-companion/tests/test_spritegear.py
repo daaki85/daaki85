@@ -146,6 +146,24 @@ class WeaponTests(unittest.TestCase):
         self.assertTrue(any(y < p.head.brow + PAD for _, y in new))  # (the spikes)
         self.assertEqual(drawn(before, sg.armed(before, sp.KREEN, 0, False, {"helm": (5, 5)}, PAD)), {})
 
+    def test_cloak_from_her_template(self):
+        """A cloak of hers (a frame's green pixels) fitted to the wearer: from behind over the back
+        but not the hair, from the shoulders down, in the cloak's colours; her own cloak recoloured."""
+        her = [line.replace("k", "c") for line in test_spriteparts.FIGURE]
+        her_rows = [[dict(test_spriteparts.COLOURS, c=54)[ch] for ch in line] for line in her]
+        template = sg.cloak_template(her_rows, sg.CLOAK_MODEL, 1, False)
+        self.assertIsNotNone(template)
+        before = rows()
+        p = sp.find(before, 2095, 1)
+        new = drawn(before, sg.armed(before, 2095, 1, False, {"cloak": (65, 5)}, PAD, cloak=template))
+        self.assertTrue(new)
+        self.assertTrue(set(new.values()) <= set(sg.CLOAK_COLOURS[65]))
+        self.assertTrue(all(y >= p.shoulders[0] + PAD for _, y in new))
+        self.assertFalse({(x + PAD, y + PAD) for x, y in p.hair} & set(new))
+        own = drawn(her_rows, sg.armed(her_rows, sg.CLOAK_MODEL, 1, False, {"cloak": (65, 5)}, PAD))
+        self.assertTrue(own and set(own.values()) <= set(sg.CLOAK_COLOURS[65]))
+        self.assertEqual(drawn(her_rows, sg.armed(her_rows, sg.CLOAK_MODEL, 1, False, {}, PAD)), {})
+
     def test_tables(self):
         self.assertEqual(len(sg.WALK_GRIPS), sp.WALK_FRAMES)
         self.assertEqual(len(sg.COMBAT_POSES), sp.COMBAT_FRAMES)
