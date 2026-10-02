@@ -33,13 +33,26 @@ class KalzithTests(unittest.TestCase):
         self.assertEqual(kalzith.with_entity(out), out)
 
     def test_talk(self):
-        """The master script runs his conversation when he is talked to: before its end, once."""
-        master = gpl.encode([(0x6E, [("n", 369), ("n", 139), ("n", -183)]), (0x31, [])])
+        """The master script runs his conversation when he is talked to: after the other talk
+        commands, before the rest, once."""
+        master = gpl.encode([(0x6E, [("n", 369), ("n", 139), ("n", -183)]), (0x65, [("n", 1), ("n", 2), ("n", 3)]),
+                             (0x31, [])])
         out = kalzith.with_talk(master)
         ops = gpl.decode(out, b"")
+        self.assertEqual([o.code for o in ops], [0x6E, 0x6E, 0x65, 0x31])
         self.assertEqual((ops[1].code, ops[1].args), (0x6E, [("n", kalzith.START), ("n", kalzith.SCRIPT), ("n", -kalzith.OBJECT)]))
         self.assertEqual(ops[-1].code, 0x31)
         self.assertEqual(kalzith.with_talk(out), out)
+
+    def test_entry(self):
+        """His talk is in the game's table of entry points (saves keep talk commands by number),
+        numbered after the game's own, once."""
+        e = kalzith.ENTRY
+        table = e.pack(0, 0, 0) + e.pack(1, 1, 1) + e.pack(2, 369, 139)
+        out = kalzith.with_entry(table)
+        self.assertEqual(out[:len(table)], table)
+        self.assertEqual(e.unpack_from(out, len(table)), (3, kalzith.START, kalzith.SCRIPT))
+        self.assertEqual(kalzith.with_entry(out), out)
 
     def test_conversation(self):
         """It reads as the game's own: every jump lands on a command, his portrait first, the shop

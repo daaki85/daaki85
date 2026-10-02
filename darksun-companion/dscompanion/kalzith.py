@@ -13,7 +13,8 @@ folder is never changed; DSCLOG has the game open the copies):
     Dinos's, with his name and a defiler's class);
   * RGN29.GFF, the slave pens: an entry in its entity table (ETAB) setting him in his pen (PEN);
   * GPLDATA.GFF: his conversation, script SCRIPT, and in the pens' master script (MAS 41) the
-    command that runs it when the party talks to him (6Eh, as for Dinos and the rest); and his
+    command that runs it when the party talks to him (6Eh, as for Dinos and the rest), with its
+    entry in the game's table of entry points (GPLI, which saves go by); and his
     portrait, PORTRAIT: the game's PORTRAIT_FROM with an X branded on the brow, so that no one
     else's face is his (the Ledger's dialogue tab shows it too).
 
@@ -41,6 +42,7 @@ PORTRAIT = 101  # his own: the game's portrait 61 with a slave's brand (101 is f
 PORTRAIT_FROM = 61  # a gaunt, bald man (shown also for another of the game's people)
 PEN = (1580, 880)  # by the straw in the middle column's empty pen (its door on the left)
 ENTITY_FLAGS = 14  # as the pens' other people have
+OJFF_PICTURE = 0x0C  # an object's picture
 RDFF_SELF, RDFF_NAME, RDFF_NAME_SIZE = 0x10, 0x32, 8  # the record's own object number; its name
 RDFF_CLASS, RDFF_LEVEL = 0x6F, 0x72  # (as the arena Defiler's: a defiler, of level 9)
 DEFILER_CLASS, LEVEL = 18, 5
@@ -75,13 +77,15 @@ def scroll(spell: int, price: int) -> bytes:
 def object_chunks(chunks) -> Dict[Tuple[str, int], bytes]:
     """For the Ledger's copy of SEGOBJEX: Kalzith's object (the arena Defiler's look) and record
     (a peaceful slave's, Dinos's, named and classed as a defiler)."""
-    if ("RDFF", DINOS) not in chunks or ("OJFF", DEFILER) not in chunks:
+    if any(k not in chunks for k in (("RDFF", DINOS), ("OJFF", DINOS), ("OJFF", DEFILER))):
         return {}
     rec = bytearray(chunks[("RDFF", DINOS)])
     struct.pack_into("<h", rec, RDFF_SELF, -OBJECT)
     rec[RDFF_NAME:RDFF_NAME + RDFF_NAME_SIZE] = NAME.encode("ascii").ljust(RDFF_NAME_SIZE, b"\0")
     rec[RDFF_CLASS], rec[RDFF_LEVEL] = DEFILER_CLASS, LEVEL
-    out = {("OJFF", OBJECT): chunks[("OJFF", DEFILER)], ("RDFF", OBJECT): bytes(rec)}
+    obj = bytearray(chunks[("OJFF", DINOS)])  # a person's object (not a fighter's), with his picture
+    obj[OJFF_PICTURE:OJFF_PICTURE + 2] = chunks[("OJFF", DEFILER)][OJFF_PICTURE:OJFF_PICTURE + 2]
+    out = {("OJFF", OBJECT): bytes(obj), ("RDFF", OBJECT): bytes(rec)}
     if ("BMP ", DEFILER) in chunks:
         out[("BMP ", OBJECT)] = chunks[("BMP ", DEFILER)]
     return out
@@ -357,15 +361,30 @@ END = 0x31
 
 
 def with_talk(master: bytes, field_types: bytes = b"") -> bytes:
-    """The pens' master script with Kalzith's talk command, before its end (once)."""
+    """The pens' master script with Kalzith's talk command after the others' (once), as the game
+    sets its own: all of them first, before its other commands."""
     ops = gpl.decode(master, field_types)
     talk = gpl.encode_op((TALK, [("n", START), ("n", SCRIPT), ("n", -OBJECT)]))
     if talk in master:
         return master
-    last = ops[-1]
-    if last.code != END:
+    if ops[-1].code != END:
         raise gpl.ScriptError("the master script doesn't end as expected")
-    return master[:last.at] + talk + master[last.at:]
+    after = next(o for o in ops if o.code != TALK)  # (the end, at the latest)
+    return master[:after.at] + talk + master[after.at:]
+
+
+ENTRY = struct.Struct("<HHH")  # GPLI: (entry number, place in the script, script), numbered from 0
+ENTRIES = ("GPLI", 1)
+
+
+def with_entry(entries: bytes) -> bytes:
+    """The game's table of script entry points with his talk's (once). A save keeps each talk
+    command as its entry's number, and loading turns the number back into place and script: one
+    not in the table is saved as 0 and comes back as entry 0, a dead one."""
+    table = [ENTRY.unpack_from(entries, i) for i in range(0, len(entries) - ENTRY.size + 1, ENTRY.size)]
+    if any(e[1:] == (START, SCRIPT) for e in table):
+        return entries
+    return entries + ENTRY.pack(max((e[0] for e in table), default=-1) + 1, START, SCRIPT)
 
 
 def script_chunks(gpldata: bytes) -> Dict[Tuple[str, int], bytes]:
@@ -375,6 +394,8 @@ def script_chunks(gpldata: bytes) -> Dict[Tuple[str, int], bytes]:
         return {}
     field_types = next((v for k, v in chunks.items() if k[0] == "GPLX"), b"")[gpl.FIELD_TYPES_AT:]
     out = {("GPL ", SCRIPT): conversation(), ("MAS ", MASTER): with_talk(chunks[("MAS ", MASTER)], field_types)}
+    if ENTRIES in chunks:
+        out[ENTRIES] = with_entry(chunks[ENTRIES])
     face = portrait_chunk(chunks)
     if face and ("PORT", PORTRAIT) not in chunks:
         out[("PORT", PORTRAIT)] = face
