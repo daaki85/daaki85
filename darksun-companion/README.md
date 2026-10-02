@@ -55,7 +55,8 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   against with the spell save, DEX rather than a doubled d20 on saves against
   fire, cold and electricity, a new spell (Cat's Grace), thieves and rangers
   hiding in shadows to attack from behind, class levels up to 10, and thief
-  skills from AD&D's table with Dark Sun's race and DEX adjustments (see
+  skills from AD&D's table with Dark Sun's race and DEX adjustments, and
+  half-giants wielding two-handed weapons in one hand (see
   [Rule changes](#rule-changes)). And thieves no longer lose skill for what
   they hold (see [Thief skills](#thief-skills)).
 - **A Ring +1** (+1 AC, +1 on saving throws) found by searching the Tied-up
@@ -902,7 +903,7 @@ the helper shows the result instead of the game's "nothing happens".
 
 ### Rule changes
 
-Nine changes to the game's rules, each with its own box under **Rule changes**
+Ten changes to the game's rules, each with its own box under **Rule changes**
 on the Options tab (all on by default; they take effect in games started with
 the dice log, while the Ledger runs or with **Play Dark Sun (in-game rolls)**,
 which uses the Options as last set). Untick one and the game's own rule is back
@@ -1107,6 +1108,22 @@ How: where the game's thief skill routine adds 4 a level, the helper
 level, adds the DEX table's, and jumps past the game's DEX formula to its
 armour and effects. The Ledger's screens and the inventory screen's panel
 work the chances out the same way.
+
+#### Half-giants' two-handed weapons
+
+Half-giants stand up to twelve feet tall. With **Half-giants wield
+two-handed weapons in one hand** ticked, a half-giant can hold a two-handed
+weapon (a two-handed sword, a halberd, a bow) in one hand, with a shield or a
+light weapon in the other. The game's own rule that the two hands can't both
+hold heavy weapons (over 30 in weight each) still stands, so no half-giant
+holds two two-handed weapons. With two weapons ready, the two-weapon penalties
+apply as for anyone. The inventory screen still writes "2 handed" in the
+weapon's line: that is its kind, not a limit.
+
+How: the inventory screen checks a weapon type's two-handed bit (+0Fh, 40h)
+twice when something goes into a hand: the other hand's ("Two handed weapon in
+use") and the one going in ("Need two free hands"). The helper (`INT E3h`)
+answers both for the character on show, "not two-handed" for a half-giant.
 
 **Levels up to 10.** The game stops every class at level 9 (its manual's
 tables end there too). With **Class levels go up to 10** ticked, each class
@@ -1453,7 +1470,7 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    movement `INT FBh` (for boots), a key the conversation window doesn't know
    `INT FCh` and an item used on the map `INT FDh` (for
    [picking pockets](#picking-pockets)), the two-weapon adjustment `INT FEh`
-   and the doubling of a save's d20 `INT F0h`, Cat's Grace `INT EDh`-`INT EFh` and a hidden thief's attack `INT EAh` and the class level cap `INT E7h` and a thief's hit dice `INT E6h` and `INT E5h` and the thief skills `INT E4h` (for
+   and the doubling of a save's d20 `INT F0h`, Cat's Grace `INT EDh`-`INT EFh` and a hidden thief's attack `INT EAh` and the class level cap `INT E7h` and a thief's hit dice `INT E6h` and `INT E5h` and the thief skills `INT E4h` and two-handed weapons `INT E3h` (for
    [rule changes](#rule-changes)), and
    where the game makes room for its name table and reads it in `INT ECh` and
    `INT EBh` (for [new item names](#new-item-names)), and its item type table
@@ -1565,7 +1582,8 @@ tools** tabs, and **Options** (Alt+O) with the Ledger's switches: what the
 dice log shows (unlabelled rolls, details), what it shows in the game (each
 turn's rolls and how much they say, monster descriptions) and the rule
 changes (helms, boots, two weapons, the spell save, doubled saves, Cat's
-Grace, hiding in shadows, levels up to 10, the thief skill table), with the
+Grace, hiding in shadows, levels up to 10, the thief skill table,
+half-giants' two-handed weapons), with the
 Ledger's additions to play after them: the Ring +1, picking pockets, and a
 button that gives each thief a set of Thieves' Tools now. The switches for the
 game are remembered for next time. In a window too small to show them all,

@@ -29,6 +29,7 @@ game itself, in the game's own lettering and windows:
   - thieves hiding in shadows and moving silently to backstab, and rangers
     to attack from behind;
   - thief skills from AD&D's table, with Dark Sun's race and DEX adjustments;
+  - half-giants wielding two-handed weapons in one hand;
   - class levels up to 10 (the game stops at 9).
 - **New items and thief play:** a Ring of Protection +1 to find in the arena;
   gear for Kurzak, Legcrusher and Pehtucl in the slave pens (a short sword
@@ -93,6 +94,9 @@ folder.
   plain ones. The launcher writes a copy of the game's objects file with them
   in its own folder; the game folder is untouched.
 
+- **Rule change: half-giants wield two-handed weapons in one hand,** with a
+  shield or a light weapon in the other (the game's rule against two heavy
+  weapons still stands).
 - **Names in colour in the dice log:** each party member's in a colour of
   their own, monsters' in red, bold, all at 4.5:1 contrast or more.
 

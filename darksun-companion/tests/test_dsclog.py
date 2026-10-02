@@ -17,7 +17,7 @@ from dscompanion.textlog import TextBuffer
 from dscompanion.gamepatch import (VEC_AC, VEC_DOUBLE, VEC_MSG, VEC_NEXT, VEC_RAND, VEC_RING_AC, VEC_USE_ITEM,
                                   VEC_RING_SAVE, VEC_SAVE, VEC_TEXT, VEC_TWO, VEC_GRACE_CAST, VEC_GRACE_EFFECT,
                                   VEC_GRACE_ABILITY, VEC_NAMES_FILL, VEC_NAMES_SIZE, VEC_STEALTH, VEC_TYPES_FILL,
-                                  VEC_TYPES_SIZE, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL)
+                                  VEC_TYPES_SIZE, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED)
 
 try:
     from unicorn import Uc, UC_ARCH_X86, UC_HOOK_INTR, UC_HOOK_MEM_WRITE, UC_MODE_16
@@ -588,6 +588,34 @@ class RuleTests(RingTests):
         self.assertEqual(self.thief_skill(0, 12, 24, 28), (80 + 27, 1))  # past 10th and DEX 22
         self.assertEqual(self.thief_skill(7, 3, 22, (252 - 256) & 0xFFFF), (0, 1))  # read languages
         self.assertEqual(self.thief_skill(0, 0, 22, 28), (28, 0))  # no thief level: the game's
+
+    def two_handed(self, race, flags=0x40):
+        """INT VEC_TWO_HANDED with ES:BX an item type whose +0Fh is FLAGS, for the character on
+        show (number 2, at the game's 0348h:25Bh) of RACE: ZF (the game's JE: not two-handed),
+        with AX, BX and ES as they were."""
+        image = load_image()
+        probe = image.find(bytes.fromhex("fb2ef706") + struct.pack("<HH", self.RULES, 512))
+        self.assertGreater(probe, 0)
+        self.mu.mem_write(VEC_TWO_HANDED * 4, struct.pack("<HH", probe, TSR))
+        who = (GAME_DS + 0x348 - 0x4356) & 0xFFFF
+        self.mu.mem_write(who * 16 + 0x25B, struct.pack("<H", 2))
+        sheets = self.TYPES * 16 + 0x400
+        self.mu.mem_write(GAME_DS * 16 + 0x1661, struct.pack("<HH", 0x400, self.TYPES))
+        self.mu.mem_write(sheets + 2 * 0x47 + 0x18, bytes([race]))
+        self.mu.mem_write(self.TYPES * 16 + 0x300 + 0x0F, bytes([flags]))
+        self.run_at(bytes((0xCD, VEC_TWO_HANDED)), es=self.TYPES, ebx=0x300, eax=0x1234)
+        regs = [self.mu.reg_read(x) for x in (r.UC_X86_REG_AX, r.UC_X86_REG_BX, r.UC_X86_REG_ES)]
+        self.assertEqual(regs, [0x1234, 0x300, self.TYPES])
+        return bool(self.mu.reg_read(r.UC_X86_REG_EFLAGS) & 0x40)
+
+    def test_half_giants_two_handed_in_one_hand(self):
+        """Rule 512: a half-giant's two-handed weapon counts as one-handed; anyone else's, or
+        without the rule, as the game has it; a one-handed weapon is one-handed for all."""
+        self.rules(0)
+        self.assertEqual([self.two_handed(r) for r in (5, 1)], [False, False])  # (ZF clear: two-handed)
+        self.rules(512)
+        self.assertEqual([self.two_handed(r) for r in (5, 1)], [True, False])
+        self.assertEqual([self.two_handed(r, flags=0) for r in (5, 1)], [True, True])
 
     def con_levels(self, cls, level):
         """INT VEC_HD_CON with AL a class's level, ES:BX its group (dice up to 9), the game's

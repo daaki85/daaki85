@@ -85,11 +85,12 @@ RULE_CATS_GRACE = 32  # Cat's Grace in Flaming Sphere's place
 RULE_STEALTH = 64  # a thief hiding in shadows and moving silently backstabs (stealth.py)
 RULE_LEVEL_10 = 128  # class levels go up to 10 (the game stops at 9)
 RULE_THIEF_TABLE = 256  # thief skills from AD&D's table and Dark Sun's DEX adjustments
+RULE_HALF_GIANT = 512  # half-giants wield two-handed weapons in one hand
 # the Options' setting for each, all on unless unticked
 RULE_SETTINGS = (("helm_ac", RULE_HELMS), ("boots_move", RULE_BOOTS), ("two_weapons", RULE_TWO_WEAPONS),
                  ("spell_save", RULE_SPELL_SAVE), ("no_doubled_save", RULE_NO_DOUBLE),
                  ("cats_grace", RULE_CATS_GRACE), ("stealth", RULE_STEALTH), ("level_10", RULE_LEVEL_10),
-                 ("thief_table", RULE_THIEF_TABLE))
+                 ("thief_table", RULE_THIEF_TABLE), ("half_giant_hands", RULE_HALF_GIANT))
 # Cat's Grace (RULE_CATS_GRACE): Flaming Sphere (wizard level 2) gets Strength's record and the
 # name, and DSCLOG sends it to Strength's code, which rolls 1d6 into an effect of its own (54,
 # a number the game leaves unused) that adds to DEX, at most 24, as Strength's adds to STR.

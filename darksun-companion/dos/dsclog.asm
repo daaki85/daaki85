@@ -55,6 +55,7 @@ VEC_LEVEL equ 0xE7         ; PROBE_LEVEL
 VEC_HD_ROLL equ 0xE6       ; PROBE_HD_ROLL
 VEC_HD_CON equ 0xE5        ; PROBE_HD_CON
 VEC_THIEF_SKILL equ 0xE4   ; PROBE_THIEF_SKILL
+VEC_TWO_HANDED equ 0xE3    ; PROBE_TWO_HANDED
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -1923,6 +1924,7 @@ RULE_CATS_GRACE equ 32          ; (the companion also gives Flaming Sphere Stren
 RULE_STEALTH equ 64             ; (the companion rolls the hiding and moving silently, and sets STEALTH)
 RULE_LEVEL_10 equ 128          ; class levels go up to 10, not 9
 RULE_THIEF_TABLE equ 256        ; thief skills from AD&D's table and Dark Sun's DEX adjustments
+RULE_HALF_GIANT equ 512         ; half-giants wield two-handed weapons in one hand
 FOOT       equ 13               ; the item's slot byte while worn on the feet
 THINGS_SEG equ 0x3972 - 0x4356  ; the things table's segment, relative to DS
 
@@ -2156,6 +2158,37 @@ probe_thief_skill:
         and word [bp+6], 0FFFEh
         pop bp
         iret
+; PROBE_TWO_HANDED: INT VEC_TWO_HANDED replaces "test byte es:[bx+0Fh],40h" (5 bytes: INT + 3
+; NOPs), the two-handed bit of an item type (ES:BX), where the inventory screen puts a weapon in
+; a hand: of the other hand's ("Two handed weapon in use") and of the one going in ("Need two
+; free hands"). With RULE_HALF_GIANT, for a half-giant on show the answer is "not two-handed"
+; (ZF set); otherwise the game's test. RETF 2 keeps the flags. (The game's own check that both
+; hands don't hold heavy weapons, over 30 each, still stands.)
+WHO_SEG equ 0x348 - 0x4356      ; the segment of the character on show's number (+25Bh), from DS
+HALF_GIANT equ 5
+probe_two_handed:
+        sti
+        test word [cs:rules], RULE_HALF_GIANT
+        jz .test
+        push ax
+        push es
+        push bx
+        mov ax, ds
+        add ax, WHO_SEG
+        mov es, ax
+        imul ax, [es:0x25B], 0x47
+        les bx, [0x1661]
+        add bx, ax              ; ES:BX = the sheet of the character on show
+        cmp byte [es:bx + 0x18], HALF_GIANT
+        pop bx
+        pop es
+        pop ax
+        jne .test
+        cmp ax, ax              ; ZF: not two-handed, for a half-giant
+        retf 2
+.test:  test byte [es:bx + 0x0F], 0x40
+        retf 2
+
 ; AD&D's average thief skills, levels 1-10, a row per skill (game.AD_D_THIEF)
 thief_table:
         db 30, 35, 40, 45, 50, 55, 60, 65, 70, 80     ; pick pockets
@@ -2582,7 +2615,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 33
+        mov cx, 34
 .check:
         lodsb
         mov ah, 35h
@@ -2697,6 +2730,9 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_THIEF_SKILL
         mov dx, probe_thief_skill
         int 21h
+        mov ax, 2500h + VEC_TWO_HANDED
+        mov dx, probe_two_handed
+        int 21h
         mov ax, 3521h           ; DOS itself last: opening the objects file (PROBE_DOS_OPEN)
         int 21h
         mov [old21], bx
@@ -2720,7 +2756,7 @@ install:                        ; DS = ES = PSP, CS = the image
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
 busy    db 'DSCLOG: interrupts 60h-65h or E5h-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED
 
         align 16, db 0
 image_len equ $ - $$
