@@ -60,40 +60,15 @@ folder.
 
 ## Changelog
 
-### Pull request #8 ([in review](https://github.com/daaki85/darksun-companion-mod/pull/8))
+### Pull request #9 (in review)
 
 **Added**
-- **Rule change: levels up to 10.** Every class can reach 10th level, at
-  AD&D's XP (the game stops at 9). The game's own tables and formulas give
-  the rest: hit points, THAC0, saves, spell slots (still no higher than 5th
-  level), thief skills, a gladiator's armour bonus, a preserver's new spell
-  and a psionicist's new power. Thieves roll their 10th hit die (the game
-  would give them a psionicist's fixed +2).
-- **Gear for the slave pens' bosses** (with the Ledger running, given once a
-  game):
-  - Kurzak: a metal Short Sword (1d6, a new item type; a thief can lift it)
-    and a leather Helm;
-  - Legcrusher: Leather Chest Armor +1;
-  - Pehtucl: a Cloak of Protection +1 (a new item type: +1 AC and +1 on saves,
-    as the ring) and a Ring of Protection +1 (a thief can lift it).
-- **Rangers hide in shadows and move silently too** (the stealth rule), with
-  AD&D's ranger chances: the full chance outdoors and half indoors, the
-  reverse of thieves. Their attack from behind is +2 to hit and ignores the
-  target's DEX and shield, but is no backstab. Their two chances show on the
-  inventory screen where a thief's MOVE and HIDE go, and on the Characters
-  tab.
 - **Rule change: thief skills from AD&D's table.** A skill is AD&D's average
   for the thief level, plus the race's adjustment, plus Dark Sun's DEX
   adjustment (AD&D's table to 19, the Dark Sun rules' to 22). The game added 4
   a level to a base of its own and used a DEX formula, which gave a 3rd-level
   thief move silently and hide in shadows 10 to 20 points too high. Rangers'
   two chances take the same adjustments.
-- **Item icons of their own** for the Short Sword (a shorter blade), Leather
-  Chest Armor +1 (fire), the Cloak of Protection +1 (violet) and the two Rings
-  of Protection +1 (Pehtucl's violet, the arena's fire), made from the game's
-  plain ones. The launcher writes a copy of the game's objects file with them
-  in its own folder; the game folder is untouched.
-
 - **The bone scale set:** where the Bone Scale Chest Armor is found, its arm and
   leg pieces (the game's own, never placed) and a new Bone Helm, coloured to
   match, are found with it.
@@ -117,6 +92,39 @@ folder.
   (the game reuses creature records): a slig in the first arena fight showed
   the opening fight's Defiler's AC −9. The Ledger now forgets monsters' ACs
   when a new fight begins.
+
+**Changed**
+- **The Options tab scrolls** when the window is too small to show it all.
+- **Options:** the Ring +1, picking pockets and the thieving tools button sit
+  under Rule changes, with the other changes to play.
+
+### Pull request #8 ([merged 2026-10-02](https://github.com/daaki85/darksun-companion-mod/pull/8))
+
+**Added**
+- **Rule change: levels up to 10.** Every class can reach 10th level, at
+  AD&D's XP (the game stops at 9). The game's own tables and formulas give
+  the rest: hit points, THAC0, saves, spell slots (still no higher than 5th
+  level), thief skills, a gladiator's armour bonus, a preserver's new spell
+  and a psionicist's new power. Thieves roll their 10th hit die (the game
+  would give them a psionicist's fixed +2).
+- **Gear for the slave pens' bosses** (with the Ledger running, given once a
+  game):
+  - Kurzak: a metal Short Sword (1d6, a new item type; a thief can lift it)
+    and a leather Helm;
+  - Legcrusher: Leather Chest Armor +1;
+  - Pehtucl: a Cloak of Protection +1 (a new item type: +1 AC and +1 on saves,
+    as the ring) and a Ring of Protection +1 (a thief can lift it).
+- **Rangers hide in shadows and move silently too** (the stealth rule), with
+  AD&D's ranger chances: the full chance outdoors and half indoors, the
+  reverse of thieves. Their attack from behind is +2 to hit and ignores the
+  target's DEX and shield, but is no backstab. Their two chances show on the
+  inventory screen where a thief's MOVE and HIDE go, and on the Characters
+  tab.
+- **Item icons of their own** for the Short Sword (a shorter blade), Leather
+  Chest Armor +1 (fire), the Cloak of Protection +1 (violet) and the two Rings
+  of Protection +1 (Pehtucl's violet, the arena's fire), made from the game's
+  plain ones. The launcher writes a copy of the game's objects file with them
+  in its own folder; the game folder is untouched.
 
 **Changed**
 - **Thief skills: no equipment penalty.** The game took 5 to 10 off some
