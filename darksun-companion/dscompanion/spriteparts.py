@@ -57,6 +57,16 @@ HEAD_ROWS: Dict[int, Tuple[int, int, int]] = {
 }
 
 
+# What an item is (its type record's +9h, the item type table being 20-byte records): what decides
+# what is drawn, and where
+KIND_OTHER, KIND_CHEST, KIND_BELT, KIND_ARM, KIND_BOOTS, KIND_WEAPON, KIND_HELM, KIND_NECK, \
+    KIND_CLOAK, KIND_RING, KIND_LEGS, KIND_AMMO, KIND_MISSILE = range(13)
+ITEM_KIND = 0x09
+# The game lets a thri-kreen (race 8) use only these (else "Thrikreen can't use"): weapons and
+# shields, missile weapons and their ammunition, necklaces, and the rest (wands and the like). No
+# armour, helm, cloak, boots, belt or ring: so nothing but weapons and shields is drawn on one.
+KREEN_KINDS = frozenset((KIND_OTHER, KIND_WEAPON, KIND_NECK, KIND_AMMO, KIND_MISSILE))
+
 # The thri-kreen's head: found by its eyes (its antennae stand above it)
 KREEN = 2097
 KREEN_EYES = frozenset((158, 159, 160, 161))
