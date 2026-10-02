@@ -9,7 +9,7 @@ its spell). Insult him or threaten to report him and he won't trade until the pa
 He is the game's own kind of person, added to the Ledger's copies of three of its files (the game
 folder is never changed; DSCLOG has the game open the copies):
 
-  * SEGOBJEX.GFF: object OBJECT, his OJFF (the arena Defiler's picture) and RDFF (a slave's record,
+  * SEGOBJEX.GFF: object OBJECT, his OJFF (a person's, with the arena Defiler's picture) and RDFF (a slave's record,
     Dinos's, with his name and a defiler's class);
   * RGN29.GFF, the slave pens: an entry in its entity table (ETAB) setting him in his pen (PEN);
   * GPLDATA.GFF: his conversation, script SCRIPT, and in the pens' master script (MAS 41) the
@@ -30,7 +30,8 @@ from typing import Dict, List, Optional, Tuple
 from . import game, gpl
 from .gff import read_gff
 
-OBJECT = 297  # (after the arena Defiler, 296; no object of the game's has it)
+OBJECT = 1000  # (no object of the game's has it. Past the game's object table, 520 long: the
+# shop command takes a number below that as an object there, so 297 opened someone's item list)
 SCRIPTS_FILE, REGION_FILE = "GPLDATA.GFF", "RGN29.GFF"  # (DSCLOG opens the copies for the game's)
 NAME = "Kalzith"
 DINOS, DEFILER = 183, 296  # whose records his are made from
@@ -86,8 +87,6 @@ def object_chunks(chunks) -> Dict[Tuple[str, int], bytes]:
     obj = bytearray(chunks[("OJFF", DINOS)])  # a person's object (not a fighter's), with his picture
     obj[OJFF_PICTURE:OJFF_PICTURE + 2] = chunks[("OJFF", DEFILER)][OJFF_PICTURE:OJFF_PICTURE + 2]
     out = {("OJFF", OBJECT): bytes(obj), ("RDFF", OBJECT): bytes(rec)}
-    if ("BMP ", DEFILER) in chunks:
-        out[("BMP ", OBJECT)] = chunks[("BMP ", DEFILER)]
     return out
 
 
@@ -142,7 +141,7 @@ def with_entity(etab: bytes) -> bytes:
 # ---------------------------------------------------------------------------------------------
 # His conversation
 
-SPEAKS, TELLS = 115, 98  # the dialogue window's lines: his words, the narration
+SPEAKS = 115  # the dialogue window's lines: his words (no narration: the game's talks have little)
 LINE = 60  # the game's lines are no longer than this
 REPLY = 40  # nor its replies (the reply window cuts a longer one off)
 TITLE = ("var", 0x86, 1)  # a reply menu's title, as the game's own (the speaker)
@@ -181,9 +180,10 @@ class _Script:
     def op(self, code: int, *args) -> None:
         self.items.append((code, list(args)))
 
-    def label(self, name: str) -> None:
+    def label(self, name: str, mark: bool = True) -> None:
         self.items.append(name)
-        self.op(0x67)  # (the game marks each place a jump lands)
+        if mark:
+            self.op(0x67)  # (the game marks each place a jump lands; not a menu's loop or replies)
 
     def say(self, text: str, who: int = SPEAKS) -> None:
         """TEXT in the window, a new page whenever the window (WINDOW lines) would run over."""
@@ -218,7 +218,7 @@ class _Script:
         left, the talk goes on at the one of LEADS_TO its reply chose (by number in NEXT)."""
         self.after[name] = leads_to
         self.set(DONE, 0)
-        self.label(f"{name}:loop")
+        self.label(f"{name}:loop", mark=False)
         self.op(0x18, ("expr", [("var", 0x8E, DONE), "==", ("n", 0)]))
         self.op(0x63, ("label", f"{name}:out"))
         self.op(0x48, {"before": [], "title": TITLE, "replies": [
@@ -232,7 +232,7 @@ class _Script:
 
     def reply(self, menu: str, target: str) -> None:
         """The subroutine for a reply of MENU: the window cleared for what it says."""
-        self.label(f"{menu}:{target}")
+        self.label(f"{menu}:{target}", mark=False)
         self.clear()
 
     def back(self) -> None:
@@ -277,7 +277,7 @@ class _Script:
 
 
 ALWAYS = ("n", 1)
-DONE, NEXT = 0, 1  # the script's locals: a menu left; where the talk goes on
+DONE, NEXT = 1, 2  # the script's locals (as the game's merchants use 1 for the menu loop): a menu left; where the talk goes on
 WINDOW = 4  # the lines the dialogue window shows
 
 
@@ -289,11 +289,8 @@ def conversation() -> bytes:
     s.unless(("expr", [("var", 0x8D, ATTITUDE), "!=", ("n", COLD)]), "cold")
     s.unless(("expr", [("var", 0x8D, ATTITUDE), "!=", ("n", FRIENDLY)]), "friend again")
     s.unless(("expr", [("var", 0x8D, MET), "!=", ("n", 1)]), "again")
-    s.say("A gaunt man sits chained in the corner of the empty pen. Ash-grey dust clings to his "
-          "robes, and the ground around him is cracked and dead.", TELLS)
-    s.page()
     s.say("Ah. The arena's champions. You broke my spell before I could finish it. Come to "
-          "finish me?")
+          "finish me? Mind the dust: the ground in here died the day they chained me to it.")
     s.op(0x16, ("n", 1), ("var", 13, MET))
     s.goto("first")
 
@@ -320,8 +317,7 @@ def conversation() -> bytes:
     s.label("respect")
     s.clear()
     s.op(0x16, ("n", FRIENDLY), ("var", 13, ATTITUDE))
-    s.say("Hm. Slaves with manners. Rarer than water.")
-    s.say("He lowers his voice.", TELLS)
+    s.say("Hm. Slaves with manners. Rarer than water. Keep your voice down.")
     s.page()
     s.say("I have something you might want. I scribe spells on scraps of hide, at night. A "
           "preserver could learn from them: the magic on the page doesn't care how you draw your "
@@ -361,7 +357,6 @@ def conversation() -> bytes:
     s.label("accused")
     s.clear()
     s.say("And the templars kill slaves with every order. We do what Athas lets us.")
-    s.say("His eyes narrow.", TELLS)
     s.menu("accused", [("Fair enough. I spoke too quickly.", "sorry", ALWAYS),
                        ("We'll tell the templars about you.", "threat", ALWAYS),
                        ("Farewell.", "bye", ALWAYS)],
@@ -398,15 +393,13 @@ def conversation() -> bytes:
     s.label("paid")
     s.clear()
     s.op(0x0C, ("n", -50))
-    s.say("He weighs the coins in his palm, then tucks them away.", TELLS)
-    s.say("An apology that rings. I'll take it.")
+    s.say("Coin that rings. That's an apology I'll take.")
     s.page()
     s.goto("respect")
 
     s.label("won over")
     s.clear()
-    s.say("He studies you for a long moment.", TELLS)
-    s.say("Fine. We're all slaves here.")
+    s.say("Hm. Fine. We're all slaves here.")
     s.page()
     s.goto("respect")
 

@@ -99,7 +99,7 @@ class KalzithTests(unittest.TestCase):
 
     def test_objects(self):
         """His record a slave's (Dinos's) with his name, his own number and a defiler's class; his
-        object a person's (Dinos's) with the arena Defiler's picture, and that picture his."""
+        object a person's (Dinos's) with the arena Defiler's picture."""
         dinos = bytearray(159)
         dinos[kalzith.RDFF_NAME:kalzith.RDFF_NAME + 6] = b"Dinos\0"
         struct.pack_into("<h", dinos, kalzith.RDFF_SELF, -kalzith.DINOS)
@@ -112,7 +112,8 @@ class KalzithTests(unittest.TestCase):
         self.assertEqual(rec[kalzith.RDFF_CLASS], kalzith.DEFILER_CLASS)
         p = kalzith.OJFF_PICTURE
         self.assertEqual(out[("OJFF", kalzith.OBJECT)], bytes(range(p)) + bytes(range(100 + p, 102 + p)) + bytes(range(p + 2, 16)))
-        self.assertEqual(out[("BMP ", kalzith.OBJECT)], b"bmp")
+        self.assertNotIn(("BMP ", kalzith.OBJECT), out)  # (his picture is the Defiler's, by number)
+        self.assertGreaterEqual(kalzith.OBJECT, 520)  # (past the game's object table)
         self.assertEqual(kalzith.object_chunks({}), {})
 
     def test_portrait(self):

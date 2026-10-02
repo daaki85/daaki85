@@ -25,8 +25,8 @@ SHEET_MAX_PSP = 0x0C
 STATUS_DEAD = 5
 DOWN = (2, 3, 4)  # Stunned, Out Cold, Dying: up again after the meal
 
-MEAL = ("Dinos's eyes light up. \"A vulture! Give it here.\" He rubs it with salt and agafari leaf and "
-        "roasts it slow, and the party eats with him: the best meal in the pens. (+100 XP each, fully rested)")
+MEAL = ("Dinos: \"A vulture! Give it here. A little salt, some agafari leaf, slow over the coals... "
+        "Sit, eat with me: the best meal in the pens!\" (+100 XP each, fully rested)")
 
 
 class Use(NamedTuple):
@@ -77,7 +77,7 @@ def use(gd: GameData, rec: bytes, target: int, fighting: bool = False) -> Option
         return None
     if gd.creature_name(target) == DINOS and target >= game.PARTY_SIZE:
         if fighting:
-            return Use("Dinos shakes his head. \"Not now! Bring it to me when the fighting's done.\"", [])
+            return Use("Dinos: \"Not now! Bring it to me when the fighting's done.\"", [])
         party = _party(gd)
         for member in party:
             at = _sheet_at(gd, member)

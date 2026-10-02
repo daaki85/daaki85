@@ -109,7 +109,7 @@ class VultureTests(unittest.TestCase):
         lines = log._answer_use()
         self.assertTrue(lines[0].startswith("Dinos cooks the vulture"))
         self.assertEqual(struct.unpack_from("<H", self.m, HDR + dicelog.TSR_USE_TAKEN)[0], 2)  # used up
-        self.assertTrue(bytes(self.m[HDR + 0x600:HDR + 0x600 + 12]).startswith(b"Dinos's eyes"))
+        self.assertTrue(bytes(self.m[HDR + 0x600:HDR + 0x600 + 12]).startswith(b'Dinos: "A vu'))
 
 
     def ask(self, item, rec):
