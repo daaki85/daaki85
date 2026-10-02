@@ -167,10 +167,16 @@ def _lines(text: str, width: int = LINE) -> List[str]:
 
 
 class _Script:
-    """A script built from commands and labels; jumps to labels are filled in once laid out."""
+    """A script built from commands and labels; jumps to labels are filled in once laid out.
+
+    Menus are the game's: a loop showing the menu until a local flag (DONE) is set, each reply
+    a subroutine ending in a return (15h) to the loop. A reply that leaves the menu sets DONE and
+    NEXT (where the talk goes on) and returns; after the loop, the talk goes on at NEXT's place."""
 
     def __init__(self):
         self.items: List = []
+        self.shown = 0  # lines in the window since it was last cleared (as laid out)
+        self.after: Dict[str, List[str]] = {}  # menu: the places its replies may lead on to
 
     def op(self, code: int, *args) -> None:
         self.items.append((code, list(args)))
@@ -180,12 +186,21 @@ class _Script:
         self.op(0x67)  # (the game marks each place a jump lands)
 
     def say(self, text: str, who: int = SPEAKS) -> None:
+        """TEXT in the window, a new page whenever the window (WINDOW lines) would run over."""
         for line in _lines(text):
+            if self.shown == WINDOW:
+                self.page()
             self.op(0x4F, ("n", who), ("str", line))
+            self.shown += 1
 
     def page(self) -> None:
+        """Wait for a click, then clear the window."""
         self.op(0x4F, ("n", SPEAKS), MORE)
+        self.clear()
+
+    def clear(self) -> None:
         self.op(0x4F, ("n", SPEAKS), CLEAR)
+        self.shown = 0
 
     def goto(self, name: str) -> None:
         self.op(0x3F, ("label", name))
@@ -195,10 +210,41 @@ class _Script:
         self.op(0x18, test)
         self.op(0x3E, ("label", name))
 
-    def menu(self, replies: List[Tuple[str, str, object]]) -> None:
+    def set(self, var: int, value: int) -> None:
+        self.op(0x16, ("n", value), ("var", 14, var))
+
+    def menu(self, name: str, replies: List[Tuple[str, str, object]], leads_to: List[str]) -> None:
+        """Menu NAME (the replies' subroutines are labelled f"{NAME}:{target}"); when it is
+        left, the talk goes on at the one of LEADS_TO its reply chose (by number in NEXT)."""
+        self.after[name] = leads_to
+        self.set(DONE, 0)
+        self.label(f"{name}:loop")
+        self.op(0x18, ("expr", [("var", 0x8E, DONE), "==", ("n", 0)]))
+        self.op(0x63, ("label", f"{name}:out"))
         self.op(0x48, {"before": [], "title": TITLE, "replies": [
-            {"text": ("str", f"  {text}"), "goto": ("label", target), "if": shown, "before": [], "after": []}
-            for text, target, shown in replies]})
+            {"text": ("str", f"  {text}"), "goto": ("label", f"{name}:{target}"), "if": shown,
+             "before": [], "after": []} for text, target, shown in replies]})
+        self.op(0x64, ("label", f"{name}:loop"))
+        self.label(f"{name}:out")
+        for k, place in enumerate(leads_to):
+            self.unless(("expr", [("var", 0x8E, NEXT), "!=", ("n", k)]), place)
+        self.op(0x31)  # (none chosen: can't be)
+
+    def reply(self, menu: str, target: str) -> None:
+        """The subroutine for a reply of MENU: the window cleared for what it says."""
+        self.label(f"{menu}:{target}")
+        self.clear()
+
+    def back(self) -> None:
+        """Back to the menu, which shows again."""
+        self.op(0x15)
+        self.shown = 0
+
+    def leave(self, menu: str, place: str) -> None:
+        """Leave the menu, the talk going on at PLACE (one of its LEADS_TO)."""
+        self.set(NEXT, self.after[menu].index(place))
+        self.set(DONE, 1)
+        self.back()
 
     def end(self) -> None:
         self.page()
@@ -231,6 +277,8 @@ class _Script:
 
 
 ALWAYS = ("n", 1)
+DONE, NEXT = 0, 1  # the script's locals: a menu left; where the talk goes on
+WINDOW = 4  # the lines the dialogue window shows
 
 
 def conversation() -> bytes:
@@ -247,110 +295,132 @@ def conversation() -> bytes:
     s.say("Ah. The arena's champions. You broke my spell before I could finish it. Come to "
           "finish me?")
     s.op(0x16, ("n", 1), ("var", 13, MET))
-    s.label("first")
-    s.menu([("You fought well. No hard feelings.", "respect", ALWAYS),
-            ("You're a defiler. You kill the land.", "accused", ALWAYS),
-            ("Who are you?", "who", ALWAYS),
-            ("Farewell.", "bye", ALWAYS)])
-
-    s.label("who")
-    s.page()
-    s.say("Kalzith. Once a sorcerer's apprentice in Draj, now Pehtucl's prize slave. The templars "
-          "like a defiler in the arena: the crowd loves to watch one burn. Afterwards they chain "
-          "me here, where the ground's already dead.")
     s.goto("first")
 
     s.label("again")
     s.say("You again. Well?")
-    s.goto("first")
+    s.label("first")
+    s.menu("first", [("You fought well. No hard feelings.", "respect", ALWAYS),
+                     ("You're a defiler. You kill the land.", "accused", ALWAYS),
+                     ("Who are you?", "who", ALWAYS),
+                     ("Farewell.", "bye", ALWAYS)],
+           ["respect", "accused", "go"])
+    s.reply("first", "respect")
+    s.leave("first", "respect")
+    s.reply("first", "accused")
+    s.leave("first", "accused")
+    s.reply("first", "who")
+    s.say("Kalzith. Once a sorcerer's apprentice in Draj, now Pehtucl's prize slave. The templars "
+          "like a defiler in the arena: the crowd loves to watch one burn. Afterwards they chain "
+          "me here, where the ground's already dead.")
+    s.back()
+    s.reply("first", "bye")
+    s.leave("first", "go")
 
     s.label("respect")
-    s.page()
+    s.clear()
     s.op(0x16, ("n", FRIENDLY), ("var", 13, ATTITUDE))
     s.say("Hm. Slaves with manners. Rarer than water.")
     s.say("He lowers his voice.", TELLS)
+    s.page()
     s.say("I have something you might want. I scribe spells on scraps of hide, at night. A "
           "preserver could learn from them: the magic on the page doesn't care how you draw your "
-          "power. And I need ceramic for a guard who can look the other way.")
+          "power.")
+    s.page()
+    s.say("And I need ceramic for a guard who can look the other way.")
     s.goto("friend")
 
     s.label("friend again")
     s.say("Back again? Keep your voice down.")
     s.label("friend")
-    s.menu([("Show us what you have.", "shop", ALWAYS),
-            ("Why would a defiler help a preserver?", "why", ALWAYS),
-            ("Isn't this dangerous for you?", "danger", ALWAYS),
-            ("Farewell.", "bye friend", ALWAYS)])
-
-    s.label("shop")
-    s.page()
+    s.menu("friend", [("Show us what you have.", "shop", ALWAYS),
+                      ("Why would a defiler help a preserver?", "why", ALWAYS),
+                      ("Isn't this dangerous for you?", "danger", ALWAYS),
+                      ("Farewell.", "bye", ALWAYS)],
+           ["see you"])
+    s.reply("friend", "shop")
     s.say("Quietly, now. One of each, and they're not cheap.")
     s.page()
     s.op(0x24, ("n", -OBJECT))
     s.say("Learn them well, and burn the hide when you're done.")
-    s.goto("friend")
-
-    s.label("why")
-    s.page()
+    s.back()
+    s.reply("friend", "why")
     s.say("Because a preserver's coin buys the same bribe. And because I'm tired of being the "
           "only one in the pens the others fear.")
-    s.goto("friend")
-
-    s.label("danger")
-    s.page()
+    s.back()
+    s.reply("friend", "danger")
     s.say("Everything is dangerous for me. Pehtucl would flay me for this. So keep it quiet.")
-    s.goto("friend")
-
-    s.label("bye friend")
-    s.page()
+    s.back()
+    s.reply("friend", "bye")
+    s.leave("friend", "see you")
+    s.label("see you")
+    s.clear()
     s.say("Come back when you've earned some coin.")
     s.end()
 
     s.label("accused")
-    s.page()
+    s.clear()
     s.say("And the templars kill slaves with every order. We do what Athas lets us.")
     s.say("His eyes narrow.", TELLS)
-    s.menu([("Fair enough. I spoke too quickly.", "respect", ALWAYS),
-            ("We'll tell the templars about you.", "turn cold", ALWAYS),
-            ("Farewell.", "bye", ALWAYS)])
+    s.menu("accused", [("Fair enough. I spoke too quickly.", "sorry", ALWAYS),
+                       ("We'll tell the templars about you.", "threat", ALWAYS),
+                       ("Farewell.", "bye", ALWAYS)],
+           ["respect", "turn cold", "go"])
+    s.reply("accused", "sorry")
+    s.leave("accused", "respect")
+    s.reply("accused", "threat")
+    s.leave("accused", "turn cold")
+    s.reply("accused", "bye")
+    s.leave("accused", "go")
 
     s.label("turn cold")
-    s.page()
+    s.clear()
     s.op(0x16, ("n", COLD), ("var", 13, ATTITUDE))
     s.say("Then go and tell them, and see whom they believe. I have nothing more to say to you.")
     s.end()
 
     s.label("cold")
     s.say("I have nothing to say to you. Go and tell your templars.")
-    s.label("cold menu")
-    s.menu([("Here's 50 ceramic, as an apology.", "pay",
-             ("expr", [MONEY, ">=", ("n", 50)])),
-            ("We're all slaves. Let's be friends.", "plead", ALWAYS),
-            ("Farewell.", "bye cold", ALWAYS)])
+    s.menu("cold", [("Here's 50 ceramic, as an apology.", "pay", ("expr", [MONEY, ">=", ("n", 50)])),
+                    ("We're all slaves. Let's be friends.", "plead", ALWAYS),
+                    ("Farewell.", "bye", ALWAYS)],
+           ["paid", "won over", "not won", "gone"])
+    s.reply("cold", "pay")
+    s.leave("cold", "paid")
+    s.reply("cold", "plead")
+    s.unless(("op", gpl.Op(0, gpl.ABILITY_CHECK, [ACTOR, ("n", 1), ("n", CHA)])), "cold:plead fails")
+    s.leave("cold", "won over")
+    s.label("cold:plead fails")
+    s.leave("cold", "not won")
+    s.reply("cold", "bye")
+    s.leave("cold", "gone")
 
-    s.label("pay")
-    s.page()
+    s.label("paid")
+    s.clear()
     s.op(0x0C, ("n", -50))
     s.say("He weighs the coins in his palm, then tucks them away.", TELLS)
     s.say("An apology that rings. I'll take it.")
+    s.page()
     s.goto("respect")
 
-    s.label("plead")
-    s.page()
-    s.unless(("op", gpl.Op(0, gpl.ABILITY_CHECK, [ACTOR, ("n", 1), ("n", CHA)])), "plead fails")
+    s.label("won over")
+    s.clear()
     s.say("He studies you for a long moment.", TELLS)
     s.say("Fine. We're all slaves here.")
+    s.page()
     s.goto("respect")
-    s.label("plead fails")
+
+    s.label("not won")
+    s.clear()
     s.say("Words are cheap in the pens.")
     s.end()
 
-    s.label("bye")
-    s.page()
+    s.label("go")
+    s.clear()
     s.say("Go, then.")
     s.end()
 
-    s.label("bye cold")
+    s.label("gone")
     s.op(0x31)
     return s.bytes()
 

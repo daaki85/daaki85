@@ -14,7 +14,7 @@ def labels_land(ops) -> bool:
     """Every jump in the script lands on the start of a command."""
     starts = {o.at for o in ops}
     for o in ops:
-        if o.code in (0x3E, 0x3F) and o.args[0][1] not in starts:
+        if o.code in (0x3E, 0x3F, 0x63, 0x64) and o.args[0][1] not in starts:
             return False
         if o.code == 0x48 and any(r["goto"][1] not in starts for r in o.args[0]["replies"]):
             return False
@@ -74,6 +74,20 @@ class KalzithTests(unittest.TestCase):
         sets = [o.args for o in ops if o.code == 0x16]
         self.assertIn([("n", kalzith.FRIENDLY), ("var", 13, kalzith.ATTITUDE)], sets)
         self.assertIn([("n", kalzith.COLD), ("var", 13, kalzith.ATTITUDE)], sets)
+
+    def test_menus(self):
+        """Each menu is the game's kind: in a loop (63h ... 64h), and each reply a subroutine
+        returning to it (15h) before anything ends the talk or shows a menu."""
+        ops = gpl.decode(kalzith.conversation(), b"")
+        at = {o.at: k for k, o in enumerate(ops)}
+        menus = [k for k, o in enumerate(ops) if o.code == 0x48]
+        self.assertGreaterEqual(len(menus), 4)
+        for k in menus:
+            self.assertEqual((ops[k - 1].code, ops[k + 1].code), (0x63, 0x64))
+            for r in ops[k].args[0]["replies"]:
+                after = [o.code for o in ops[at[r["goto"][1]]:]]
+                ends = [c for c in after if c in (0x15, 0x31, 0x48)]
+                self.assertEqual(ends[0], 0x15, r["text"])
 
     def test_apology(self):
         """The 50 ceramic apology is offered only to a party with them, and takes them."""
