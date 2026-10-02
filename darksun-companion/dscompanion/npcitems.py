@@ -29,7 +29,9 @@ BONE_HELM_TYPE = game.BONE_HELM_TYPE
 TYPES = (  # as DSCLOG's EXTRA_TYPES has them
     bytes.fromhex("010030001e00fa00040501010601000072160001"),  # the metal long sword's (63), 1d6
     bytes.fromhex("000000000a000a00400800000000008" "0ff1f0001"),  # the Cloak's (65): its plus counts for AC
-    bytes.fromhex("000000000f00fa0001060000000000806f160000"),  # the Helm's (5), of bone (bonescale.py)
+    # the Helm's (5), of bone, worn by those who can wear the bone scale armour (+10h, the classes:
+    # 126Fh, no thieves, where the Helm has 166Fh) (bonescale.py)
+    bytes.fromhex("000000000f00fa0001060000000000806f120000"),
 )
 TSR_TYPES_OFF, TSR_TYPES_COUNT, TSR_TYPES_FIRST, TSR_TYPES_PTR = 208, 210, 212, 214
 BLOODWRATH = 0x9C  # the name entry of the Templar's sword: which Templar is Pehtucl
