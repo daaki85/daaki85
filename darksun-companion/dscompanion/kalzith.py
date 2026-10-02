@@ -1,16 +1,16 @@
 """Kalzith, a defiler in the slave pens who sells spell scrolls to a party that treats him well.
 
-He is the defiler the party fights in the arena at the start of the game, dragged back to the pens
-afterwards and kept chained in an empty pen. He secretly scribes spells on scraps of hide, to buy a
-guard's blind eye; a preserver can learn from them (the game's own scrolls: right-click one, click
+He is a slave the templars put in the arena now and then (the crowd loves to watch a defiler burn),
+kept chained in an empty pen the rest of the time; he has the look of the arena's Defiler, but the
+party has never fought him. He secretly scribes spells on scraps of hide, to buy a guard's blind eye; a preserver can learn from them (the game's own scrolls: right-click one, click
 its spell). Insult him or threaten to report him and he won't trade until the party makes amends:
 50 ceramic pieces, or a Charisma check.
 
 He is the game's own kind of person, added to the Ledger's copies of three of its files (the game
 folder is never changed; DSCLOG has the game open the copies):
 
-  * SEGOBJEX.GFF: object OBJECT, his OJFF (a person's, with the arena Defiler's picture) and RDFF (a slave's record,
-    Dinos's, with his name and a defiler's class);
+  * SEGOBJEX.GFF: object OBJECT, his OJFF (a person's, with the arena Defiler's picture) and
+    RDFF (a slave's record, Dinos's, with his name and a defiler's class);
   * RGN29.GFF, the slave pens: an entry in its entity table (ETAB) setting him in his pen (PEN);
   * GPLDATA.GFF: his conversation, script SCRIPT, and in the pens' master script (MAS 41) the
     command that runs it when the party talks to him (6Eh, as for Dinos and the rest), with its
@@ -147,7 +147,8 @@ REPLY = 40  # nor its replies (the reply window cuts a longer one off)
 TITLE = ("var", 0x86, 1)  # a reply menu's title, as the game's own (the speaker)
 MORE, CLEAR = ("var", 0x86, 2), ("var", 0x86, 3)  # wait for a click, then clear the window
 MONEY = ("var", 0x89, 42)  # the party's ceramic pieces
-ACTOR = ("var", 0x89, 37)  # the character talking (who rolls an ability check)
+ACTOR = ("var", 0x89, 37)
+SPEAKER = ("var", 0x89, 39)  # the person being talked to (as the game's scripts name him)  # the character talking (who rolls an ability check)
 CHA = 5
 
 
@@ -180,10 +181,10 @@ class _Script:
     def op(self, code: int, *args) -> None:
         self.items.append((code, list(args)))
 
-    def label(self, name: str, mark: bool = True) -> None:
+    def label(self, name: str) -> None:
+        """A place to jump to. (Not marked: the game's 67h closes an "if" (18h), once on each way
+        through it, and one too many ends the script with "BAD GPL EXIT".)"""
         self.items.append(name)
-        if mark:
-            self.op(0x67)  # (the game marks each place a jump lands; not a menu's loop or replies)
 
     def say(self, text: str, who: int = SPEAKS) -> None:
         """TEXT in the window, a new page whenever the window (WINDOW lines) would run over."""
@@ -206,9 +207,17 @@ class _Script:
         self.op(0x3F, ("label", name))
 
     def unless(self, test, name: str) -> None:
-        """Go on if TEST holds, else to NAME."""
+        """Go on if TEST holds, else to NAME: an "if" the game's way, closed (67h) on both ways."""
+        self._ifs = getattr(self, "_ifs", 0) + 1
+        other, on = f"if {self._ifs}: else", f"if {self._ifs}: on"
         self.op(0x18, test)
-        self.op(0x3E, ("label", name))
+        self.op(0x3E, ("label", other))  # (false: to the else)
+        self.goto(on)
+        self.label(other)
+        self.op(0x67)
+        self.goto(name)
+        self.label(on)
+        self.op(0x67)
 
     def set(self, var: int, value: int) -> None:
         self.op(0x16, ("n", value), ("var", 14, var))
@@ -218,7 +227,7 @@ class _Script:
         left, the talk goes on at the one of LEADS_TO its reply chose (by number in NEXT)."""
         self.after[name] = leads_to
         self.set(DONE, 0)
-        self.label(f"{name}:loop", mark=False)
+        self.label(f"{name}:loop")
         self.op(0x18, ("expr", [("var", 0x8E, DONE), "==", ("n", 0)]))
         self.op(0x63, ("label", f"{name}:out"))
         self.op(0x48, {"before": [], "title": TITLE, "replies": [
@@ -232,7 +241,7 @@ class _Script:
 
     def reply(self, menu: str, target: str) -> None:
         """The subroutine for a reply of MENU: the window cleared for what it says."""
-        self.label(f"{menu}:{target}", mark=False)
+        self.label(f"{menu}:{target}")
         self.clear()
 
     def back(self) -> None:
@@ -289,15 +298,15 @@ def conversation() -> bytes:
     s.unless(("expr", [("var", 0x8D, ATTITUDE), "!=", ("n", COLD)]), "cold")
     s.unless(("expr", [("var", 0x8D, ATTITUDE), "!=", ("n", FRIENDLY)]), "friend again")
     s.unless(("expr", [("var", 0x8D, MET), "!=", ("n", 1)]), "again")
-    s.say("Ah. The arena's champions. You broke my spell before I could finish it. Come to "
-          "finish me? Mind the dust: the ground in here died the day they chained me to it.")
+    s.say("New faces in the pens. Mind the dust: the ground in here died the day they chained me "
+          "to it. What do you want?")
     s.op(0x16, ("n", 1), ("var", 13, MET))
     s.goto("first")
 
     s.label("again")
     s.say("You again. Well?")
     s.label("first")
-    s.menu("first", [("You fought well. No hard feelings.", "respect", ALWAYS),
+    s.menu("first", [("We mean no harm. We're slaves too.", "respect", ALWAYS),
                      ("You're a defiler. You kill the land.", "accused", ALWAYS),
                      ("Who are you?", "who", ALWAYS),
                      ("Farewell.", "bye", ALWAYS)],
@@ -307,9 +316,9 @@ def conversation() -> bytes:
     s.reply("first", "accused")
     s.leave("first", "accused")
     s.reply("first", "who")
-    s.say("Kalzith. Once a sorcerer's apprentice in Draj, now Pehtucl's prize slave. The templars "
-          "like a defiler in the arena: the crowd loves to watch one burn. Afterwards they chain "
-          "me here, where the ground's already dead.")
+    s.say("Kalzith. Once a sorcerer's apprentice in Draj, now Pehtucl's property. The templars "
+          "put a defiler in the arena now and then: the crowd loves to watch one burn. The rest of "
+          "the time they chain me here, where the ground's already dead.")
     s.back()
     s.reply("first", "bye")
     s.leave("first", "go")
@@ -337,7 +346,7 @@ def conversation() -> bytes:
     s.reply("friend", "shop")
     s.say("Quietly, now. One of each, and they're not cheap.")
     s.page()
-    s.op(0x24, ("n", -OBJECT))
+    s.op(0x24, SPEAKER)  # (his own place in the game's object table: where its shops are)
     s.say("Learn them well, and burn the hide when you're done.")
     s.back()
     s.reply("friend", "why")

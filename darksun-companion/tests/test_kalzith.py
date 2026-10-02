@@ -63,7 +63,7 @@ class KalzithTests(unittest.TestCase):
         self.assertEqual(ops[0].code, kalzith.BEGIN)
         self.assertEqual(ops[1].at, kalzith.START)
         self.assertEqual((ops[1].code, ops[1].args), (0x54, [("n", kalzith.PORTRAIT)]))
-        self.assertIn((0x24, [("n", -kalzith.OBJECT)]), [(o.code, o.args) for o in ops])
+        self.assertIn((0x24, [kalzith.SPEAKER]), [(o.code, o.args) for o in ops])  # (his own shop)
         texts = [s for o in ops for s in gpl.strings(o.args)]
         self.assertTrue(all(len(s) <= kalzith.LINE + 1 for s in texts if not s.startswith("  ")))
         self.assertTrue(any("Kalzith" in s for s in texts))
@@ -88,6 +88,20 @@ class KalzithTests(unittest.TestCase):
                 after = [o.code for o in ops[at[r["goto"][1]]:]]
                 ends = [c for c in after if c in (0x15, 0x31, 0x48)]
                 self.assertEqual(ends[0], 0x15, r["text"])
+
+    def test_ifs_closed(self):
+        """Each "if" (18h then 3Eh) is closed by one 67h on each way through it, and 67h is used
+        for nothing else: the game ends a script with "BAD GPL EXIT" when they don't match."""
+        ops = gpl.decode(kalzith.conversation(), b"")
+        ifs = sum(1 for a, b in zip(ops, ops[1:]) if a.code == 0x18 and b.code == 0x3E)
+        self.assertEqual(sum(1 for o in ops if o.code == 0x67), 2 * ifs)
+        for k, o in enumerate(ops):
+            if o.code == 0x18 and ops[k + 1].code == 0x3E:
+                # the way on: a jump to a 67h; the other way: a 67h
+                at = {x.at: j for j, x in enumerate(ops)}
+                self.assertEqual(ops[k + 2].code, 0x3F)
+                self.assertEqual(ops[at[ops[k + 2].args[0][1]]].code, 0x67)
+                self.assertEqual(ops[at[ops[k + 1].args[0][1]]].code, 0x67)
 
     def test_apology(self):
         """The 50 ceramic apology is offered only to a party with them, and takes them."""
