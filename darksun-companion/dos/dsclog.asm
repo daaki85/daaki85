@@ -2167,7 +2167,8 @@ probe_thief_skill:
 ; free hands"). With RULE_HALF_GIANT, for a half-giant on show the answer is "not two-handed"
 ; (ZF set); otherwise the game's test. RETF 2 keeps the flags. (The game's own check that both
 ; hands don't hold heavy weapons, over 30 each, still stands.)
-WHO_SEG equ 0x348 - 0x4356      ; the segment of the character on show's number (+25Bh), from DS
+WHO_SEG equ USE_WHO_SEG          ; the segment of the character on show's number (+25Bh), from DS
+                                ; (the overlay's code says 0348h, which its loader relocates there)
 HALF_GIANT equ 5
 probe_two_handed:
         sti
