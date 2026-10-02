@@ -164,6 +164,21 @@ class WeaponTests(unittest.TestCase):
         self.assertTrue(own and set(own.values()) <= set(sg.CLOAK_COLOURS[65]))
         self.assertEqual(drawn(her_rows, sg.armed(her_rows, sg.CLOAK_MODEL, 1, False, {}, PAD)), {})
 
+    def test_boots_and_belt(self):
+        """Boots recolour the feet and shins, a belt a row at the waist; the outline stays."""
+        before = rows()
+        p = sp.find(before, 2095, 0)
+        old = sg.padded(before, PAD)
+        boots = drawn(before, sg.armed(before, 2095, 0, False, {"boots": (68, 5)}, PAD))
+        self.assertTrue(boots)
+        self.assertTrue(set(boots.values()) <= set(sg.BOOTS[68]))
+        self.assertTrue(all(y > p.waist + PAD for _, y in boots))
+        self.assertTrue(all(old[y][x] is not None for x, y in boots))  # (nothing added)
+        belt = drawn(before, sg.armed(before, 2095, 0, False, {"belt": (35, 5)}, PAD))
+        self.assertTrue(belt)
+        self.assertEqual({y for _, y in belt}, {p.waist + PAD})
+        self.assertIn(sg.BUCKLE, belt.values())
+
     def test_tables(self):
         self.assertEqual(len(sg.WALK_GRIPS), sp.WALK_FRAMES)
         self.assertEqual(len(sg.COMBAT_POSES), sp.COMBAT_FRAMES)

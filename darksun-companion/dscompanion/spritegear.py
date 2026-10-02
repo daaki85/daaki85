@@ -461,6 +461,97 @@ def draw_cloak(rows: Rows, body: Rows, model: int, parts: sp.Parts, item_type: i
             rows[Y][X] = outline
 
 
+# Boots and belts, recoloured like armour (the artist's pixels kept): boots the feet and lower
+# shins, a belt a band at the waist across the body. Item type: shades, dark to light.
+BOOTS = {68: (204, 207, 205, 194, 206)}  # Boots: faded leather
+BELTS = {42: (204, 207, 205, 206), 35: (204, 207, 205, 206)}  # Belt, Belt of Might
+MIGHT_BELT, BUCKLE = 35, 168
+
+
+def _torso_run(rows: Rows, y: int, middle: float, sa: int, sb: int) -> Optional[Tuple[int, int]]:
+    """The run of the picture's row Y through the body's middle, inside the shoulders."""
+    x = int(round(middle))
+    if not (0 <= y < len(rows)) or not (0 <= x < len(rows[y])) or rows[y][x] is None:
+        near = [i for i in range(sa, sb + 1) if 0 <= i < len(rows[y]) and rows[y][i] is not None] if 0 <= y < len(rows) else []
+        if not near:
+            return None
+        x = min(near, key=lambda i: abs(i - middle))
+    a = b = x
+    while a - 1 >= max(0, sa) and rows[y][a - 1] is not None:
+        a -= 1
+    while b + 1 <= min(len(rows[y]) - 1, sb) and rows[y][b + 1] is not None:
+        b += 1
+    return a, b
+
+
+def _body_half_width(rows: Rows, parts: sp.Parts) -> float:
+    """Half the body's own width (the run through its middle just above the waist, where the arms
+    and hair seldom are), and a little for the shoulders' breadth."""
+    if not parts.shoulders or parts.waist is None or not parts.head:
+        return 3.0
+    sy, sa, sb = parts.shoulders
+    middle = (parts.head.left + parts.head.right) / 2 if parts.facing != sp.SIDE else (sa + sb) / 2
+    widths = []
+    for y in range(max(sy + 1, parts.waist - 3), parts.waist + 1):
+        run = _torso_run(rows, y, middle, 0, len(rows[y]) - 1) if 0 <= y < len(rows) else None
+        if run:
+            widths.append(run[1] - run[0] + 1)
+    width = sorted(widths)[len(widths) // 2] if widths else (sb - sa) * 0.6
+    return width / 2 + 1.5
+
+
+def _by_light(p: int, shades: Tuple[int, ...]) -> int:
+    light = _LIGHT.get(p, 0.5)
+    return shades[min(len(shades) - 1, max(0, int(light * 1.7 * (len(shades) - 1) + 0.5)))]
+
+
+def _outline(rows: Rows, x: int, y: int) -> bool:
+    return rows[y][x] == 254 and any(not (0 <= y + dy < len(rows) and 0 <= x + dx < len(rows[y + dy]))
+                                     or rows[y + dy][x + dx] is None for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+
+
+def draw_boots(rows: Rows, parts: sp.Parts, item_type: int, pad: int) -> None:
+    """Boots: the lowest quarter of the legs (the feet and shins) in the boots' colours."""
+    shades = BOOTS.get(item_type)
+    if shades is None or parts.waist is None or not parts.feet:
+        return
+    top = parts.bottom - max(3, (parts.bottom - parts.waist) // 3)
+    hands = list(parts.hands.values())
+    for y in range(top, parts.bottom + 1):
+        Y = y + pad
+        for X, p in enumerate(rows[Y]):
+            x = X - pad
+            if p is None or _outline(rows, X, Y) or any(abs(x - hx) <= 2 and abs(y - hy) <= 2 for hx, hy in hands):
+                continue
+            rows[Y][X] = _by_light(p, shades)
+
+
+def draw_belt(rows: Rows, parts: sp.Parts, item_type: int, pad: int) -> None:
+    """A belt: a row at the waist across the body (not the arms or hands), a buckle at the front of
+    the Belt of Might."""
+    shades = BELTS.get(item_type)
+    if shades is None or parts.waist is None or not parts.head:
+        return
+    unpadded = [r[pad:len(r) - pad] for r in rows[pad:]]
+    middle = (parts.head.left + parts.head.right) / 2 if parts.facing != sp.SIDE else \
+        (parts.shoulders[1] + parts.shoulders[2]) / 2 if parts.shoulders else parts.head.left
+    half = _body_half_width(unpadded, parts) - 1.5
+    hands = list(parts.hands.values())
+    cells = []
+    for y in (parts.waist,):
+        run = _torso_run(unpadded, y, middle, 0, len(unpadded[0]) - 1) if 0 <= y < len(unpadded) else None
+        if not run:
+            continue
+        for x in range(max(run[0], int(middle - half)), min(run[1], int(middle + half + 0.5)) + 1):
+            if any(abs(x - hx) <= 1 and abs(y - hy) <= 1 for hx, hy in hands) or _outline(rows, x + pad, y + pad):
+                continue
+            cells.append((x, y))
+    for x, y in cells:
+        rows[y + pad][x + pad] = _by_light(unpadded[y][x], shades)
+    if item_type == MIGHT_BELT and parts.facing == sp.FRONT and cells:
+        rows[parts.waist + pad][int(round(middle)) + pad] = BUCKLE
+
+
 def armed(rows: Rows, model: int, frame: int, combat: bool, weapons: Dict[str, Tuple[int, int]],
           pad: int = 10, armour: Tuple[int, ...] = (),
           cloak: Optional[Tuple[sp.Parts, Dict[sp.Point, int]]] = None) -> Rows:
@@ -474,6 +565,11 @@ def armed(rows: Rows, model: int, frame: int, combat: bool, weapons: Dict[str, T
         for item_type in armour:
             if item_type in ARMOUR:
                 draw_armour(out, model, parts, item_type, pad)
+    if parts.facing is not None and model != sp.KREEN:
+        if "boots" in weapons:
+            draw_boots(out, parts, weapons["boots"][0], pad)
+        if "belt" in weapons:
+            draw_belt(out, parts, weapons["belt"][0], pad)
     if "cloak" in weapons and parts.facing is not None and model != sp.KREEN:
         kind = weapons["cloak"][0]
         if model == CLOAK_MODEL:  # (her own cloak, in the cloak's colours: option 2)
