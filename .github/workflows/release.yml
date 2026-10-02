@@ -1,10 +1,13 @@
-# Publishes a release when a version tag (v1.0.0, ...) is pushed: the tests, then a zip of the
-# darksun-companion folder as the tag has it, with the notes in release-notes/<tag>.md.
+# Publishes a release: the tests, then a zip of the darksun-companion folder with the notes in
+# release-notes/<tag>.md. Either a version tag (v1.0.0, ...) is pushed, or the workflow is run by
+# hand (Actions -> Release -> Run workflow) on main: then the tag is "v" and dscompanion's
+# __version__, made on the commit it runs on.
 name: Release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -21,21 +24,23 @@ jobs:
       - name: Tests
         working-directory: darksun-companion
         run: python -m unittest discover -s tests
-      - name: The version matches the tag
+      - name: The version (and the tag, when one was pushed)
         shell: bash
         run: |
           version=$(python -c "import sys; sys.path.insert(0, 'darksun-companion'); import dscompanion; print(dscompanion.__version__)")
-          test "v$version" = "$GITHUB_REF_NAME" || { echo "dscompanion.__version__ is $version, the tag $GITHUB_REF_NAME"; exit 1; }
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            test "v$version" = "$GITHUB_REF_NAME" || { echo "dscompanion.__version__ is $version, the tag $GITHUB_REF_NAME"; exit 1; }
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          test -f "release-notes/v$version.md" || { echo "no release-notes/v$version.md"; exit 1; }
       - name: Zip
         shell: bash
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          git archive --format=zip --prefix="Templars-Ledger-$version/" -o "Templars-Ledger-$version.zip" "$GITHUB_REF_NAME":darksun-companion
+          git archive --format=zip --prefix="Templars-Ledger-$VERSION/" -o "Templars-Ledger-$VERSION.zip" "$GITHUB_SHA":darksun-companion
       - name: Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          gh release create "$GITHUB_REF_NAME" "Templars-Ledger-$version.zip" \
-            --title "Templar's Ledger $version" --notes-file "release-notes/$GITHUB_REF_NAME.md"
+          gh release create "v$VERSION" "Templars-Ledger-$VERSION.zip" --target "$GITHUB_SHA" \
+            --title "Templar's Ledger $VERSION" --notes-file "release-notes/v$VERSION.md"
