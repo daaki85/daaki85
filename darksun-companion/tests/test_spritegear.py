@@ -94,14 +94,21 @@ class WeaponTests(unittest.TestCase):
         self.assertFalse(set(sg.STAVE[1:]) & set(shooting.values()) - set(sg.QUIVER))
 
     def test_chest_armour_only_the_torso(self):
-        """A cuirass: shoulders to waist, the body's middle; the arms, legs and head as they were."""
+        """A cuirass: the body's middle, up over the shoulders and down to a tabbed hem below the
+        waist; never the head or the hair; the arms and legs as they were."""
         before = rows()
         new = drawn(before, sg.armed(before, 2095, 0, False, {}, PAD, armour=(6,)))
         p = sp.find(before, 2095, 0)
         self.assertTrue(new)
         self.assertTrue(set(new.values()) <= set(sg.LEATHER_SHADES))
-        self.assertTrue(all(p.shoulders[0] + PAD <= y <= p.waist + PAD for _, y in new))
-        self.assertTrue(all(3 + PAD <= x <= 12 + PAD for x, _ in new))  # (a third of the shoulders each way: not the arms, at 1-2 and 13-14)
+        self.assertTrue(all(y <= p.waist + 1 + PAD for _, y in new))
+        head = {(x + PAD, y + PAD) for y in range(p.head.top, p.shoulders[0])
+                for x in range(p.head.left, p.head.right + 1)} | {(x + PAD, y + PAD) for x, y in p.hair}
+        self.assertFalse(head & set(new))
+        hem = sorted(x for x, y in new if y == p.waist + 1 + PAD)
+        self.assertTrue(hem and len(hem) < max(hem) - min(hem) + 1)  # (tabs, not a straight cut)
+        below = [x for x, y in new if y > p.shoulders[0] + 1 + PAD]  # (under the shoulders' caps)
+        self.assertTrue(all(3 + PAD <= x <= 12 + PAD for x in below))  # (not the arms, at 1-2 and 13-14)
 
     def test_arm_and_leg_armour_leave_skin(self):
         """Arm armour: a guard and a bracer, not the hand; leg armour: not the knee."""
