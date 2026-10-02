@@ -57,13 +57,17 @@ MET, FRIENDLY, COLD = 760, 761, 762
 SCROLLS = ((8, "Magic Missile", 100), (4, "Color Spray", 100), (12, "Blur", 250),
            (game.FLAMING_SPHERE, "Cat's Grace", 250), (32, "Lightning Bolt", 500), (29, "Haste", 500))
 SCROLL_TYPE = 0x60  # the game's spell scrolls (its objects 1400-1418)
-SCROLL_TEMPLATE = "88fa010000000000000060000000000105ff7f0000"  # its scroll of spell 1 (object 1400)
-ITEM_SPELL, ITEM_SPELL_AGAIN, ITEM_VALUE = 0x02, 0x0F, 0x06
+SCROLL_TEMPLATE = "88fa01000f2700000f2760000000000105ff7f0000"  # its scroll of spell 1 (object 1400)
+SCROLL_OBJECT = 1400  # the game's first scroll object: his k-th scroll is object 1400 + k (the shop
+# shows items of one object as one: six of 1400 showed as a single scroll)
+ITEM_OBJECT, ITEM_SPELL, ITEM_SPELL_AGAIN, ITEM_VALUE, ITEM_LINK = 0x00, 0x02, 0x0F, 0x06, 0x08
 
 
-def scroll(spell: int, price: int) -> bytes:
-    """A spell scroll item (the game's own kind) teaching SPELL, priced PRICE."""
+def scroll(spell: int, price: int, k: int = 0) -> bytes:
+    """A spell scroll item (the game's own kind) teaching SPELL, priced PRICE: his K-th."""
     rec = bytearray.fromhex(SCROLL_TEMPLATE)
+    struct.pack_into("<h", rec, ITEM_OBJECT, -(SCROLL_OBJECT + k))
+    struct.pack_into("<H", rec, ITEM_LINK, game.NO_ITEM)  # (as the game's items; 0 linked item 0 in)
     struct.pack_into("<H", rec, ITEM_SPELL, spell)
     rec[ITEM_SPELL_AGAIN] = spell
     struct.pack_into("<H", rec, ITEM_VALUE, price)
@@ -526,7 +530,7 @@ def stock(gd, given: set, cats_grace: bool) -> List[str]:
         if table[at + game.CREATURE_NAME:at + game.CREATURE_NAME + len(name)] != name:
             continue
         it = ring.Items(gd)
-        for spell, name, price in SCROLLS:
+        for k, (spell, name, price) in enumerate(SCROLLS):
             if spell == game.FLAMING_SPHERE and not cats_grace:
                 continue
             key = f"{gd.creature_name(0)}|kalzith:{spell}"
@@ -535,7 +539,7 @@ def stock(gd, given: set, cats_grace: bool) -> List[str]:
             if _has_scroll(gd, it, index, spell):
                 given.add(key)
                 continue
-            if npcitems.add_to(gd, index, scroll(spell, price)):
+            if npcitems.add_to(gd, index, scroll(spell, price, k)):
                 given.add(key)
                 out.append(name)
                 it = ring.Items(gd)

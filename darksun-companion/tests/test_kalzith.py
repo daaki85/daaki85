@@ -154,7 +154,9 @@ class KalzithTests(unittest.TestCase):
 
     def test_scroll(self):
         """The game's own spell scroll, teaching the spell at the price."""
-        rec = kalzith.scroll(32, 500)
+        rec = kalzith.scroll(32, 500, 4)
+        self.assertEqual(struct.unpack_from("<h", rec, 0)[0], -1404)  # (each his own object)
+        self.assertEqual(struct.unpack_from("<H", rec, kalzith.ITEM_LINK)[0], game.NO_ITEM)
         self.assertEqual(len(rec), game.ITEM_SIZE)
         self.assertEqual(struct.unpack_from("<H", rec, game.ITEM_TYPE)[0], kalzith.SCROLL_TYPE)
         self.assertEqual(struct.unpack_from("<H", rec, kalzith.ITEM_SPELL)[0], 32)
