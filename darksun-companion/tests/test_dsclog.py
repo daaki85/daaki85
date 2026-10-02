@@ -17,7 +17,8 @@ from dscompanion.textlog import TextBuffer
 from dscompanion.gamepatch import (VEC_AC, VEC_DOUBLE, VEC_MSG, VEC_NEXT, VEC_RAND, VEC_RING_AC, VEC_USE_ITEM,
                                   VEC_RING_SAVE, VEC_SAVE, VEC_TEXT, VEC_TWO, VEC_GRACE_CAST, VEC_GRACE_EFFECT,
                                   VEC_GRACE_ABILITY, VEC_NAMES_FILL, VEC_NAMES_SIZE, VEC_STEALTH, VEC_TYPES_FILL,
-                                  VEC_TYPES_SIZE, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED)
+                                  VEC_TYPES_SIZE, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED,
+                                  VEC_SPELL_TEXT)
 
 try:
     from unicorn import Uc, UC_ARCH_X86, UC_HOOK_INTR, UC_HOOK_MEM_WRITE, UC_MODE_16
@@ -41,6 +42,14 @@ def load_image():
     with open(EXE, "rb") as f:
         exe = f.read()
     return exe[struct.unpack_from("<H", exe, 8)[0] * 16:]
+
+
+def fill_probes(image):
+    """PROBE_NAMES_FILL and PROBE_TYPES_FILL, in that order: "add sp,0Ch", its three pushes back,
+    then "or ax,ax" (other probes replace an "add sp,0Ch" the same way)."""
+    import re
+    return [m.start() - 15 for m in re.finditer(re.escape(bytes.fromhex("83c40c" "2eff36")), image)
+            if image[m.start() + 18:m.start() + 20] == bytes.fromhex("09c0")]
 
 
 def real_mode_interrupt(mu, intno, _):
@@ -626,6 +635,40 @@ class RuleTests(RingTests):
         self.assertEqual([self.two_handed(r) for r in (5, 1)], [True, False])
         self.assertEqual([self.two_handed(r, flags=0) for r in (5, 1)], [True, True])
 
+    def spell_text(self, spin, length=112):
+        """INT VEC_SPELL_TEXT after the game read SPIN chunk SPIN (LENGTH bytes) into the buffer
+        at the game's [BP-8]: (the buffer's text, AX), with SP back past the read's arguments."""
+        image = load_image()
+        # its rule test and "cmp di,0Fh", after three pops, "add sp,0Ch" and three pushes (33 bytes)
+        anchor = image.find(bytes.fromhex("2ef606") + struct.pack("<H", self.RULES) + bytes.fromhex("207425" "83ff0f"))
+        self.assertGreater(anchor, 0)
+        probe = anchor - 33
+        self.assertEqual(image[probe:probe + 3], bytes.fromhex("2e8f06"))
+        self.mu.mem_write(VEC_SPELL_TEXT * 4, struct.pack("<HH", probe, TSR))
+        buf = self.TYPES * 16 + 0x500
+        self.mu.mem_write(buf, b"FLAMING SPHERE:  Creates a burning globe.\r\n\0".ljust(200, b"\0"))
+        self.mu.mem_write(SS * 16 + BP - 8, struct.pack("<HH", 0x500, self.TYPES))
+        code = bytes.fromhex("666a00666a00666a00") + bytes((0xCD, VEC_SPELL_TEXT))  # 12 bytes of arguments
+        self.at += 0x20
+        self.mu.mem_write(CALLER * 16 + self.at, code)
+        for name, value in dict(cs=CALLER, ds=GAME_DS, ss=SS, esp=0x800, ebp=BP, eflags=IF | 2, edi=spin, eax=length).items():
+            self.mu.reg_write(getattr(r, "UC_X86_REG_" + name.upper()), value)
+        self.mu.emu_start(CALLER * 16 + self.at, CALLER * 16 + self.at + len(code))
+        self.assertEqual(self.mu.reg_read(r.UC_X86_REG_SP), 0x800)
+        text = bytes(self.mu.mem_read(buf, 200)).split(b"\0")[0]
+        return text, self.mu.reg_read(r.UC_X86_REG_AX)
+
+    def test_cats_grace_description(self):
+        """Rule 32: Flaming Sphere's description (SPIN 15) is Cat's Grace's; others, and without
+        the rule, the game's."""
+        grace = b"CAT'S GRACE:  Raises the target's dexterity by 1 to 6 pts. Maximum dexterity is 24.\r\n"
+        self.rules(32)
+        self.assertEqual(self.spell_text(15), (grace, len(grace)))
+        self.assertEqual(self.spell_text(14)[0][:15], b"FLAMING SPHERE:")
+        self.assertEqual(self.spell_text(15, 0xFFFF)[1], 0xFFFF)  # (no chunk read)
+        self.rules(0)
+        self.assertEqual(self.spell_text(15), (b"FLAMING SPHERE:  Creates a burning globe.\r\n", 112))
+
     def con_levels(self, cls, level):
         """INT VEC_HD_CON with AL a class's level, ES:BX its group (dice up to 9), the game's
         [BP-4] a sheet whose second class (CX = 1) is CLS: whether the level is past the cap
@@ -707,7 +750,7 @@ class NamesTests(unittest.TestCase):
         mu.mem_map(0, 0x100000)
         mu.mem_write(TSR * 16, image)
         size = image.find(bytes.fromhex("8146fc2003" "8356fe00"))
-        fill = image.find(bytes.fromhex("83c40c" "2eff36")) - 15
+        fill = fill_probes(image)[0]
         self.assertGreater(min(size, fill), 0)
         mu.mem_write(VEC_NAMES_SIZE * 4, struct.pack("<HH", size, TSR))
         mu.mem_write(VEC_NAMES_FILL * 4, struct.pack("<HH", fill, TSR))
@@ -833,8 +876,7 @@ class TypesTests(unittest.TestCase):
         mu.mem_map(0, 0x100000)
         mu.mem_write(TSR * 16, image)
         size = image.find(bytes.fromhex("8146fca000" "8356fe00"))  # 8 types of 20 bytes: A0h
-        names_fill = image.find(bytes.fromhex("83c40c" "2eff36"))
-        fill = image.find(bytes.fromhex("83c40c" "2eff36"), names_fill + 1) - 15
+        names_fill, fill = fill_probes(image)
         self.assertGreater(min(size, fill - names_fill), 0)
         mu.mem_write(VEC_TYPES_SIZE * 4, struct.pack("<HH", size, TSR))
         mu.mem_write(VEC_TYPES_FILL * 4, struct.pack("<HH", fill, TSR))

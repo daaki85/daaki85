@@ -885,7 +885,8 @@ can try anyone's, two ways, with the thief as the party's leader (keys 1-4):
   inventory screen, pick the tools up, go back to the
   game with them on the pointer, and click someone in sight: the result comes
   up in the game's message window, and the tools stay on the pointer for the
-  next one. (Clicking open ground drops them, as with anything carried.)
+  next one. (Clicking open ground drops them, as with anything carried.) Not in
+  a fight: there's no time for it then, and the tools stay on the pointer.
 - **P in a conversation.** In a conversation, press **P**.
 
 Either way, the Ledger rolls the leader's pick pockets chance as

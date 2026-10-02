@@ -56,6 +56,7 @@ VEC_HD_ROLL equ 0xE6       ; PROBE_HD_ROLL
 VEC_HD_CON equ 0xE5        ; PROBE_HD_CON
 VEC_THIEF_SKILL equ 0xE4   ; PROBE_THIEF_SKILL
 VEC_TWO_HANDED equ 0xE3    ; PROBE_TWO_HANDED
+VEC_SPELL_TEXT equ 0xE2    ; PROBE_SPELL_TEXT
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -2193,6 +2194,48 @@ probe_two_handed:
 .test:  test byte [es:bx + 0x0F], 0x40
         retf 2
 
+; PROBE_SPELL_TEXT: INT VEC_SPELL_TEXT replaces "add sp,0Ch" (3 bytes: INT + NOP) after the game
+; reads a spell's description (RESOURCE.GFF's SPIN chunk DI, the spell's number + 1) into the
+; buffer at the game's [BP-8] (far), AX its length or FFFFh. With RULE_CATS_GRACE, Flaming
+; Sphere's (SPIN 15) is Cat's Grace's instead, in the game's words for Strength's.
+SPIN_SPHERE equ 15
+probe_spell_text:
+        pop word [cs:n_ip]
+        pop word [cs:n_cs]
+        pop word [cs:n_fl]
+        add sp, 0x0C
+        push word [cs:n_fl]
+        push word [cs:n_cs]
+        push word [cs:n_ip]
+        test byte [cs:rules], RULE_CATS_GRACE
+        jz .out
+        cmp di, SPIN_SPHERE
+        jne .out
+        cmp ax, 0xFFFF
+        je .out
+        push cx
+        push si
+        push di
+        push ds
+        push es
+        les di, [bp-8]
+        push cs
+        pop ds
+        mov si, grace_text
+        mov cx, GRACE_TEXT_LEN
+        cld
+        rep movsb
+        pop es
+        pop ds
+        pop di
+        pop si
+        pop cx
+        mov ax, GRACE_TEXT_LEN - 1  ; (its length, as the game's read gives it)
+.out:   iret
+grace_text:
+        db "CAT'S GRACE:  Raises the target's dexterity by 1 to 6 pts. Maximum dexterity is 24.", 13, 10, 0
+GRACE_TEXT_LEN equ $ - grace_text
+
 ; AD&D's average thief skills, levels 1-10, a row per skill (game.AD_D_THIEF)
 thief_table:
         db 30, 35, 40, 45, 50, 55, 60, 65, 70, 80     ; pick pockets
@@ -2623,7 +2666,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 34
+        mov cx, 35
 .check:
         lodsb
         mov ah, 35h
@@ -2741,6 +2784,9 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_TWO_HANDED
         mov dx, probe_two_handed
         int 21h
+        mov ax, 2500h + VEC_SPELL_TEXT
+        mov dx, probe_spell_text
+        int 21h
         mov ax, 3521h           ; DOS itself last: opening the objects file (PROBE_DOS_OPEN)
         int 21h
         mov [old21], bx
@@ -2764,7 +2810,7 @@ install:                        ; DS = ES = PSP, CS = the image
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
 busy    db 'DSCLOG: interrupts 60h-65h or E5h-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED, VEC_SPELL_TEXT
 
         align 16, db 0
 image_len equ $ - $$

@@ -518,7 +518,10 @@ class DiceLog:
             elif item < game.NO_ITEM and tools.is_tools(rec):
                 kind, index = ring.Items(self.game).thing(thing)
                 taken = True
-                result = pickpocket.attempt(self.game, self.picked, who=index) if kind == 2 else None
+                if self._fighting():  # (the tools stay on the pointer)
+                    result = pickpocket.Attempt(tools.NOT_IN_A_FIGHT, [])
+                else:
+                    result = pickpocket.attempt(self.game, self.picked, who=index) if kind == 2 else None
                 if result is None:
                     result = pickpocket.Attempt("There are no pockets to pick there.", [])
         except (struct.error, IndexError, ValueError):
@@ -1191,8 +1194,12 @@ class DiceLog:
         return out
 
     def _fighting(self) -> bool:
-        now = self.game.game_time()
-        return self._round_time is not None and now is not None and now - self._round_time <= FIGHT_GAP
+        """In a fight, by the game's own flag (game time barely moves outside fights, so the time
+        since the last round can't tell: the party stood "in a fight" until they rested)."""
+        try:
+            return self.game.in_combat()
+        except (struct.error, IndexError, ValueError):
+            return False
 
     def _set_stealth(self, hidden: bool, member: int = 0) -> None:
         """Have DSCLOG make this party member's next attack one from behind (or no one's)."""

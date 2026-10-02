@@ -140,6 +140,9 @@ EFFECTS_SEG, EFFECTS_OFF = 0x3BF6, 0x106  # 10 bytes per active effect
 # sorted by time, with their count. An effect ending is kind 7, its data the owner and handle.
 GAME_TIME_PTR, GAME_TIME_SCALE = 0x9B72, 0x9B70
 WHOSE_TURN = 0x4979  # DS word: the combatant whose turn it is (outside a fight: the leader)
+# DS word: 1 while the party is in a fight. The routine that starts a fight sets it (DSUN.EXE
+# 1DD8Bh, unless it is already 1); the one that ends it clears it (1DFE8h)
+IN_COMBAT = 0x1168
 REGION = 0x117C  # DS word: the region the party is in
 # The party's money, in ceramic pieces (the inventory screen's bottom bar): a dword the game's
 # script command for giving money (0Ch) adds to
@@ -688,6 +691,10 @@ class GameData:
         n = row + self.guest.read(self.ds * 16 + REPLY_SCROLL, 1)[0]
         text = self.guest.read(self.ds * 16 + REPLY_TEXTS + n * REPLY_SIZE, REPLY_SIZE)
         return n, text.split(b"\0", 1)[0].decode("cp437", "replace").strip()
+
+    def in_combat(self) -> bool:
+        """The party is in a fight (the game's own flag, IN_COMBAT)."""
+        return self._word(IN_COMBAT) != 0
 
     def whose_turn(self) -> Optional[int]:
         """The combatant whose turn it is in a fight (the game's word at WHOSE_TURN)."""

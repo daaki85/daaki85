@@ -79,6 +79,9 @@ folder.
   their own, monsters' in red, bold, all at 4.5:1 contrast or more.
 
 **Fixed**
+- **Dinos takes the vulture as soon as a fight is over** (he wouldn't until the
+  party rested): the Ledger now reads the game's own combat flag.
+- **Thieves' Tools can't be used in a fight**, only out of one.
 - **The dice log and the Dialogue tab keep up with the newest lines** (they
   stopped following them, and lines that came while another tab was open
   were out of view); scrolling up to read back still holds the place.

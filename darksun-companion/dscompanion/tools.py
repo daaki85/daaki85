@@ -19,6 +19,7 @@ from . import game, pickpocket, ring
 from .game import GameData
 
 NAME_ENTRY = 0x143
+NOT_IN_A_FIGHT = "No time to pick pockets in the middle of a fight."
 NAME = b"Thieves' Tools"
 OLD_NAME_ENTRIES = (0xAD, 0x60)  # what earlier versions named them (the pickaxe's "pick", then the
 # rest button's "Rest icon"): renamed
