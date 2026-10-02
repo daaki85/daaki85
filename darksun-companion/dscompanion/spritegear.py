@@ -240,13 +240,18 @@ def draw_back_gear(rows: Rows, body: Rows, parts: sp.Parts, pad: int, bow: bool,
 
 
 def armed(rows: Rows, model: int, frame: int, combat: bool, weapons: Dict[str, Tuple[int, int]],
-          pad: int = 10) -> Rows:
+          pad: int = 10, armour: Tuple[int, ...] = ()) -> Rows:
     """One frame of MODEL with WEAPONS ({"right"/"left": (item type, material)} drawn in the hands;
     "missile": the bow, sling or chatkcha carried, "ammo": arrows, on the back or at the hip),
-    padded by PAD. Nothing in the hands in the bow frames (the game draws the bow)."""
+    padded by PAD, in ARMOUR (item types: under all the rest). Nothing in the hands in the bow
+    frames (the game draws the bow)."""
     out = padded(rows, pad)
-    body = [list(r) for r in out]
     parts = sp.parts(rows, model, frame, combat)
+    if parts.facing is not None:
+        for item_type in armour:
+            if item_type in ARMOUR:
+                draw_armour(out, model, parts, item_type, pad)
+    body = [list(r) for r in out]
     missile = weapons.get("missile")
     if missile or "ammo" in weapons:  # (the bow, quiver, sling or chatkcha carried)
         shape = WEAPON_SHAPES.get(missile[0]) if missile else None
@@ -285,3 +290,136 @@ def armed(rows: Rows, model: int, frame: int, combat: bool, weapons: Dict[str, T
         else:
             draw_weapon(out, body, (hx + pad, hy + pad), g[0], shape, colours, g[1], MODEL_SCALE.get(model, 1.0))
     return out
+
+
+# Body armour: the chest, arms and legs of the picture recoloured by brightness into the material's
+# shades (the picture's own shading becoming the armour's), with the armour's pattern over them.
+ARMOUR_CHEST, ARMOUR_ARMS, ARMOUR_LEGS = "chest", "arms", "legs"
+PLAIN, RINGS, STUDS, SCALES, CHAIN, PLATE = "plain", "rings", "studs", "scales", "chain", "plate"
+# shades, dark to light (muted, from the colours no region changes)
+LEATHER_SHADES = (204, 207, 205, 206, 60)
+BONE_SHADES = (207, 194, 206, 213, 214, 215)
+METAL_SHADES = (18, 22, 23, 25, 27, 28)  # plate: blue-grey iron
+CHAIN_SHADES = (209, 210, 211, 212, 213, 214)  # mail: plain grey
+SILK_SHADES = (194, 206, 213, 214, 215, 216)
+DRAKE_SHADES = (210, 53, 54, 55, 56)
+SHIMMER_SHADES = (22, 24, 26, 28, 30, 31)
+# item type: (which piece, shades, pattern)
+ARMOUR: Dict[int, Tuple[str, Tuple[int, ...], str]] = {
+    6: (ARMOUR_CHEST, LEATHER_SHADES, PLAIN), 7: (ARMOUR_ARMS, LEATHER_SHADES, PLAIN), 8: (ARMOUR_LEGS, LEATHER_SHADES, PLAIN),
+    9: (ARMOUR_CHEST, BONE_SHADES, RINGS), 10: (ARMOUR_ARMS, BONE_SHADES, RINGS), 11: (ARMOUR_LEGS, BONE_SHADES, RINGS),
+    12: (ARMOUR_CHEST, BONE_SHADES, STUDS), 13: (ARMOUR_ARMS, BONE_SHADES, STUDS), 14: (ARMOUR_LEGS, BONE_SHADES, STUDS),
+    15: (ARMOUR_CHEST, BONE_SHADES, SCALES), 55: (ARMOUR_ARMS, BONE_SHADES, SCALES), 56: (ARMOUR_LEGS, BONE_SHADES, SCALES),
+    57: (ARMOUR_CHEST, CHAIN_SHADES, CHAIN), 58: (ARMOUR_ARMS, CHAIN_SHADES, CHAIN), 59: (ARMOUR_LEGS, CHAIN_SHADES, CHAIN),
+    54: (ARMOUR_ARMS, METAL_SHADES, SCALES), 24: (ARMOUR_LEGS, METAL_SHADES, SCALES),  # Grey's Scale
+    88: (ARMOUR_CHEST, METAL_SHADES, PLATE), 25: (ARMOUR_ARMS, METAL_SHADES, PLATE), 26: (ARMOUR_LEGS, METAL_SHADES, PLATE),
+    79: (ARMOUR_CHEST, DRAKE_SHADES, SCALES), 82: (ARMOUR_CHEST, SHIMMER_SHADES, PLAIN), 90: (ARMOUR_CHEST, SILK_SHADES, PLAIN),
+}
+# Colours each model keeps under armour: its own cloak (the elf woman's), boots
+KEEP: Dict[int, frozenset] = {2099: frozenset((53, 54, 55, 56, 188, 189, 190, 191, 69, 70, 158, 159, 160))}
+
+_PALETTE_LIGHT: Dict[int, float] = {}
+
+
+def set_palette(colours: List[Tuple[int, int, int]]) -> None:
+    """The palette's colours (art.palette_colours), for the brightness of each pixel."""
+    _PALETTE_LIGHT.clear()
+    for i, (r, g, b) in enumerate(colours):
+        _PALETTE_LIGHT[i] = (0.3 * r + 0.59 * g + 0.11 * b) / 255
+
+
+def _torso_run(rows: Rows, y: int, middle: float, sa: int, sb: int) -> Optional[Tuple[int, int]]:
+    """The run of the picture's row Y through the body's middle, inside the shoulders."""
+    x = int(round(middle))
+    if not (0 <= y < len(rows)) or not (0 <= x < len(rows[y])) or rows[y][x] is None:
+        near = [i for i in range(sa, sb + 1) if 0 <= i < len(rows[y]) and rows[y][i] is not None] if 0 <= y < len(rows) else []
+        if not near:
+            return None
+        x = min(near, key=lambda i: abs(i - middle))
+    a = b = x
+    while a - 1 >= max(0, sa) and rows[y][a - 1] is not None:
+        a -= 1
+    while b + 1 <= min(len(rows[y]) - 1, sb) and rows[y][b + 1] is not None:
+        b += 1
+    return a, b
+
+
+def armour_cells(rows: Rows, parts: sp.Parts, piece: str) -> List[sp.Point]:
+    """The picture's pixels a PIECE of armour covers, as Athas's armour is worn, in pieces with the
+    skin between: the chest (a cuirass: the body's middle, shoulders to waist), the arms (a guard
+    on the shoulder and a bracer on the forearm, the elbow bare; not the hands) or the legs (thigh
+    pieces and greaves, the knee bare). Not the hair."""
+    if not parts.shoulders or parts.waist is None or not parts.head:
+        return []
+    sy, sa, sb = parts.shoulders
+    middle = (parts.head.left + parts.head.right) / 2 if parts.facing != sp.SIDE else (sa + sb) / 2
+    feet_top = min((y for y, _, _ in parts.feet), default=parts.bottom) - 2
+    knee = parts.waist + (feet_top - parts.waist) // 2
+    # the torso: the run through the body's middle, no wider than a third of the shoulders each way
+    # (where the upper arms touch the body, they are not the chest)
+    reach = max(2, round((sb - sa) * (0.4 if parts.facing == sp.SIDE else 0.33)))
+    torso = {}
+    for y in range(sy, parts.waist + 1):
+        run = _torso_run(rows, y, middle, sa, sb)
+        if run:
+            torso[y] = (max(run[0], int(middle) - reach), min(run[1], int(middle + 0.5) + reach))
+    hands = list(parts.hands.values())
+    cells: List[sp.Point] = []
+    for y, row in enumerate(rows):
+        for x, p in enumerate(row):
+            if p is None or (x, y) in parts.hair:
+                continue
+            run = torso.get(y)
+            in_torso = run is not None and run[0] <= x <= run[1]
+            if piece == ARMOUR_CHEST:
+                if sy <= y <= parts.waist and in_torso:
+                    cells.append((x, y))
+            elif piece == ARMOUR_ARMS:
+                if in_torso or y < sy:
+                    continue
+                if any(abs(x - hx) <= 1 and abs(y - hy) <= 1 for hx, hy in hands):
+                    continue  # (the hand itself)
+                bracer = any(abs(x - hx) <= 2 and hy - 3 <= y <= hy - 2 for hx, hy in hands)
+                guard = y <= sy + 1
+                if bracer or guard:
+                    cells.append((x, y))
+            elif piece == ARMOUR_LEGS:
+                if not (parts.waist < y <= feet_top) or abs(y - knee) <= 0:
+                    continue  # (the knee)
+                if any(abs(x - hx) <= 2 and hy - 4 <= y <= hy + 1 for hx, hy in hands):
+                    continue  # (a hand hanging by the thigh)
+                cells.append((x, y))
+    return cells
+
+
+def _pattern(pattern: str, x: int, y: int, shade: int, top: int) -> int:
+    """The shade (0 the darkest) with the armour's pattern on it."""
+    if pattern == RINGS and y % 2 == 0 and (x + y // 2) % 2 == 0:
+        return max(0, shade - 2)  # (the rings' holes)
+    if pattern == CHAIN and (x + y) % 2 == 0:
+        return max(0, shade - 1)
+    if pattern == SCALES and y % 2 == 1 and (x + (y // 2) % 2) % 2 == 0:
+        return max(0, shade - 2)  # (the scales' lower edges, offset row to row)
+    if pattern == STUDS and y % 3 == 1 and x % 3 == 1:
+        return top  # (a stud)
+    if pattern == PLATE and y % 4 == 0:
+        return max(0, shade - 1)  # (the plates' edges)
+    return shade
+
+
+def draw_armour(rows: Rows, model: int, parts: sp.Parts, item_type: int, pad: int) -> None:
+    """One piece of armour recoloured over the (padded) picture ROWS."""
+    piece, shades, pattern = ARMOUR[item_type]
+    keep = KEEP.get(model, frozenset())
+    unpadded = [r[pad:-pad] if pad else r for r in rows[pad:]]
+    top = len(shades) - 1
+    cells = [(x, y) for x, y in armour_cells(unpadded, parts, piece) if unpadded[y][x] not in keep]
+    lights = [_PALETTE_LIGHT.get(unpadded[y][x], 0.5) for x, y in cells]
+    low, high = (min(lights), max(lights)) if lights else (0.0, 1.0)
+    for x, y in cells:
+        p = unpadded[y][x]
+        light = (_PALETTE_LIGHT.get(p, 0.5) - low) / max(0.05, high - low)  # (the piece's own range)
+        edge = any(not (0 <= y + dy < len(unpadded) and 0 <= x + dx < len(unpadded[y + dy]))
+                   or unpadded[y + dy][x + dx] is None for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+        shade = 0 if edge else min(top, max(1, int(light * top + 0.5)))
+        rows[y + pad][x + pad] = shades[_pattern(pattern, x, y, shade, top) if not edge else 0]

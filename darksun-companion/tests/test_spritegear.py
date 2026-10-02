@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dscompanion import spritegear as sg
 from dscompanion import spriteparts as sp
+import test_spriteparts
 from test_spriteparts import rows
 
 SWORD, CLUB, SHIELD, POLEARM, BOW = 63, 18, 4, 19, 1
@@ -92,13 +93,46 @@ class WeaponTests(unittest.TestCase):
         self.assertTrue(shooting)
         self.assertFalse(set(sg.STAVE[1:]) & set(shooting.values()) - set(sg.QUIVER))
 
+    def test_chest_armour_only_the_torso(self):
+        """A cuirass: shoulders to waist, the body's middle; the arms, legs and head as they were."""
+        before = rows()
+        new = drawn(before, sg.armed(before, 2095, 0, False, {}, PAD, armour=(6,)))
+        p = sp.find(before, 2095, 0)
+        self.assertTrue(new)
+        self.assertTrue(set(new.values()) <= set(sg.LEATHER_SHADES))
+        self.assertTrue(all(p.shoulders[0] + PAD <= y <= p.waist + PAD for _, y in new))
+        self.assertTrue(all(3 + PAD <= x <= 12 + PAD for x, _ in new))  # (a third of the shoulders each way: not the arms, at 1-2 and 13-14)
+
+    def test_arm_and_leg_armour_leave_skin(self):
+        """Arm armour: a guard and a bracer, not the hand; leg armour: not the knee."""
+        before = rows()
+        p = sp.find(before, 2095, 0)
+        arms = drawn(before, sg.armed(before, 2095, 0, False, {}, PAD, armour=(7,)))
+        self.assertTrue(arms)
+        for hx, hy in p.hands.values():
+            self.assertNotIn((hx + PAD, hy + PAD), arms)
+        legs = drawn(before, sg.armed(before, 2095, 0, False, {}, PAD, armour=(8,)))
+        self.assertTrue(legs)
+        self.assertTrue(all(y > p.waist + PAD for _, y in legs))
+        rows_covered = {y for _, y in legs}
+        self.assertLess(len(rows_covered), max(rows_covered) - min(rows_covered) + 1)  # (a bare knee)
+
+    def test_armour_keeps_a_models_own_cloak(self):
+        cloak = [line.replace("k", "c") for line in test_spriteparts.FIGURE]
+        colours = dict(test_spriteparts.COLOURS, c=55)
+        before = [[colours[ch] for ch in line] for line in cloak]
+        self.assertEqual(drawn(before, sg.armed(before, 2099, 0, False, {}, PAD, armour=(6,))), {})
+
     def test_tables(self):
         self.assertEqual(len(sg.WALK_GRIPS), sp.WALK_FRAMES)
         self.assertEqual(len(sg.COMBAT_POSES), sp.COMBAT_FRAMES)
         for frame in sp.BOW_FRAMES + (sp.DEAD_FRAME,):
             self.assertIsNone(sg.COMBAT_POSES[frame])
-        for colours in sg.MATERIAL_COLOURS.values():  # (only colours no region changes)
-            self.assertTrue(all(c == 254 or 16 <= c <= 79 or 128 <= c <= 222 for c in colours))
+        stable = lambda c: c == 254 or 16 <= c <= 79 or 128 <= c <= 222  # (only colours no region changes)
+        for colours in sg.MATERIAL_COLOURS.values():
+            self.assertTrue(all(map(stable, colours)))
+        for _, shades, _ in sg.ARMOUR.values():
+            self.assertTrue(all(map(stable, shades)))
 
 
 if __name__ == "__main__":
