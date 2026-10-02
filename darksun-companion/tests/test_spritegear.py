@@ -93,36 +93,40 @@ class WeaponTests(unittest.TestCase):
         self.assertTrue(shooting)
         self.assertFalse(set(sg.STAVE[1:]) & set(shooting.values()) - set(sg.QUIVER))
 
-    def test_chest_armour_only_the_torso(self):
-        """A cuirass: the body's middle, up over the shoulders and down to a tabbed hem below the
-        waist; never the head or the hair; the arms and legs as they were."""
+    def test_armour_recolours_the_clothes(self):
+        """Body armour draws nothing: the model's own clothing changes colour, the rest as it was.
+        The chest piece: clothing above the waist; the black outline stays."""
         before = rows()
-        new = drawn(before, sg.armed(before, 2095, 0, False, {}, PAD, armour=(6,)))
+        new = drawn(before, sg.armed(before, 2095, 0, False, {}, PAD, armour=(88,)))
         p = sp.find(before, 2095, 0)
+        old = sg.padded(before, PAD)
         self.assertTrue(new)
-        self.assertTrue(set(new.values()) <= set(sg.LEATHER_SHADES))
-        self.assertTrue(all(y <= p.waist + 1 + PAD for _, y in new))
-        head = {(x + PAD, y + PAD) for y in range(p.head.top, p.shoulders[0])
-                for x in range(p.head.left, p.head.right + 1)} | {(x + PAD, y + PAD) for x, y in p.hair}
-        self.assertFalse(head & set(new))
-        hem = sorted(x for x, y in new if y == p.waist + 1 + PAD)
-        self.assertTrue(hem and len(hem) < max(hem) - min(hem) + 1)  # (tabs, not a straight cut)
-        below = [x for x, y in new if y > p.shoulders[0] + 1 + PAD]  # (under the shoulders' caps)
-        self.assertTrue(all(3 + PAD <= x <= 12 + PAD for x in below))  # (not the arms, at 1-2 and 13-14)
+        self.assertTrue(set(new.values()) <= set(sg.METAL_SHADES))
+        self.assertTrue(all(old[y][x] in sg.CLOTHES[2095] for x, y in new))  # (only clothing)
+        self.assertTrue(all(y <= p.waist + PAD for _, y in new))
+        for x, y in new:  # (black only inside the outline)
+            self.assertTrue(all(old[y + dy][x + dx] is not None for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))))
 
-    def test_arm_and_leg_armour_leave_skin(self):
-        """Arm armour: a guard and a bracer, not the hand; leg armour: not the knee."""
+    def test_each_piece_its_part(self):
+        """Leg armour: the clothing below the waist only; arm armour: by the hands only."""
         before = rows()
         p = sp.find(before, 2095, 0)
-        arms = drawn(before, sg.armed(before, 2095, 0, False, {}, PAD, armour=(7,)))
-        self.assertTrue(arms)
-        for hx, hy in p.hands.values():
-            self.assertNotIn((hx + PAD, hy + PAD), arms)
-        legs = drawn(before, sg.armed(before, 2095, 0, False, {}, PAD, armour=(8,)))
+        legs = drawn(before, sg.armed(before, 2095, 0, False, {}, PAD, armour=(26,)))
         self.assertTrue(legs)
         self.assertTrue(all(y > p.waist + PAD for _, y in legs))
-        rows_covered = {y for _, y in legs}
-        self.assertLess(len(rows_covered), max(rows_covered) - min(rows_covered) + 1)  # (a bare knee)
+        arms = drawn(before, sg.armed(before, 2095, 0, False, {}, PAD, armour=(25,)))
+        for x, y in arms:
+            self.assertTrue(any(abs(x - PAD - hx) <= 2 and hy - 4 <= y - PAD <= hy + 1 for hx, hy in p.hands.values()))
+
+    def test_never_the_hair(self):
+        """Dark strands in the hair, in the clothes' own colours, stay as they are."""
+        strands = list(test_spriteparts.FIGURE)
+        strands[1] = ".....hhkhhh....."
+        strands[2] = ".....hkkssh....."
+        before = rows(strands)
+        new = drawn(before, sg.armed(before, 2095, 0, False, {}, PAD, armour=(88,)))
+        self.assertNotIn((7 + PAD, 1 + PAD), new)
+        self.assertNotIn((6 + PAD, 2 + PAD), new)
 
     def test_armour_keeps_a_models_own_cloak(self):
         cloak = [line.replace("k", "c") for line in test_spriteparts.FIGURE]
@@ -140,6 +144,7 @@ class WeaponTests(unittest.TestCase):
             self.assertTrue(all(map(stable, colours)))
         for _, shades, _ in sg.ARMOUR.values():
             self.assertTrue(all(map(stable, shades)))
+        self.assertEqual(sorted(sg.CLOTHES), sorted(m for m in sp.MODELS if m != sp.KREEN))
 
 
 if __name__ == "__main__":
