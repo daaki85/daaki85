@@ -329,15 +329,16 @@ class Viewer:
             self.rule_vars[key] = tk.BooleanVar(value=bool(settings.get(key, True)))
             ttk.Checkbutton(rules, text=text, variable=self.rule_vars[key],
                             command=self._popups_changed).pack(anchor="w", pady=(4 if n else 0, 0))
-        # the companion's own item: a Ring +1 on the Tied-up Prisoner in the arena (ring.py)
+        # the companion's own additions, with the rule changes: a Ring +1 on the Tied-up Prisoner in
+        # the arena (ring.py), picking pockets, and the thieves' tools
         self.arena_ring = tk.BooleanVar(value=bool(settings.get("arena_ring", True)))
-        ttk.Checkbutton(in_game, text="A Ring of Protection +1 on the arena's Tied-up Prisoner (search his body)",
+        ttk.Checkbutton(rules, text="A Ring of Protection +1 on the arena's Tied-up Prisoner (search his body)",
                         variable=self.arena_ring, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
         self.pickpockets = tk.BooleanVar(value=bool(settings.get("pickpockets", True)))
-        ttk.Checkbutton(in_game, text="P in a conversation: the leader, a thief, tries the other's pockets "
+        ttk.Checkbutton(rules, text="P in a conversation: the leader, a thief, tries the other's pockets "
                         "(until caught)", variable=self.pickpockets,
                         command=self._popups_changed).pack(anchor="w", pady=(4, 0))
-        ttk.Button(in_game, text="Give thieving tools now", command=self.give_tools).pack(anchor="w", pady=(4, 0))
+        ttk.Button(rules, text="Give thieving tools now", command=self.give_tools).pack(anchor="w", pady=(4, 0))
 
     def give_tools(self) -> None:
         """A set of thieving tools for each thief in the party without one, right away (they

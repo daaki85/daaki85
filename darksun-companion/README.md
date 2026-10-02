@@ -1560,11 +1560,12 @@ The party pane has two tabs:
 
 The other side has the **Dice log**, **Dialogue**, **Spells** and **Memory
 tools** tabs, and **Options** (Alt+O) with the Ledger's switches: what the
-dice log shows (unlabelled rolls, details), what it adds to the game (each
-turn's rolls and how much they say, monster descriptions, the Ring +1,
-picking pockets, and a button that gives each thief a set of Thieves' Tools
-now) and the rule changes (helms, boots, two weapons, the spell save, doubled
-saves, Cat's Grace, hiding in shadows, levels up to 10). The switches for the
+dice log shows (unlabelled rolls, details), what it shows in the game (each
+turn's rolls and how much they say, monster descriptions) and the rule
+changes (helms, boots, two weapons, the spell save, doubled saves, Cat's
+Grace, hiding in shadows, levels up to 10, the thief skill table), with the
+Ledger's additions to play after them: the Ring +1, picking pockets, and a
+button that gives each thief a set of Thieves' Tools now. The switches for the
 game are remembered for next time. In a window too small to show them all,
 the tab scrolls (scrollbar, mouse wheel, or arrow and page keys once it has
 the focus).
