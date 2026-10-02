@@ -18,6 +18,11 @@ KILL_WINDOW = 5.0  # seconds before an XP award in which kills count towards it
 # later (the log showed "XP: Azil Wildthorn -557, ..." then "+557"): a loss is held this long, and
 # only logged if it isn't undone; a loss and its return log nothing
 LOSS_WAIT = 60.0
+# Going from one area to another, the game also drops the old area's people from the fight table
+# and clears or reuses their records: none of that is a death (the log once listed every guard in
+# the arena, "is killed (7261 XP)", on leaving the pens). A creature gone from the table counts as
+# killed only in the same area, its record still its own, and not when all of many go at once.
+MASS_VANISH = 3
 
 
 class Member(NamedTuple):
@@ -39,6 +44,7 @@ class PartyTracker:
         self.game = game_data
         self.members: Optional[List[Optional[Member]]] = None
         self.monsters: Dict[int, Tuple[int, str, int]] = {}  # combatant -> (creature, name, HP)
+        self.region: Optional[int] = None
         self.kills: List[Kill] = []
         self.xp_before: Optional[List[Optional[Member]]] = None
         self.xp_changed_at = 0.0
@@ -49,6 +55,7 @@ class PartyTracker:
         """Forget everything (a game was loaded)."""
         self.members = None
         self.monsters = {}
+        self.region = None
         self.kills = []
         self.xp_before = None
         self.loss = None
@@ -108,9 +115,19 @@ class PartyTracker:
 
         seen = {c: (i, self.game.creature_name(i) if c not in self.monsters else self.monsters[c][1], hp(i))
                 for c, i in combatants.items() if hp(i) is not None}
+        region, self.region = self.region, self.game.region()
+        if region != self.region:  # a new area: its people, not deaths
+            self.monsters = seen
+            return out
+        gone = [c for c, (i, _, _) in self.monsters.items() if seen.get(c, (None,))[0] != i]
+        area_change = len(gone) >= MASS_VANISH and len(gone) == len(self.monsters)
         for combatant, (index, name, old_hp) in self.monsters.items():
-            current = seen.get(combatant)
-            now_hp = current[2] if current and current[0] == index else hp(index)  # gone: its record may remain
+            if combatant in gone:  # its record may remain, if it is still its own
+                if area_change or self.game.creature_name(index) != name:
+                    continue
+                now_hp = hp(index)
+            else:
+                now_hp = seen[combatant][2]
             if now_hp is not None and old_hp > 0 >= now_hp:
                 out.append(self._killed(index, name, now))
         self.monsters = seen

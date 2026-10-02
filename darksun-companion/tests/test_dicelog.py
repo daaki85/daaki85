@@ -830,6 +830,54 @@ class NewLinesTests(unittest.TestCase):
         self.assertEqual(tracker.check(2.2), [])  # waits for the others' XP
         self.assertEqual(tracker.check(3.0), ["XP: Dag +125 (for Mountain Stalker 500)"])
 
+    def test_leaving_an_area_kills_no_one(self):
+        """Going to another area the game drops the old area's people and clears or reuses their
+        records: no deaths logged (once every guard of the arena was "killed" on leaving the pens).
+        One creature gone from the fight with its own record dead is still a kill."""
+        def setup(extra):
+            log = make_game()
+            m = log.guest.mem
+            table = (LOAD_SEG + game.COMBATANTS_SEG) * 16 + game.COMBATANTS_OFF
+            for k, creature in enumerate(extra):
+                rec = CREATURES + creature * game.CREATURE_SIZE
+                m[rec + game.CREATURE_NAME:rec + game.CREATURE_NAME + 5] = b"Guard"
+                struct.pack_into("<h", m, rec, 30)
+                struct.pack_into("<Bh", m, table + (0x30 + k) * 3, 2, creature)
+            struct.pack_into("<h", m, CREATURES + STALKER * game.CREATURE_SIZE, 20)
+            log.tracker.check(1.0)
+            return log, m, table
+
+        def drop(m, table, combatants):
+            for c in combatants:
+                struct.pack_into("<Bh", m, table + c * 3, 0, 0)
+
+        # a new area: the table emptied, the records zeroed
+        log, m, table = setup([4, 5])
+        struct.pack_into("<H", m, DS * 16 + game.REGION, 0x2A)
+        drop(m, table, (0x29, 0x30, 0x31))
+        for creature in (4, 5, STALKER):
+            rec = CREATURES + creature * game.CREATURE_SIZE
+            m[rec:rec + game.CREATURE_SIZE] = bytes(game.CREATURE_SIZE)
+        self.assertEqual(log.tracker.check(2.0), [])
+        # the area number not yet changed: all of them gone at once, their records cleared of HP
+        log, m, table = setup([4, 5])
+        drop(m, table, (0x29, 0x30, 0x31))
+        for creature in (4, 5, STALKER):
+            struct.pack_into("<h", m, CREATURES + creature * game.CREATURE_SIZE, 0)
+        self.assertEqual(log.tracker.check(2.0), [])
+        # one gone with its record reused by someone else
+        log, m, table = setup([4])
+        drop(m, table, (0x30,))
+        rec = CREATURES + 4 * game.CREATURE_SIZE
+        m[rec + game.CREATURE_NAME:rec + game.CREATURE_NAME + 5] = b"Slave"
+        struct.pack_into("<h", m, rec, 0)
+        self.assertEqual(log.tracker.check(2.0), [])
+        # one gone, its own record dead: killed
+        log, m, table = setup([4])
+        drop(m, table, (0x30,))
+        struct.pack_into("<h", m, CREATURES + 4 * game.CREATURE_SIZE, -2)
+        self.assertEqual([l.split(" (")[0] for l in log.tracker.check(2.0)], ["Guard is killed"])
+
     def test_pockets_tried_after_a_save_forgotten_on_loading_it(self):
         """A pocket tried (and the thief caught) after the game was saved can be tried again once
         that save is loaded: the game's clock goes back past the try."""
