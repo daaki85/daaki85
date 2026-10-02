@@ -155,6 +155,8 @@ class Viewer:
         self.dice_text.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
         self.dice_text.pack(side="left", fill="both", expand=True)
+        self._following: Dict[tk.Text, bool] = {}
+        self._follow_end(self.dice_text, scroll)
         for tag, colour in theme.LOG_COLOURS.items():
             self.dice_text.tag_configure(tag, foreground=colour)
         self.dice_text.tag_configure("round", underline=True, spacing1=8)  # a gap before each round
@@ -185,6 +187,7 @@ class Viewer:
         self.talk_text.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
         self.talk_text.pack(side="left", fill="both", expand=True)
+        self._follow_end(self.talk_text, scroll)
         self.talk_text.tag_configure("speaker", font=theme.fonts()[1], foreground=theme.YELLOW)
         self.talk_text.tag_configure("reply", foreground=theme.PALE)
         self.talk_text.tag_configure("chosen", foreground=theme.GREEN)
@@ -788,7 +791,6 @@ class Viewer:
         self._images.clear()
 
     def _append_dialogue(self, entries) -> None:
-        at_end = self.talk_text.yview()[1] >= 0.999
         for entry in entries:
             if entry.chosen:  # the player's answer to the replies above
                 self.talk_text.delete("end-2c")  # into the gap under the replies
@@ -812,8 +814,32 @@ class Viewer:
             for n, reply in enumerate(entry.replies, 1):
                 self.talk_text.insert("end", f"  {n}. {reply}\n", "reply")
             self.talk_text.insert("end", "\n")
-        if at_end:
+        if self._following.get(self.talk_text, True):
             self.talk_text.see("end")
+
+    def _follow_end(self, text: tk.Text, scroll: ttk.Scrollbar) -> None:
+        """A log keeps its newest line in view unless the reader has scrolled up to read back:
+        following stops when they scroll up and starts again when they scroll to the bottom (by
+        the wheel, the scrollbar or the keys). New lines that came while its tab was hidden are
+        in view when it's shown."""
+        self._following[text] = True
+
+        def check(_event=None) -> None:
+            first, last = text.yview()
+            self._following[text] = last >= 0.999 or text.dlineinfo("end-1c") is not None
+
+        def later(_event=None) -> None:
+            text.after_idle(check)
+
+        def scrolled(*args) -> None:
+            text.yview(*args)
+            later()
+
+        scroll.configure(command=scrolled)
+        for event in ("<MouseWheel>", "<Button-4>", "<Button-5>", "<KeyRelease>", "<ButtonRelease-1>"):
+            text.bind(event, later, add="+")
+        text.bind("<Map>", lambda _e: self._following.get(text, True) and text.after_idle(lambda: text.see("end")),
+                  add="+")
 
     def _log_names(self) -> List[Tuple[str, str]]:
         """(name, tag) for the dice log's names: the party's by place, then the monsters met in
@@ -848,7 +874,6 @@ class Viewer:
                 self.dice_text.tag_add(tag, f"{row}.{start}", f"{row}.{end}")
 
     def _append_dice(self, lines: List[str]) -> None:
-        at_end = self.dice_text.yview()[1] >= 0.999
         names = self._log_names() if lines else []
         for line in lines:
             tag = ("round" if line.startswith(("Round ", "Initiative: ")) else
@@ -863,7 +888,7 @@ class Viewer:
         excess = int(self.dice_text.index("end-1c").split(".")[0]) - MAX_LOG_LINES
         if excess > 0:
             self.dice_text.delete("1.0", f"{excess + 1}.0")
-        if at_end:
+        if self._following.get(self.dice_text, True):
             self.dice_text.see("end")
 
     def _ac_rows(self, slots) -> List[Tuple[str, List[str]]]:

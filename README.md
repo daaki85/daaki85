@@ -79,6 +79,9 @@ folder.
   their own, monsters' in red, bold, all at 4.5:1 contrast or more.
 
 **Fixed**
+- **The dice log and the Dialogue tab keep up with the newest lines** (they
+  stopped following them, and lines that came while another tab was open
+  were out of view); scrolling up to read back still holds the place.
 - **The bone scale set added twice** to a game loaded after it was added: it is
   now added only where none of its pieces is.
 - **No more log lines for the Ledger's items** handed out (the slave pens'

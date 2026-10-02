@@ -253,6 +253,10 @@ party) and every monster and other creature in red, so who acts and who is
 hit can be followed down the log. Every colour has at least 4.5:1 contrast
 with the log's background (WCAG 2.0 AA, as AODA asks).
 
+The log keeps its newest line in view. Scroll up to read back and it stays
+where you are; scroll to the bottom again and it follows the new lines once
+more. The Dialogue tab does the same.
+
 **Show unlabelled rolls** also lists everything else the game randomises
 (creatures wandering, animations and so on), as raw numbers with where in the
 game's code they came from. It's noisy, but useful for finding more rolls worth
