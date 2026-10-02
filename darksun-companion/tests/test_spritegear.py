@@ -158,8 +158,8 @@ class WeaponTests(unittest.TestCase):
         new = drawn(before, sg.armed(before, 2095, 1, False, {"cloak": (65, 5)}, PAD, cloak=template))
         self.assertTrue(new)
         self.assertTrue(set(new.values()) <= set(sg.CLOAK_COLOURS[65]))
-        self.assertTrue(all(y >= p.shoulders[0] + PAD for _, y in new))
-        self.assertFalse({(x + PAD, y + PAD) for x, y in p.hair} & set(new))
+        head = {(x + PAD, y + PAD) for y in range(p.head.top, p.shoulders[0]) for x in range(p.head.left, p.head.right + 1)}
+        self.assertFalse(({(x + PAD, y + PAD) for x, y in p.hair} | head) & set(new))  # (up to the hair, not over it)
         own = drawn(her_rows, sg.armed(her_rows, sg.CLOAK_MODEL, 1, False, {"cloak": (65, 5)}, PAD))
         self.assertTrue(own and set(own.values()) <= set(sg.CLOAK_COLOURS[65]))
         self.assertEqual(drawn(her_rows, sg.armed(her_rows, sg.CLOAK_MODEL, 1, False, {}, PAD)), {})

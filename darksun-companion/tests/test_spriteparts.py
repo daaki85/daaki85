@@ -43,7 +43,7 @@ class PartsTests(unittest.TestCase):
         self.assertLess(p.head.brow, 5)
         self.assertEqual(p.shoulders, (5, 2, 13))
         # facing the viewer, their right hand is on the left of the picture
-        self.assertEqual(p.hands, {"right": (1, 10), "left": (14, 10)})
+        self.assertEqual(p.hands, {"right": (1, 11), "left": (14, 11)})
         self.assertTrue(5 < p.waist < 15)
         self.assertEqual([(y, a, b) for y, a, b in p.feet], [(15, 5, 6), (15, 9, 10)])
         self.assertEqual(p.bottom, 15)
@@ -58,20 +58,20 @@ class PartsTests(unittest.TestCase):
         """From behind, their right hand is on the right."""
         p = sp.find(rows(), 2095, 1)
         self.assertEqual(p.facing, sp.BACK)
-        self.assertEqual(p.hands, {"left": (1, 10), "right": (14, 10)})
+        self.assertEqual(p.hands, {"left": (1, 11), "right": (14, 11)})
 
     def test_one_hand(self):
         """One wristband: named by the side of the body it is on."""
         one = [line[:8] + line[8:].replace("g", "s") for line in FIGURE]
-        self.assertEqual(sp.find(rows(one), 2095, 0).hands, {"right": (1, 10)})
-        self.assertEqual(sp.find(rows(one), 2095, 1).hands, {"left": (1, 10)})
+        self.assertEqual(sp.find(rows(one), 2095, 0).hands, {"right": (1, 11)})
+        self.assertEqual(sp.find(rows(one), 2095, 1).hands, {"left": (1, 11)})
 
     def test_knee_bands_are_not_hands(self):
         """Grey bands below the hips (a half-giant's knees and boots) are not wristbands."""
         knees = list(FIGURE)
         knees[13] = "......g..g......"
         p = sp.find(rows(knees), 2095, 0)
-        self.assertEqual(set(p.hands.values()), {(1, 10), (14, 10)})
+        self.assertEqual(set(p.hands.values()), {(1, 11), (14, 11)})
 
     def test_frames(self):
         self.assertEqual(len(sp.WALK_FACING), sp.WALK_FRAMES)

@@ -398,7 +398,13 @@ def draw_cloak(rows: Rows, body: Rows, model: int, parts: sp.Parts, item_type: i
     if filled:
         bx0, bx1 = min(x for x, _ in filled) - 2, max(x for x, _ in filled) + 2
         placed = {k: v for k, v in placed.items() if bx0 <= k[0] <= bx1}
-    placed = {k: v for k, v in placed.items() if k[1] >= parts.shoulders[0]}  # (it hangs from the shoulders)
+    # it hangs from the shoulders (from behind, draped over their tops)
+    shoulder_top = parts.shoulders[0] - (2 if parts.facing == sp.BACK else 0)
+    placed = {k: v for k, v in placed.items() if k[1] >= shoulder_top}
+    if parts.facing == sp.BACK:  # (from behind, no wider than the back: where hers swings out, not his)
+        _, sa, sb = parts.shoulders
+        centre, back = (sa + sb) / 2, (sb - sa) * 0.38  # (the shoulder line runs over the arms)
+        placed = {k: v for k, v in placed.items() if abs(k[0] - centre) <= back}
     on_body = {(x, y) for x, y in filled}
     seen: set = set()
     kept: Dict[sp.Point, int] = {}
@@ -432,12 +438,21 @@ def draw_cloak(rows: Rows, body: Rows, model: int, parts: sp.Parts, item_type: i
                             fill.setdefault((x + dx * k, y + dy * k), placed[(x, y)])
                         break
         placed.update(fill)
+    if parts.facing == sp.BACK and placed:  # (from behind, up the back to the hair, as hers is worn)
+        for x in {x for x, _ in placed}:
+            y = min(yy for xx, yy in placed if xx == x)
+            colour = placed[(x, y)]
+            for up in range(1, 5):
+                q = (x, y - up)
+                if q not in on_body or q in keep:
+                    break
+                placed[q] = colour
     # a dark edge where the cloak meets the ground, as hers has (not along its top, at the shoulders)
     edge = set()
     for (x, y) in placed:
         for dx, dy in ((1, 0), (-1, 0), (0, 1)):
             n = (x + dx, y + dy)
-            if n not in placed and n not in on_body:
+            if n not in placed and n not in on_body and n not in keep:
                 edge.add(n)
     for (x, y), p in placed.items():
         X, Y = x + pad, y + pad
@@ -620,7 +635,8 @@ def armed(rows: Rows, model: int, frame: int, combat: bool, weapons: Dict[str, T
         if shape in TWO_HANDED and not combat and hand == "right":
             g = UPRIGHT.get(parts.facing, g)
         if shape == SHIELD:
-            draw_shield(out, body, (hx + pad, hy + pad), parts.facing, colours, g[1], MODEL_SCALE.get(model, 1.0))
+            behind = g[1] or parts.facing == sp.BACK  # (from behind: held in front of the body)
+            draw_shield(out, body, (hx + pad, hy + pad), parts.facing, colours, behind, MODEL_SCALE.get(model, 1.0))
         else:
             draw_weapon(out, body, (hx + pad, hy + pad), g[0], shape, colours, g[1], MODEL_SCALE.get(model, 1.0))
     return out

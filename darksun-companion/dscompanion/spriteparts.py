@@ -240,7 +240,7 @@ def find(rows: Rows, model: int, frame: int, combat: bool = False) -> Parts:
                 name = "left" if on_left else "right"
             else:
                 name = "left" if on_left else "right"  # facing right: the forward hand, the near one
-            hands[name] = (gx, gy + 1)  # (just below the band: the hand)
+            hands[name] = (gx, gy + 2)  # (below the band: the fist)
 
     # the feet: the lowest row of each leg (runs in the last rows not over one already found)
     feet: List[Tuple[int, int, int]] = []
