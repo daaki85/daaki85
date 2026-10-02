@@ -25,14 +25,25 @@ def drawn(before, after):
 
 class WeaponTests(unittest.TestCase):
     def test_sword_in_the_right_hand(self):
-        """Facing the viewer: from the hand on the left of the picture, down and outward, in metal."""
+        """In a fight, facing the viewer: from the hand, in metal."""
         before = rows()
-        new = drawn(before, sg.armed(before, 2095, 0, False, {"right": (SWORD, METAL)}, PAD))
-        hx, hy = sp.find(before, 2095, 0).hands["right"]
+        new = drawn(before, sg.armed(before, 2095, 0, True, {"right": (SWORD, METAL)}, PAD))
         self.assertTrue(new)
         self.assertTrue(set(new.values()) <= set(sg.MATERIAL_COLOURS[METAL]))
-        self.assertTrue(all(y >= hy + PAD - 1 for _, y in new))  # (it hangs down: the guard across the hand)
-        self.assertLess(min(x for x, _ in new), hx + PAD)  # (and out, to the left)
+
+    def test_sheathed_at_the_hip(self):
+        """Walking, a sword is worn at the belt on its hand's side: the hilt above the waist, the
+        rest hanging down, and nothing out at the hand."""
+        before = rows()
+        new = drawn(before, sg.armed(before, 2095, 0, False, {"right": (SWORD, METAL)}, PAD))
+        p = sp.find(before, 2095, 0)
+        hx, _ = p.hands["right"]
+        middle = (p.head.left + p.head.right) / 2
+        self.assertTrue(new)
+        self.assertTrue(any(y <= p.waist + PAD for _, y in new))  # (the hilt)
+        self.assertGreater(sum(1 for _, y in new if y > p.waist + PAD + 1), len(new) // 2)
+        self.assertTrue(all(x - PAD < middle + 1 for x, _ in new))  # (that side)
+        self.assertNotIn((hx + PAD, p.hands["right"][1] + PAD), new)
 
     def test_material(self):
         before = rows()
@@ -67,11 +78,11 @@ class WeaponTests(unittest.TestCase):
     def test_behind_the_body(self):
         """A grip marked behind leaves the body's pixels alone."""
         before = rows()
-        sg.MODEL_GRIPS[(2095, False, 0)] = {"right": (0, True)}  # (pointing right, across the body)
+        sg.MODEL_GRIPS[(2095, True, 0)] = {"right": (0, True)}  # (pointing right, across the body)
         try:
-            new = drawn(before, sg.armed(before, 2095, 0, False, {"right": (SWORD, METAL)}, PAD))
+            new = drawn(before, sg.armed(before, 2095, 0, True, {"right": (SWORD, METAL)}, PAD))
         finally:
-            del sg.MODEL_GRIPS[(2095, False, 0)]
+            del sg.MODEL_GRIPS[(2095, True, 0)]
         old = sg.padded(before, PAD)
         self.assertTrue(new)
         self.assertTrue(all(old[y][x] is None for x, y in new))

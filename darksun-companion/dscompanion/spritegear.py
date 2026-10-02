@@ -3,8 +3,9 @@ each frame (set by hand where finding them goes wrong). The artist's pixels are 
 can be: what is worn on the body recolours the character's own picture, what is carried is drawn
 on it.
 
-  * Weapons and shields in the hands (each walking and fighting pose's grip set by hand), a bow and
-    quiver on the back, a sling or chatkcha at the hip: drawn, in their material's colours.
+  * Weapons and shields: in a fight in the hands (each pose's grip set by hand); walking, a shield
+    on the arm and a one-handed weapon worn at the belt like a scabbard; a bow and quiver on the
+    back, a sling or chatkcha at the hip: drawn, in their material's colours.
   * Body armour (chest, arms, legs), boots and belts: the character's own clothing, feet or waist
     recoloured toward the material, shade for shade.
   * Helms: a circlet at the brow, blended into the hair under it.
@@ -63,6 +64,16 @@ WALK_GRIPS: List[Dict[str, Grip]] = [
 ] + [{"right": (112, False), "left": (68, False)}] * 4 \
   + [{"right": (72, False), "left": (108, False)}] * 4 \
   + [{"right": (58, False), "left": (122, True)}] * 4
+# Walking, a one-handed weapon is not in the hand but worn at the belt by that hand's hip, the hilt
+# above the belt and the rest hanging down and back, as a scabbard (and a club or an axe through a
+# loop): its angle, by facing, for each side
+SHEATHED: Dict[Optional[str], Dict[str, Grip]] = {
+    sp.FRONT: {"right": (104, False), "left": (76, False)},  # (down the outside of the thigh)
+    sp.BACK: {"right": (76, False), "left": (104, False)},
+    sp.SIDE: {"right": (118, False), "left": (112, True)},  # (facing right: back is to the left)
+}
+HILT = 2  # (the grip and pommel above the belt)
+SHEATHED_SCALE = 0.8  # (clear of the ground)
 # Two-handed weapons (staffs, polearms, the gythka, the great axe) are carried upright in the right
 # hand, the butt by the feet: their angle, by facing, in place of the hand's own
 UPRIGHT: Dict[Optional[str], Grip] = {sp.FRONT: (262, False), sp.BACK: (278, False), sp.SIDE: (285, False)}
@@ -163,6 +174,30 @@ def draw_weapon(rows: Rows, body: Rows, hand: sp.Point, angle: float, shape: str
                 x = hx + dx * (step + sub) + across[0] * offset
                 y = hy + dy * (step + sub) + across[1] * offset
                 _put(rows, x, y, colours[colour], behind, body)
+
+
+def draw_hilt(rows: Rows, body: Rows, at: sp.Point, angle: float, colours: Tuple[int, int, int], behind: bool) -> None:
+    """A sheathed weapon's grip above AT, opposite the way it hangs (ANGLE): dark, its end lighter."""
+    dx, dy = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+    for step in range(1, HILT + 1):
+        _put(rows, at[0] - dx * step, at[1] - dy * step, colours[0] if step < HILT else colours[1], behind, body)
+
+
+def _hip(rows: Rows, parts: sp.Parts, hx: int, pad: int) -> sp.Point:
+    """Where a weapon is worn by the hand at HX: the side of the torso (not the arm) at the waist,
+    on that hand's side; from the side, the middle of the body."""
+    y = parts.waist
+    if not parts.shoulders or not parts.head:
+        return hx, y
+    _, sa, sb = parts.shoulders
+    middle = (parts.head.left + parts.head.right) / 2 if parts.facing != sp.SIDE else (sa + sb) / 2
+    run = _torso_run(rows, y + pad, middle + pad, sa + pad, sb + pad)
+    if not run:
+        return hx, y
+    a, b = run[0] - pad, run[1] - pad
+    if parts.facing == sp.SIDE:
+        return (a + b) // 2, y + 1
+    return (a + 1 if hx < middle else b - 1), y + 1
 
 
 def draw_shield(rows: Rows, body: Rows, hand: sp.Point, facing: Optional[str], colours: Tuple[int, int, int],
@@ -578,7 +613,8 @@ def draw_belt(rows: Rows, parts: sp.Parts, item_type: int, pad: int) -> None:
 def armed(rows: Rows, model: int, frame: int, combat: bool, weapons: Dict[str, Tuple[int, int]],
           pad: int = 10, armour: Tuple[int, ...] = (),
           cloak: Optional[Tuple[sp.Parts, Dict[sp.Point, int]]] = None) -> Rows:
-    """One frame of MODEL with WEAPONS ({"right"/"left": (item type, material)} drawn in the hands;
+    """One frame of MODEL with WEAPONS ({"right"/"left": (item type, material)}: in the hands in a
+    fight, walking worn at the belt (two-handed ones carried upright);
     "missile": the bow, sling or chatkcha carried, "ammo": arrows, on the back or at the hip),
     padded by PAD, in ARMOUR (item types: under all the rest). Nothing in the hands in the bow
     frames (the game draws the bow)."""
@@ -640,13 +676,19 @@ def armed(rows: Rows, model: int, frame: int, combat: bool, weapons: Dict[str, T
             continue
         colours = FLAME if item_type == FLAME_BLADE else MATERIAL_COLOURS.get(material, MATERIAL_COLOURS[4])
         hx, hy = hands[hand]
+        scale = MODEL_SCALE.get(model, 1.0)
         if shape in TWO_HANDED and not combat and hand == "right":
             g = UPRIGHT.get(parts.facing, g)
+        elif not combat and shape != SHIELD and shape not in TWO_HANDED and parts.facing in SHEATHED:
+            g = SHEATHED[parts.facing][hand]
+            hx, hy = _hip(out, parts, hx, pad)
+            draw_hilt(out, body, (hx + pad, hy + pad), g[0], colours, g[1])
+            scale = SHEATHED_SCALE * MODEL_SCALE.get(model, 1.0)
         if shape == SHIELD:
             behind = g[1] or parts.facing == sp.BACK  # (from behind: held in front of the body)
             draw_shield(out, body, (hx + pad, hy + pad), parts.facing, colours, behind, MODEL_SCALE.get(model, 1.0))
         else:
-            draw_weapon(out, body, (hx + pad, hy + pad), g[0], shape, colours, g[1], MODEL_SCALE.get(model, 1.0))
+            draw_weapon(out, body, (hx + pad, hy + pad), g[0], shape, colours, g[1], scale)
     return out
 
 
