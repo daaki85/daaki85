@@ -24,7 +24,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Callable, Dict, List, NamedTuple, Optional, Tuple
 
-from . import game, icons, monsters, names, npcitems, pickpocket, ring, stealth, tools, vulture
+from . import bonescale, game, icons, monsters, names, npcitems, pickpocket, ring, stealth, tools, vulture
 from .game import (CONVENTIONAL_AND_UPPER, CREATURE_ABILITIES, CREATURE_SIDE, CREATURE_THAC0, EFFECT_NAMES,
                    EFFECT_RULES, MATERIAL_TO_HIT, MATERIALS, SAVE_NAMES, STR_DAMAGE, GameData)
 from .guestmem import GuestMemory
@@ -929,6 +929,7 @@ class DiceLog:
             if npcitems.types_ready(self.game, self.tsr_hdr):  # Kurzak's, Legcrusher's, Pehtucl's
                 before = set(self.tools_given)
                 out += npcitems.place(self.game, self.tools_given)
+                out += bonescale.place(self.game, self.tools_given)  # the bone scale armour's set
                 self._tools_new += sorted(self.tools_given - before)
             if self.pickpockets:
                 tools.repaint(self.game)

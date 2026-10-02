@@ -94,6 +94,9 @@ folder.
   plain ones. The launcher writes a copy of the game's objects file with them
   in its own folder; the game folder is untouched.
 
+- **The bone scale set:** where the Bone Scale Chest Armor is found, its arm and
+  leg pieces (the game's own, never placed) and a new Bone Helm, coloured to
+  match, are found with it.
 - **Rule change: half-giants wield two-handed weapons in one hand,** with a
   shield or a light weapon in the other (the game's rule against two heavy
   weapons still stands).

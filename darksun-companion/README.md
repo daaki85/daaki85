@@ -817,6 +817,7 @@ game cycles, so they flicker like fire):
 | **Cloak of Protection +1** | every other pixel of its lightest folds violet |
 | **Ring of Protection +1**, Pehtucl's | its gold band violet |
 | **Ring of Protection +1**, the arena's | its gold band in the cycling fire colours |
+| **Bone Helm** ([the bone scale set](#the-bone-scale-set)) | the leather Helm's, each shade of leather made the bone scale armour's of the same brightness |
 
 ![Dream's backpack: under a long sword, the Short Sword, Leather Chest Armor +1, the Cloak of Protection +1, and Pehtucl's and the arena's Rings of Protection +1](docs/icons.png)
 
@@ -826,7 +827,7 @@ palette file, are each region's to set (red in the slave pens).
 
 How: the game reads its objects' pictures from `SEGOBJEX.GFF`. When it starts
 the game, the launcher writes `dos\SEGOBJEX.GFF`: the game's file (only read)
-with five objects and their pictures added at its end, its index grown to
+with six objects and their pictures added at its end, its index grown to
 list them (in order of number, as the game looks them up) and a new table of
 contents after them (`dscompanion/icons.py`). The helper has the game open
 that copy instead of its own (its `INT 21h` hook: it opens the copy when the
@@ -834,6 +835,27 @@ game opens `SEGOBJEX.GFF`, and notes that it has), and the Ledger gives the
 Ledger's items those objects' pictures. In a game without the copy, the Ledger
 puts the plain pictures back; a save with the new pictures loaded in the
 original game shows those items without an icon.
+
+### The bone scale set
+
+The game has Bone Scale Chest Armor, Arm Armor and Leg Armor (objects 1033 to
+1035, in its tables as a set), but only the chest piece is ever placed. With
+the Ledger running, the first time the chest piece is in the region with the
+party, wherever it is (on the ground, in a container, or already carried), the
+rest of the set is put with it: the **Bone Scale Arm Armor**, the **Bone Scale
+Leg Armor** and a **Bone Helm**, in the same pile or container, or in the
+carrier's pack. Once a game. The log says so:
+
+```
+Beside the Bone Scale Chest Armor lie the rest of the set: its arm and leg pieces, and a helm of bone.
+```
+
+The arm and leg pieces are the game's own, with its own icons. The game has
+no helm of bone, so the Bone Helm is an item type of the Ledger's own (the
+leather Helm's, of bone, AC 1 with **Helms give AC 1** like the game's helms),
+with an icon in the bone scale's colours (see [Item icons](#item-icons)).
+
+![Dream's pack with the bone scale set: the chest, arm and leg pieces, and the Bone Helm under the pointer with its name](docs/bonescale.png)
 
 ### Picking pockets
 

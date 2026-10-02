@@ -589,6 +589,15 @@ class RuleTests(RingTests):
         self.assertEqual(self.thief_skill(7, 3, 22, (252 - 256) & 0xFFFF), (0, 1))  # read languages
         self.assertEqual(self.thief_skill(0, 0, 22, 28), (28, 0))  # no thief level: the game's
 
+    def test_bone_helm_counts_as_a_helm(self):
+        """Helms give AC 1 (rule 1): the companion's bone helm (type 117) as the game's (5)."""
+        for typ in (5, 117):
+            for rules, want in ((1, 1), (0, 0)):
+                self.rules(rules)
+                self.mu.mem_write(self.TYPES * 16 + 0x12, bytes([9]))
+                self.run_at(bytes((0xCD, VEC_RING_AC)), es=self.TYPES, ebx=0, ecx=typ, eax=0)
+                self.assertEqual(self.mu.mem_read(self.TYPES * 16 + 0x12, 1)[0], want, (typ, rules))
+
     def two_handed(self, race, flags=0x40):
         """INT VEC_TWO_HANDED with ES:BX an item type whose +0Fh is FLAGS, for the character on
         show (number 2, at the game's 0348h:25Bh) of RACE: ZF (the game's JE: not two-handed),
@@ -851,7 +860,7 @@ class TypesTests(unittest.TestCase):
         self.mu.mem_write(SS * 16 + 0x7FC, bytes(4))
         self.assertEqual(self.interrupt(VEC_TYPES_FILL, eax=0), 0x80C)
         at = self.TYPES_SEG * 16 + 115 * 20
-        self.assertEqual(bytes(self.mu.mem_read(at, 40)), b"".join(npcitems.TYPES))
+        self.assertEqual(bytes(self.mu.mem_read(at, 20 * len(npcitems.TYPES))), b"".join(npcitems.TYPES))
         first, off, seg = struct.unpack("<HHH", self.mu.mem_read(self.hdr + 212, 6))
         self.assertEqual((first, off, seg), (115, 0, self.TYPES_SEG))
         self.assertEqual([self.mu.reg_read(x) for x in (r.UC_X86_REG_AX, r.UC_X86_REG_DS)], [0, GAME_DS])

@@ -77,7 +77,7 @@ RING_TYPE = 102
 # metal short sword, and a cloak of protection, whose plus counts for AC and, worn (CLOAK),
 # on saves as a ring's does
 GAME_TYPES = 115
-SHORT_SWORD_TYPE, CLOAK_TYPE = GAME_TYPES, GAME_TYPES + 1
+SHORT_SWORD_TYPE, CLOAK_TYPE, BONE_HELM_TYPE = GAME_TYPES, GAME_TYPES + 1, GAME_TYPES + 2
 # The companion's rule changes (DSCLOG's RULES): helms count AC 1, boots add a move in a fight;
 # AD&D's two-weapon penalties; spells saved against with the spell save; no doubled d20
 RULE_HELMS, RULE_BOOTS, RULE_TWO_WEAPONS, RULE_SPELL_SAVE, RULE_NO_DOUBLE = 1, 2, 4, 8, 16

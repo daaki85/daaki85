@@ -1752,6 +1752,7 @@ RING_TYPE  equ 102
 HELM_LEATHER equ 5              ; the helm item types: Helm, Dapartea's Helm; Helm of
 HELM_METAL   equ 89             ; Contemplation; and a leather one no object uses (Helm of
 HELM_OTHER   equ 109            ; Might, made by a script)
+HELM_BONE    equ 117            ; (and the companion's bone helm, of TYPES)
 FINGER     equ 4                ; the item's slot byte while worn on a finger (the left
 FINGER2    equ 11               ; hand's, then the right's)
 CLOAK      equ 12               ; ... and on the back
@@ -1777,6 +1778,8 @@ probe_ring_ac:
         cmp cx, HELM_METAL
         je .is
         cmp cx, HELM_OTHER
+        je .is
+        cmp cx, HELM_BONE
         je .is
         iret
 .is:    push ax
@@ -2485,7 +2488,10 @@ extra_types:
         ; for AC (bit 80h of +0Fh, as armour's) with an AC of its own of 0
         db 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x0A, 0x00, 0x40, 0x08, 0x00, 0x00
         db 0x00, 0x00, 0x00, 0x80, 0xFF, 0x1F, 0x00, 0x01
-        times (TYPES_EXTRA - 2) * TYPE_SIZE db 0
+        ; a bone helm: the Helm's type (5), of bone (to go with the bone scale armour)
+        db 0x00, 0x00, 0x00, 0x00, 0x0F, 0x00, 0xFA, 0x00, 0x01, 0x06, 0x00, 0x00
+        db 0x00, 0x00, 0x00, 0x80, 0x6F, 0x16, 0x00, 0x00
+        times (TYPES_EXTRA - 3) * TYPE_SIZE db 0
 ; the names, numbered from NAMES_OWN (322): the companion's items' (the same as the companion's
 ; NAMES in dscompanion/names.py), the rest blank until it writes more
 extra_names:
