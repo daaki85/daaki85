@@ -78,6 +78,10 @@ folder.
 - **Names in colour in the dice log:** each party member's in a colour of
   their own, monsters' in red, bold, all at 4.5:1 contrast or more.
 
+- **Cat's Grace looks like itself:** its own icon (a lean, fox-like cat's face
+  on gold) and its own description in the spell box, instead of Flaming
+  Sphere's.
+
 **Fixed**
 - **The slave pens' gear given twice** (a second short sword on Kurzak after
   his was lifted, two Leather Chest Armor +1 on Legcrusher) to a game loaded

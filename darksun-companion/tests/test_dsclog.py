@@ -18,7 +18,7 @@ from dscompanion.gamepatch import (VEC_AC, VEC_DOUBLE, VEC_MSG, VEC_NEXT, VEC_RA
                                   VEC_RING_SAVE, VEC_SAVE, VEC_TEXT, VEC_TWO, VEC_GRACE_CAST, VEC_GRACE_EFFECT,
                                   VEC_GRACE_ABILITY, VEC_NAMES_FILL, VEC_NAMES_SIZE, VEC_STEALTH, VEC_TYPES_FILL,
                                   VEC_TYPES_SIZE, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED,
-                                  VEC_SPELL_TEXT)
+                                  VEC_SPELL_TEXT, VEC_CHUNK_ID)
 
 try:
     from unicorn import Uc, UC_ARCH_X86, UC_HOOK_INTR, UC_HOOK_MEM_WRITE, UC_MODE_16
@@ -668,6 +668,39 @@ class RuleTests(RingTests):
         self.assertEqual(self.spell_text(15, 0xFFFF)[1], 0xFFFF)  # (no chunk read)
         self.rules(0)
         self.assertEqual(self.spell_text(15), (b"FLAMING SPHERE:  Creates a burning globe.\r\n", 112))
+
+    def chunk_id(self, kind, number, resources_on=1, limit=0x0100):
+        """INT VEC_CHUNK_ID at the start of a chunk-loading routine whose [BP+6] is KIND and
+        [BP+0Ah] NUMBER, the game's stack limit (DS:9Ch) LIMIT: (the number it then loads, CF from
+        the stack check)."""
+        image = load_image()
+        icon = image.find(bytes.fromhex("66817e06") + b"ICON")
+        self.assertGreater(icon, 0)
+        probe = image.rfind(bytes.fromhex("2ef606") + struct.pack("<H", self.RULES), 0, icon) - 1
+        self.assertEqual(image[probe], 0xFB)  # (its STI)
+        on, = struct.unpack_from("<H", image, image.find(bytes.fromhex("2e833e"), probe) + 3)
+        self.mu.mem_write(TSR * 16 + on, struct.pack("<H", resources_on))
+        self.mu.mem_write(VEC_CHUNK_ID * 4, struct.pack("<HH", probe, TSR))
+        self.mu.mem_write(SS * 16 + BP + 6, kind + struct.pack("<I", number))
+        self.mu.mem_write(GAME_DS * 16 + 0x9C, struct.pack("<H", limit))
+        self.run_at(bytes((0xCD, VEC_CHUNK_ID)), eax=0x1234)
+        self.assertEqual(self.mu.reg_read(r.UC_X86_REG_AX), 0x1234)
+        number, = struct.unpack("<I", self.mu.mem_read(SS * 16 + BP + 0x0A, 4))
+        self.assertTrue(self.mu.reg_read(r.UC_X86_REG_EFLAGS) & IF)  # (interrupts on: RETF 2 keeps flags)
+        return number, self.mu.reg_read(r.UC_X86_REG_EFLAGS) & 1
+
+    def test_cats_grace_icon(self):
+        """Rule 32, with the copy of RESOURCE.GFF open: Flaming Sphere's icon (21014) is asked for as
+        Cat's Grace's (21900); other icons and chunks, or without the rule or the copy, as asked.
+        The stack check as the game's: CF when its limit is below SP (0x800), not when above."""
+        self.rules(32)
+        self.assertEqual(self.chunk_id(b"ICON", 21014), (21900, 1))
+        self.assertEqual(self.chunk_id(b"ICON", 21015)[0], 21015)
+        self.assertEqual(self.chunk_id(b"SPIN", 21014)[0], 21014)
+        self.assertEqual(self.chunk_id(b"ICON", 21014, resources_on=0)[0], 21014)
+        self.assertEqual(self.chunk_id(b"ICON", 21014, limit=0x900)[1], 0)
+        self.rules(0)
+        self.assertEqual(self.chunk_id(b"ICON", 21014)[0], 21014)
 
     def con_levels(self, cls, level):
         """INT VEC_HD_CON with AL a class's level, ES:BX its group (dice up to 9), the game's

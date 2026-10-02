@@ -57,6 +57,7 @@ VEC_HD_CON equ 0xE5        ; PROBE_HD_CON
 VEC_THIEF_SKILL equ 0xE4   ; PROBE_THIEF_SKILL
 VEC_TWO_HANDED equ 0xE3    ; PROBE_TWO_HANDED
 VEC_SPELL_TEXT equ 0xE2    ; PROBE_SPELL_TEXT
+VEC_CHUNK_ID equ 0xE1      ; PROBE_CHUNK_ID
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -2236,6 +2237,32 @@ grace_text:
         db "CAT'S GRACE:  Raises the target's dexterity by 1 to 6 pts. Maximum dexterity is 24.", 13, 10, 0
 GRACE_TEXT_LEN equ $ - grace_text
 
+; PROBE_CHUNK_ID: INT VEC_CHUNK_ID replaces "cmp [9Ch],sp" (4 bytes: INT + 2 NOPs; the stack
+; check) at the start of the game's two routines that load a GFF chunk, whose [BP+6] is the
+; chunk's type and [BP+0Ah] its number (dwords). With RULE_CATS_GRACE, and the companion's copy
+; of RESOURCE.GFF open, Flaming Sphere's icon (ICON 21014) is asked for as Cat's Grace's
+; (GRACE_ICON, which only the copy has). Then the stack check, with the routine's SP; RETF 2
+; keeps its flags.
+SPHERE_ICON equ 21014
+GRACE_ICON  equ 21900
+probe_chunk_id:
+        sti                     ; (RETF 2 keeps these flags: interrupts on, as the game had them)
+        test byte [cs:rules], RULE_CATS_GRACE
+        jz .check
+        cmp word [cs:resources_on], 1
+        jne .check
+        cmp dword [bp+6], 0x4E4F4349    ; 'ICON'
+        jne .check
+        cmp dword [bp+0x0A], SPHERE_ICON
+        jne .check
+        mov dword [bp+0x0A], GRACE_ICON
+.check: push ax
+        mov ax, sp
+        add ax, 8               ; (the routine's SP: past this push and INT's IP, CS and flags)
+        cmp [0x9C], ax
+        pop ax
+        retf 2
+
 ; AD&D's average thief skills, levels 1-10, a row per skill (game.AD_D_THIEF)
 thief_table:
         db 30, 35, 40, 45, 50, 55, 60, 65, 70, 80     ; pick pockets
@@ -2264,14 +2291,16 @@ dex_table:
         db 27, 30, 17, 30, 22
 
 ; PROBE_DOS_OPEN: the DOS services (INT 21h), hooked. Opening a file (AH=3Dh) whose name ends in
-; SEGOBJEX.GFF, the game's objects and their pictures, opens the companion's copy instead
-; (D:\SEGOBJEX.GFF, which the launcher writes with the companion's item icons added; the game
-; folder is never changed); with no copy there, the game's own. Everything else goes on to DOS.
+; one of COPIES' (SEGOBJEX.GFF, the game's objects and their pictures; RESOURCE.GFF, its screens'
+; pictures and texts) opens the companion's copy instead (D:\..., which the launcher writes with
+; the companion's icons added; the game folder is never changed), and notes that it has; with no
+; copy there, the game's own. Everything else goes on to DOS.
 OBJ_NAME_LEN equ 12
 probe_dos_open:
         cmp ah, 3Dh
         jne .chain
         push ax
+        push bx
         push cx
         push si
         push di
@@ -2288,7 +2317,11 @@ probe_dos_open:
         cmp ax, OBJ_NAME_LEN
         jb .no
         sub si, OBJ_NAME_LEN
-        mov di, obj_name
+        mov bx, copies
+.file:  cmp byte [cs:bx], 0
+        je .no
+        push si
+        mov di, bx
         mov cx, OBJ_NAME_LEN
 .cmp:   mov al, [si]
         cmp al, 'a'
@@ -2297,13 +2330,20 @@ probe_dos_open:
         ja .upper
         sub al, 20h
 .upper: cmp al, [cs:di]
-        jne .no
+        jne .next
         inc si
         inc di
         loop .cmp
+        pop si
+        jmp .found
+.next:  pop si
+        add bx, COPY_SIZE
+        jmp .file
+.found: mov [cs:copy_at], bx
         pop di
         pop si
         pop cx
+        pop bx
         pop ax
         sti                     ; (RETF 2 keeps these flags: interrupts on, as the game had them)
         push ax                 ; (the game's AX, for its own file if there's no copy)
@@ -2311,26 +2351,41 @@ probe_dos_open:
         push dx
         push cs
         pop ds
-        mov dx, obj_copy
+        mov dx, [cs:copy_at]
+        add dx, OBJ_NAME_LEN    ; its copy's path
         pushf
         call far [cs:old21]
         pop dx
         pop ds
         jc .own
         pop word [cs:obj_scratch]  ; (POP keeps the flags: CF clear, AX the handle)
-        mov word [cs:objects_on], 1
+        push bx
+        mov bx, [cs:copy_at]
+        mov bx, [cs:bx + OBJ_NAME_LEN + COPY_PATH]  ; (its flag: set to 1)
+        mov word [cs:bx], 1
+        pop bx
         retf 2
 .own:   pop ax
         jmp .chain
 .no:    pop di
         pop si
         pop cx
+        pop bx
         pop ax
 .chain: jmp far [cs:old21]
 old21       dd 0
 obj_scratch dw 0
-obj_name    db 'SEGOBJEX.GFF'
-obj_copy    db 'D:\SEGOBJEX.GFF', 0
+copy_at     dw 0
+resources_on dw 0               ; 1 once the game has opened D:\RESOURCE.GFF (PROBE_CHUNK_ID)
+; the files with copies: the game's name (12 letters), the copy's path, the flag set when opened
+COPY_PATH equ 16
+COPY_SIZE equ OBJ_NAME_LEN + COPY_PATH + 2
+copies:
+        db 'SEGOBJEX.GFF', 'D:\SEGOBJEX.GFF', 0
+        dw objects_on
+        db 'RESOURCE.GFF', 'D:\RESOURCE.GFF', 0
+        dw resources_on
+        db 0
 
 ; CAT'S GRACE (RULE_CATS_GRACE): Flaming Sphere (spell 14), given Strength's record and the
 ; name by the companion, works as Strength does but for DEX: its own effect (54, a number the
@@ -2666,7 +2721,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 35
+        mov cx, 36
 .check:
         lodsb
         mov ah, 35h
@@ -2787,6 +2842,9 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_SPELL_TEXT
         mov dx, probe_spell_text
         int 21h
+        mov ax, 2500h + VEC_CHUNK_ID
+        mov dx, probe_chunk_id
+        int 21h
         mov ax, 3521h           ; DOS itself last: opening the objects file (PROBE_DOS_OPEN)
         int 21h
         mov [old21], bx
@@ -2810,7 +2868,7 @@ install:                        ; DS = ES = PSP, CS = the image
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
 busy    db 'DSCLOG: interrupts 60h-65h or E5h-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED, VEC_SPELL_TEXT
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED, VEC_SPELL_TEXT, VEC_CHUNK_ID
 
         align 16, db 0
 image_len equ $ - $$

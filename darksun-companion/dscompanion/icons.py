@@ -202,6 +202,64 @@ def with_chunks(data: bytes, added: gff.Chunks) -> bytes:
     return bytes(out)
 
 
+# Cat's Grace's spell icon (RESOURCE.GFF), for Flaming Sphere's (ICON 21014) with that rule:
+# Strength's tile (ICON 21023: the spell Cat's Grace works as) in a tawny cat's golds, its glyph a
+# lean cat's face in the game's dark line, with the light line below and right of it that its
+# glyphs have. DSCLOG asks for it in Flaming Sphere's place (PROBE_CHUNK_ID).
+RESOURCE_FILE = "RESOURCE.GFF"
+STRENGTH_ICON, GRACE_ICON = 21023, 21900
+GRACE_FILL = {163: 168, 76: 169, 77: 65, 75: 168, 78: 170, 134: 205}
+GRACE_FRAME = {60: 170, 145: 169, 147: 170, 133: 205, 203: 207, 134: 205}
+GLYPH, GLYPH_LIGHT = 204, 170
+CAT_FACE = (  # (a lean, fox-like face: the one liked best)
+    "....D......D....",
+    "....DD....DD....",
+    "....D.D..D.D....",
+    "....D..DD..D....",
+    "....D......D....",
+    "....D.D..D.D....",
+    "....D......D....",
+    ".....D.DD.D.....",
+    "......D..D......",
+    ".......DD.......",
+)
+CAT_TOP = 3
+
+
+def cat_icon(strength: Rows) -> Rows:
+    """Cat's Grace's icon from Strength's."""
+    n = len(strength)
+    out = [list(r) for r in strength]
+    for y in range(n):
+        for x in range(n):
+            p = out[y][x]
+            if x in (0, n - 1) or y in (0, n - 1):
+                out[y][x] = GRACE_FRAME.get(p, GRACE_FILL.get(p, 170))
+            elif p in (204, 147):  # Strength's glyph and its light line: filled in from the left
+                out[y][x] = out[y][x - 1] if x > 1 else 169
+            else:
+                out[y][x] = GRACE_FILL.get(p, 169)
+    glyph = {(x, CAT_TOP + j) for j, line in enumerate(CAT_FACE) for x, ch in enumerate(line) if ch == "D"}
+    for x, y in glyph:
+        if (x + 1, y + 1) not in glyph and 0 < x + 1 < n - 1 and 0 < y + 1 < n - 1:
+            out[y + 1][x + 1] = GLYPH_LIGHT
+    for x, y in glyph:
+        out[y][x] = GLYPH
+    return out
+
+
+def write_resources(source: str, dest: str) -> None:
+    """The game's RESOURCE.GFF (SOURCE, only read) with Cat's Grace's icon, to DEST."""
+    with open(source, "rb") as f:
+        data = f.read()
+    icon = encode(cat_icon(decode(gff.read_gff(data)[("ICON", STRENGTH_ICON)])))
+    out = with_chunks(data, {("ICON", GRACE_ICON): icon})
+    tmp = dest + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(out)
+    os.replace(tmp, dest)
+
+
 def write_objects(source: str, dest: str) -> None:
     """The game's SEGOBJEX.GFF (SOURCE, only read) with the companion's icons, to DEST."""
     with open(source, "rb") as f:

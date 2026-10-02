@@ -1028,8 +1028,12 @@ The game has no room for a new spell (wizard spells are numbers 1-68, every
 one taken), so Cat's Grace takes the place of Flaming Sphere, the weakest
 level 2 spell: 2d4 fire damage once, whatever the caster's level. While the
 box is ticked (it is by default), every character and monster who would cast
-Flaming Sphere casts Cat's Grace instead, under that name on the USE screen;
-untick it and Flaming Sphere is back.
+Flaming Sphere casts Cat's Grace instead, under that name on the USE screen,
+with an icon of its own (Strength's tile in a tawny cat's golds, a lean cat's
+face in the game's dark line) and its own description in the box a right-click
+on it opens; untick it and Flaming Sphere is back.
+
+![Cat's Grace on the USE screen: its icon, and its description](docs/catsgrace.png)
 
 How: the Ledger gives Flaming Sphere (spell 14) Strength's record (range,
 duration, whom it can be cast on) and the name, in the game's memory. The
@@ -1040,6 +1044,14 @@ abilities from its own scores and its effects, adds that to DEX the way
 Strength's adds to STR (`INT EFh`). When the spell runs out, the game works
 the abilities out again without it. A game saved while Cat's Grace lasts and
 loaded without the dice log simply ignores the effect it doesn't know.
+The description: the game reads a spell's text from RESOURCE.GFF (chunk SPIN,
+the spell's number + 1) into a buffer for the box; after the read
+(`INT E2h`) the helper puts Cat's Grace's in, in the game's words for
+Strength's. The icon: the launcher writes `dos\RESOURCE.GFF`, the game's file
+(only read) with the icon added (number 21900), which the helper has the game
+open in place of its own (as `SEGOBJEX.GFF`, see [Item icons](#item-icons));
+where the game's two routines that read a chunk begin (`INT E1h`), the helper
+has Flaming Sphere's icon (21014) read as that one.
 
 **Hiding in shadows to backstab.** The game never rolls hide in shadows, and a
 thief only backstabs a target that has turned to face someone else. With
@@ -1507,14 +1519,16 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    movement `INT FBh` (for boots), a key the conversation window doesn't know
    `INT FCh` and an item used on the map `INT FDh` (for
    [picking pockets](#picking-pockets)), the two-weapon adjustment `INT FEh`
-   and the doubling of a save's d20 `INT F0h`, Cat's Grace `INT EDh`-`INT EFh` and a hidden thief's attack `INT EAh` and the class level cap `INT E7h` and a thief's hit dice `INT E6h` and `INT E5h` and the thief skills `INT E4h` and two-handed weapons `INT E3h` (for
+   and the doubling of a save's d20 `INT F0h`, Cat's Grace `INT EDh`-`INT EFh` and a hidden thief's attack `INT EAh` and the class level cap `INT E7h` and a thief's hit dice `INT E6h` and `INT E5h` and the thief skills `INT E4h` and two-handed weapons `INT E3h` and Cat's
+   Grace's description and icon `INT E2h` and `INT E1h` (for
    [rule changes](#rule-changes)), and
    where the game makes room for its name table and reads it in `INT ECh` and
    `INT EBh` (for [new item names](#new-item-names)), and its item type table
    `INT E9h` and `INT E8h` (for [the slave pens' gear](#the-slave-pens-gear)), and
    the copy looks for its data files in the current
    folder rather than next to itself. The helper also hooks DOS's `INT 21h`, to
-   open the launcher's copy of `SEGOBJEX.GFF` (see [Item icons](#item-icons)). DOSBox runs it from the game folder, so
+   open the launcher's copies of `SEGOBJEX.GFF` and `RESOURCE.GFF` (see
+   [Item icons](#item-icons)). DOSBox runs it from the game folder, so
    it uses your saves as usual.
 2. `dos\DSCLOG.EXE` (source in `dos\dsclog.asm`) is a tiny DOS program loaded
    into upper memory before the game, so the game loses no memory. It answers
