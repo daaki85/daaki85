@@ -97,6 +97,9 @@ folder.
   their own, monsters' in red, bold, all at 4.5:1 contrast or more.
 
 **Fixed**
+- **XP taken away and given back between areas** (the game does it as the
+  party moves on) is no longer logged as a loss and a gain; a loss that stays
+  is logged after a minute.
 - **A monster's AC in its Look box** could be an earlier fight's creature's
   (the game reuses creature records): a slig in the first arena fight showed
   the opening fight's Defiler's AC −9. The Ledger now forgets monsters' ACs

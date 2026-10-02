@@ -14,6 +14,10 @@ from .game import CLASS_NAMES, GameData, ordinal
 MAX_COMBATANTS = 256
 XP_SETTLE = 0.5  # seconds to wait for every party member's XP to change
 KILL_WINDOW = 5.0  # seconds before an XP award in which kills count towards it
+# Going from one area to another, the game takes the party's XP away and gives it back a moment
+# later (the log showed "XP: Azil Wildthorn -557, ..." then "+557"): a loss is held this long, and
+# only logged if it isn't undone; a loss and its return log nothing
+LOSS_WAIT = 60.0
 
 
 class Member(NamedTuple):
@@ -39,6 +43,7 @@ class PartyTracker:
         self.xp_before: Optional[List[Optional[Member]]] = None
         self.xp_changed_at = 0.0
         self.xp_started_at = 0.0
+        self.loss: Optional[Tuple[List[Optional[Member]], float]] = None  # (XP before a loss, when)
 
     def reset(self) -> None:
         """Forget everything (a game was loaded)."""
@@ -46,6 +51,7 @@ class PartyTracker:
         self.monsters = {}
         self.kills = []
         self.xp_before = None
+        self.loss = None
 
     def _member(self, index: int) -> Optional[Member]:
         name = self.game.creature_name(index)
@@ -73,9 +79,22 @@ class PartyTracker:
             self.xp_changed_at = now
         self.members = members
         if self.xp_before is not None and now - self.xp_changed_at >= XP_SETTLE:
-            out += self._xp_line(self.xp_before, members)
-            self.xp_before = None
+            before, self.xp_before = self.xp_before, None
+            if self.loss is not None:
+                before, self.loss = self.loss[0], None  # (back, or not, from the held loss)
+            elif self._only_losses(before, members):
+                self.loss = (before, now)  # held: it may be an area change's
+                return out
+            out += self._xp_line(before, members)
+        elif self.loss is not None and self.xp_before is None and now - self.loss[1] >= LOSS_WAIT:
+            before, self.loss = self.loss[0], None
+            out += self._xp_line(before, members)
         return out
+
+    @staticmethod
+    def _only_losses(before: List[Optional[Member]], after: List[Optional[Member]]) -> bool:
+        changes = [new.xp - old.xp for old, new in zip(before, after) if old and new and old.name == new.name]
+        return any(changes) and all(c <= 0 for c in changes)
 
     def _check_monsters(self, now: float) -> List[str]:
         out = []

@@ -8,6 +8,7 @@ from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from dscompanion import tracker as tracker_module
 from dscompanion import dicelog, game, names
 from dscompanion.dicelog import AcDetail, DiceLog, Entry, KIND_AC, KIND_ROLL, KIND_SAVE
 from dscompanion.textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, DialogueEntry, TextBuffer
@@ -828,6 +829,25 @@ class NewLinesTests(unittest.TestCase):
         struct.pack_into("<I", m, SHEETS, 125)  # Dag's XP
         self.assertEqual(tracker.check(2.2), [])  # waits for the others' XP
         self.assertEqual(tracker.check(3.0), ["XP: Dag +125 (for Mountain Stalker 500)"])
+
+    def test_xp_taken_and_given_back(self):
+        """Going between areas the game takes the XP away and gives it back: nothing logged. A
+        loss that stays is logged once LOSS_WAIT has passed; a gain after a loss, as the net."""
+        log = make_game()
+        tracker, m = log.tracker, log.guest.mem
+        struct.pack_into("<I", m, SHEETS, 1000)
+        self.assertEqual(tracker.check(1.0), [])
+        struct.pack_into("<I", m, SHEETS, 443)  # -557
+        self.assertEqual(tracker.check(2.0) + tracker.check(3.0), [])
+        struct.pack_into("<I", m, SHEETS, 1000)  # back
+        self.assertEqual(tracker.check(4.0) + tracker.check(5.0) + tracker.check(200.0), [])
+        struct.pack_into("<I", m, SHEETS, 900)  # a loss that stays
+        self.assertEqual(tracker.check(201.0) + tracker.check(202.0), [])
+        self.assertEqual(tracker.check(202.0 + tracker_module.LOSS_WAIT), ["XP: Dag -100"])
+        struct.pack_into("<I", m, SHEETS, 800)
+        tracker.check(300.0), tracker.check(301.0)
+        struct.pack_into("<I", m, SHEETS, 1050)  # back, and 150 more
+        self.assertEqual(tracker.check(302.0) + tracker.check(303.0), ["XP: Dag +150"])
 
     def test_level_up_without_hit_points(self):
         log = make_game()
