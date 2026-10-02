@@ -40,6 +40,8 @@ game itself, in the game's own lettering and windows:
   holds.
 - **A mini-quest:** the cooked vulture, at last good for something (Dinos
   cooks it for the party).
+- **A new person in the slave pens:** Kalzith, a defiler slave who, treated
+  with respect, sells arcane spell scrolls that a preserver can learn from.
 - **What the party wears, on the map:** weapons, shields, bows, armour, helms,
   cloaks, boots and belts on their figures, walking and fighting, changing as
   their gear does.
@@ -87,9 +89,24 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
   does. Walking, a one-handed weapon hangs at the belt; in a fight it is in
   the hand. Two characters of the same race and sex each show their own
   gear. On by default; a switch on the Options tab.
+- **Kalzith, a defiler in the slave pens:** a slave the templars put in the
+  arena now and then, chained in an empty pen, with a face of his own (the
+  game's portrait 61 with a slave's brand). Talk to him (Look, then Talk):
+  treated with respect, he sells six spell scrolls, one of each (Magic Missile
+  and Color Spray 100, Blur and Cat's Grace 250, Lightning Bolt and Haste
+  500; Cat's Grace only with its rule on), in the game's own shop screen. A
+  preserver learns them as from any scroll. Accuse him and threaten to tell
+  the templars, and he won't trade until the party pays 50 ceramic or wins
+  him over (a Charisma check). New games only.
 
 **Changed**
 - **Cat's Grace's icon** is a cat's paw print instead of a cat's face.
+- **Dinos's vulture lines** are his own words, without narration (the game's
+  conversations are people speaking).
+
+**Fixed**
+- **"Killed" lines for everyone in an area the party left:** walking from the
+  slave pens into the arena logged most of the pens as "is killed (7261 XP)".
 
 ### Pull request #13 ([merged 2026-10-02](https://github.com/daaki85/darksun-companion-mod/pull/13))
 

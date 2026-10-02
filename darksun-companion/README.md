@@ -70,6 +70,8 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   cooks it properly for the party (see [The cooked vulture](#the-cooked-vulture)).
 - **Gear for the slave pens' bosses:** Kurzak, Legcrusher and Pehtucl carry
   things worth taking from them (see [The slave pens' gear](#the-slave-pens-gear)).
+- **Kalzith, a defiler in the slave pens,** who sells spell scrolls to a party
+  that treats him well (see [Kalzith](#kalzith)).
 - **Icons of their own** for the Ledger's magic items and the Short Sword,
   made from the game's (see [Item icons](#item-icons)).
 - **What the party wears, on the map:** their weapons and shields, bows and
@@ -79,7 +81,7 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
 Nothing in the game folder or your save files is changed, except that a game
 you save keeps what the Ledger has handed out or changed in play: the Ring +1,
 a thief's Thieves' Tools, whatever a thief has lifted, the slave pens' gear,
-and the XP and rest from Dinos's meal (untick the ring's and the pockets'
+Kalzith and his scrolls, and the XP and rest from Dinos's meal (untick the ring's and the pockets'
 boxes to go without those). The Short Sword and the Cloak of Protection are
 item types the original game doesn't have, so a save with them should be
 loaded with the dice log.
@@ -831,6 +833,65 @@ its owner's things (from the game's free list, worn where the slot is free,
 else in a backpack cell), and the game keeps and saves them like its own. In
 the original game, the sword and cloak are items of types it doesn't have:
 don't load a save that has them without the dice log.
+
+### Kalzith
+
+A new person in the slave pens: **Kalzith**, a defiler slave the templars put
+in the arena now and then (the crowd loves to watch a defiler burn), kept
+chained in an empty pen in the middle column the rest of the time. He has the
+arena Defiler's figure and a face of his own: the game's portrait 61 with a
+slave's brand on the brow, so the Dialogue tab never mistakes him for anyone
+else.
+
+![Kalzith: his talk, and his shop](docs/kalzith.png)
+
+Talk to him as to anyone (click him with the look pointer, then the Look box's
+Talk button). His conversation is the game's kind, just him speaking:
+
+- **With respect** ("We mean no harm. We're slaves too."), he owns up to
+  scribing spells on scraps of hide at night, to bribe a guard, and offers
+  them: **Show us what you have** opens the game's shop screen, with his six
+  scrolls, one of each:
+
+  | Level | Scroll | Price |
+  |---|---|---|
+  | 1 | Magic Missile, Color Spray | 100 ceramic |
+  | 2 | Blur, Cat's Grace | 250 |
+  | 3 | Lightning Bolt, Haste | 500 |
+
+  Cat's Grace is there only with its rule on (see
+  [Rule changes](#rule-changes)). A preserver learns a scroll's spell as from
+  any of the game's (right-click it in the inventory, click its spell), by the
+  game's own rules: a spell of a level the preserver can cast. He remembers a
+  friend ("Back again? Keep your voice down.").
+- **Calling him a defiler**, he answers back; take it back and he's friendly,
+  or **threaten to tell the templars** and he won't speak to the party again
+  until they make amends: **50 ceramic** (offered only to a party that has
+  it), or a plea that he wins over with a **Charisma check** (the character
+  talking rolls it).
+
+He is in **new games**: those that reach the slave pens with the Ledger's copies
+in use. (A save keeps the pens as they were when the party first went in.)
+
+How: he is the game's own kind of person, in the Ledger's copies of three of
+its files, which the dice log's helper has the game open instead of the
+originals:
+
+- `SEGOBJEX.GFF`: object 1000 (a person's object with the Defiler's picture,
+  and a slave's record, Dinos's, with his name and a defiler's class), and his
+  scrolls' objects 1001 to 1006 (copies of the game's scroll object). None of
+  these numbers is the game's.
+- `RGN29.GFF`, the slave pens: an entry setting him in his pen.
+- `GPLDATA.GFF`: his conversation (script 218, after the game's 217), its entry
+  in the game's table of script entry points (which saves go by), the command
+  in the pens' script that runs it when he's talked to, and his portrait
+  (portrait 101, a number the game leaves free).
+
+His state is in the game's own flags (760 to 763: met, friendly, cold, his
+scrolls given; the game uses flags up to 755), so a save keeps it. The first
+time the party is in the pens, the Ledger puts his six scrolls among his
+things (from the game's free list, as for [the slave pens' gear](#the-slave-pens-gear)),
+once a game.
 
 ### Item icons
 
