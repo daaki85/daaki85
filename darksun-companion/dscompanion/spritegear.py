@@ -19,7 +19,7 @@ MATERIAL_COLOURS = {
     0: (207, 205, 206),  # wood: dark faded brown
     1: (194, 214, 215),  # bone: weathered grey
     2: (210, 212, 213),  # stone: grey
-    3: (254, 18, 23),  # obsidian: near-black, a blue-grey sheen
+    3: (24, 18, 26),  # obsidian: near-black, its edges a lighter grey (to show on dark clothes)
     4: (22, 25, 27),  # metal: dull blue-grey iron
     5: (207, 205, 194),  # leather
 }
@@ -158,31 +158,101 @@ def draw_weapon(rows: Rows, body: Rows, hand: sp.Point, angle: float, shape: str
 
 
 def draw_shield(rows: Rows, body: Rows, hand: sp.Point, facing: Optional[str], colours: Tuple[int, int, int],
-                behind: bool) -> None:
-    """A round shield on the arm: face on from the front, its back from behind, edge on from the side."""
+                behind: bool, scale: float = 1.0) -> None:
+    """A round shield on the forearm (about 7 by 9 pixels on a human): its face, rim and boss from
+    the front, its strapped back from behind, edge on from the side."""
+    outline, fill, light = colours
     hx, hy = hand
+    rx, ry = 3.4 * scale, 4.4 * scale
+    cx, cy = hx, hy - 2 * scale  # (on the forearm, above the hand)
     if facing == sp.SIDE:
-        cells = [(0, dy, 0) for dy in range(-4, 2)] + [(1, dy, 1) for dy in range(-3, 1)]
+        rx = 1.2 * scale
+    for dy in range(-int(ry) - 1, int(ry) + 2):
+        for dx in range(-int(rx) - 1, int(rx) + 2):
+            d = (dx / rx) ** 2 + (dy / ry) ** 2
+            if d > 1.0:
+                continue
+            edge = d > 0.6 if facing != sp.SIDE else abs(dx) >= rx - 0.6
+            if edge:
+                c = outline
+            elif facing == sp.FRONT and abs(dx) <= 0 and abs(dy) <= 0:
+                c = light  # the boss
+            elif facing == sp.FRONT and dx < 0 and dy < 0 and d < 0.35:
+                c = light  # light on the upper left, as the game's pictures have it
+            elif facing == sp.BACK and dy in (-1, 1):
+                c = outline  # the straps on its back
+            else:
+                c = fill
+            _put(rows, cx + dx, cy + dy, c, behind, body)
+
+
+# On the back: the bow's stave and string, the quiver's leather and the arrows' fletching
+STAVE, STRING = (207, 205), 213
+QUIVER, FLETCHING = (207, 205, 194), (215, 196)
+
+
+def _line(a: Tuple[float, float], b: Tuple[float, float]) -> List[Tuple[float, float]]:
+    n = int(max(abs(b[0] - a[0]), abs(b[1] - a[1]))) + 1
+    return [(a[0] + (b[0] - a[0]) * i / max(1, n - 1), a[1] + (b[1] - a[1]) * i / max(1, n - 1)) for i in range(n)]
+
+
+def draw_back_gear(rows: Rows, body: Rows, parts: sp.Parts, pad: int, bow: bool, quiver: bool,
+                   at_hip: Optional[Tuple[int, int]] = None) -> None:
+    """A bow and a quiver on the back (across it from behind; their tops past the shoulders and a
+    strap across the chest from the front; hanging behind the back from the side), and a sling or
+    chatkcha at the hip (AT_HIP: its colours)."""
+    if not parts.shoulders or parts.waist is None:
+        return
+    sy, sa, sb = parts.shoulders
+    sy, sa, sb, waist = sy + pad, sa + pad, sb + pad, parts.waist + pad
+    behind = parts.facing != sp.BACK
+    if parts.facing == sp.SIDE:  # (facing right: the back is on the left)
+        bow_line = _line((sa + 1, sy - 4), (sa - 1, waist + 4))
+        quiver_at = (sa, sy - 3)
     else:
-        cells = []
-        for dy in range(-4, 2):
-            half = (1, 2, 2, 2, 2, 1)[dy + 4]
-            for dx in range(-half, half + 1):
-                edge = abs(dx) == half or dy in (-4, 1)
-                cells.append((dx, dy, 0 if edge else (2 if (dx, dy) == (0, -1) and facing == sp.FRONT else 1)))
-    for dx, dy, colour in cells:
-        _put(rows, hx + dx, hy + dy, colours[colour], behind, body)
+        bow_line = _line((sb - 1, sy - 4), (sa + 1, waist + 4)) if parts.facing == sp.BACK else             _line((sa + 1, sy - 4), (sb - 1, waist + 4))
+        quiver_at = (sa + 2, sy - 3) if parts.facing == sp.BACK else (sb - 2, sy - 3)
+    if bow:
+        n = len(bow_line)
+        for i, (x, y) in enumerate(bow_line):  # the stave bowed out, the string straight
+            bulge = math.sin(math.pi * i / max(1, n - 1)) * 1.5
+            _put(rows, x - bulge, y - bulge * 0.5, STAVE[i % 2], behind, body)
+            _put(rows, x + 1, y, STRING, behind, body)
+    if quiver:
+        qx, qy = quiver_at
+        for dy in range(0, 8):
+            _put(rows, qx, qy + dy, QUIVER[0], behind, body)
+            _put(rows, qx + 1, qy + dy, QUIVER[1 if dy % 3 else 2], behind, body)
+        for dx in (0, 1):  # the fletching standing out of it
+            _put(rows, qx + dx, qy - 1, FLETCHING[dx], behind, body)
+            _put(rows, qx + dx, qy - 2, FLETCHING[0], behind, body)
+    if (bow or quiver) and parts.facing == sp.FRONT:  # the strap across the chest
+        for x, y in _line((sb - 1, sy), (sa + 1, waist)):
+            _put(rows, x, y, QUIVER[0], False, body)
+    if at_hip:
+        side = sa if parts.facing != sp.BACK else sb
+        for dx, dy, c in ((0, 0, 0), (0, 1, 1), (0, 2, 1), (-1, 2, 0), (1, 2, 0), (0, 3, 0)):
+            _put(rows, side + dx, waist + dy, at_hip[c], False, body)
+    # long hair falls over what is on the back
+    for x, y in parts.hair:
+        if 0 <= y + pad < len(rows) and 0 <= x + pad < len(rows[y + pad]):
+            rows[y + pad][x + pad] = body[y + pad][x + pad]
 
 
 def armed(rows: Rows, model: int, frame: int, combat: bool, weapons: Dict[str, Tuple[int, int]],
           pad: int = 10) -> Rows:
-    """One frame of MODEL with WEAPONS ({hand: (item type, material)}) drawn in its hands, padded
-    by PAD. Nothing in the bow frames (the game draws the bow)."""
+    """One frame of MODEL with WEAPONS ({"right"/"left": (item type, material)} drawn in the hands;
+    "missile": the bow, sling or chatkcha carried, "ammo": arrows, on the back or at the hip),
+    padded by PAD. Nothing in the hands in the bow frames (the game draws the bow)."""
     out = padded(rows, pad)
-    if combat and frame in sp.BOW_FRAMES:
-        return out
     body = [list(r) for r in out]
     parts = sp.parts(rows, model, frame, combat)
+    missile = weapons.get("missile")
+    if missile or "ammo" in weapons:  # (the bow, quiver, sling or chatkcha carried)
+        shape = WEAPON_SHAPES.get(missile[0]) if missile else None
+        bow = shape == BOW and not (combat and frame in sp.BOW_FRAMES)
+        hip = MATERIAL_COLOURS.get(missile[1], MATERIAL_COLOURS[5]) if shape in (SLING, CHATKCHA) else None
+        draw_back_gear(out, body, parts, pad, bow, "ammo" in weapons or shape == BOW, hip)
     hands = dict(parts.hands)
     pose = COMBAT_POSES[frame] if combat and 0 <= frame < len(COMBAT_POSES) else None
     if pose and hands:  # (in a fight, the swinging hand is the pose's, not by side)
@@ -194,6 +264,8 @@ def armed(rows: Rows, model: int, frame: int, combat: bool, weapons: Dict[str, T
         hands = {"right": points[0]}
         if len(points) > 1:
             hands["left"] = points[1]
+    if combat and frame in sp.BOW_FRAMES:
+        return out  # (the game draws the bow in the hands)
     for hand in ("left", "right"):  # (the right drawn last, over the left)
         if hand not in weapons or hand not in hands:
             continue
@@ -209,7 +281,7 @@ def armed(rows: Rows, model: int, frame: int, combat: bool, weapons: Dict[str, T
         if shape in TWO_HANDED and not combat and hand == "right":
             g = UPRIGHT.get(parts.facing, g)
         if shape == SHIELD:
-            draw_shield(out, body, (hx + pad, hy + pad), parts.facing, colours, g[1])
+            draw_shield(out, body, (hx + pad, hy + pad), parts.facing, colours, g[1], MODEL_SCALE.get(model, 1.0))
         else:
             draw_weapon(out, body, (hx + pad, hy + pad), g[0], shape, colours, g[1], MODEL_SCALE.get(model, 1.0))
     return out

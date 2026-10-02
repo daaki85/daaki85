@@ -50,7 +50,8 @@ class WeaponTests(unittest.TestCase):
         new = drawn(before, sg.armed(before, 2095, 0, False, {"left": (SHIELD, 5)}, PAD))
         hx, _ = sp.find(before, 2095, 0).hands["left"]
         self.assertTrue(new)
-        self.assertTrue(all(abs(x - (hx + PAD)) <= 2 for x, _ in new))
+        self.assertTrue(all(abs(x - (hx + PAD)) <= 4 for x, _ in new))  # (about 7 wide, on the forearm)
+        self.assertGreaterEqual(len(new), 40)
 
     def test_nothing_in_the_bow_frames(self):
         """The game draws the bow there itself."""
@@ -73,6 +74,23 @@ class WeaponTests(unittest.TestCase):
         old = sg.padded(before, PAD)
         self.assertTrue(new)
         self.assertTrue(all(old[y][x] is None for x, y in new))
+
+    def test_bow_and_quiver_on_the_back(self):
+        """From behind, over the back; from the front, behind the body but for the strap across the
+        chest; in the bow frames (the game's bow in the hands) only the quiver."""
+        before = rows()
+        old = sg.padded(before, PAD)
+        carried = {"missile": (BOW, WOOD), "ammo": (62, WOOD)}
+        back = drawn(before, sg.armed(before, 2095, 1, False, carried, PAD))
+        self.assertTrue(set(sg.STAVE) & set(back.values()))
+        self.assertTrue(any(old[y][x] is not None for x, y in back))  # (over the back)
+        front = drawn(before, sg.armed(before, 2095, 0, False, carried, PAD))
+        on_body = {p: c for p, c in front.items() if old[p[1]][p[0]] is not None}
+        self.assertTrue(on_body)
+        self.assertEqual(set(on_body.values()), {sg.QUIVER[0]})  # (only the strap)
+        shooting = drawn(before, sg.armed(before, 2095, sp.BOW_FRAMES[1], True, carried, PAD))
+        self.assertTrue(shooting)
+        self.assertFalse(set(sg.STAVE[1:]) & set(shooting.values()) - set(sg.QUIVER))
 
     def test_tables(self):
         self.assertEqual(len(sg.WALK_GRIPS), sp.WALK_FRAMES)
