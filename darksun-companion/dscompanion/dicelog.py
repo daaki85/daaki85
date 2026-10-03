@@ -334,6 +334,7 @@ class DiceLog:
         self.picked_at: Dict[str, Optional[int]] = {}
         self._picked_changed = False
         self._clock: Optional[int] = None
+        self._mended_in: Optional[int] = None  # the area Kalzith's scrolls were last mended in
         self.tools_given: set = set()  # the thieves given thieving tools (tools.py)
         self._tools_session: set = set()  # ... while this runs
         self._swap_seq = 0  # DSCLOG's text swaps seen (the arena ring's search, ring.py)
@@ -467,6 +468,8 @@ class DiceLog:
         if not now or now <= 0:  # (no game, or the menus)
             return
         went_back = self._clock is not None and now < self._clock
+        if went_back:
+            self._mended_in = None  # (a save loaded: its scrolls looked at again)
         # A try later than the game's clock is not this game's: one undone by loading an earlier
         # save, or another game's (a new game started with the same party, the Ledger started
         # after it: seen the first time the clock is read)
@@ -945,6 +948,10 @@ class DiceLog:
                 npcitems.reprice(self.game)  # (those given before they had a magic item's price)
                 self._tools_new += sorted(self.tools_given - before)
             kalzith.stock(self.game, bool(self.rules & game.RULE_CATS_GRACE))  # (once a game, by its flag)
+            region = self.game.region()
+            if region != self._mended_in:  # (his scrolls of before the fix, once in each area)
+                kalzith.mend(self.game)
+                self._mended_in = region
             if self.pickpockets:
                 tools.repaint(self.game)
                 before = set(self.tools_given)

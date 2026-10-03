@@ -65,13 +65,17 @@ SCROLL_OBJECT = OBJECT + 1  # his k-th scroll is object 1001 + k: one each (the 
 ITEM_OBJECT, ITEM_SPELL, ITEM_SPELL_AGAIN, ITEM_VALUE, ITEM_LINK = 0x00, 0x02, 0x0F, 0x06, 0x08
 
 
+SCROLL_SPELL_FROM = 1  # a scroll names its spell one past the game's number for it (as the
+# rest of the Ledger numbers spells: 1 Burning Hands): one of 29, Haste's, taught Flame Arrow
+
+
 def scroll(spell: int, price: int, k: int = 0) -> bytes:
     """A spell scroll item (the game's own kind) teaching SPELL, priced PRICE: his K-th."""
     rec = bytearray.fromhex(SCROLL_TEMPLATE)
     struct.pack_into("<h", rec, ITEM_OBJECT, -(SCROLL_OBJECT + k))
     struct.pack_into("<H", rec, ITEM_LINK, game.NO_ITEM)  # (as the game's items; 0 linked item 0 in)
-    struct.pack_into("<H", rec, ITEM_SPELL, spell)
-    rec[ITEM_SPELL_AGAIN] = spell
+    struct.pack_into("<H", rec, ITEM_SPELL, spell + SCROLL_SPELL_FROM)
+    rec[ITEM_SPELL_AGAIN] = spell + SCROLL_SPELL_FROM
     struct.pack_into("<H", rec, ITEM_VALUE, price)
     struct.pack_into("<H", rec, game.ITEM_NEXT, game.NO_ITEM)
     rec[game.ITEM_SLOT] = 0xFF
@@ -527,6 +531,29 @@ def stock(gd, cats_grace: bool) -> List[str]:
         gd.set_flag(STOCKED)
         return out
     return []
+
+
+def mend(gd) -> int:
+    """His scrolls stocked before SCROLL_SPELL_FROM (each teaching the spell before its own),
+    wherever they are now (his things, the party's, the ground: each scroll is its own object),
+    made to teach their own. How many were."""
+    from . import ring
+    it = ring.Items(gd)
+    want = {-(SCROLL_OBJECT + k): spell + SCROLL_SPELL_FROM for k, (spell, _, _) in enumerate(SCROLLS)}
+    done = set()
+    for thing in range(ring.THING_COUNT):
+        for index, rec in it.chain(thing):
+            spell = want.get(struct.unpack_from("<h", rec, ITEM_OBJECT)[0])
+            if spell is None or index in done:
+                continue
+            done.add(index)
+            if struct.unpack_from("<H", rec, ITEM_SPELL)[0] != spell or rec[ITEM_SPELL_AGAIN] != spell:
+                at = it.items + index * game.ITEM_SIZE
+                gd.guest.write(at + ITEM_SPELL, struct.pack("<H", spell))
+                gd.guest.write(at + ITEM_SPELL_AGAIN, bytes([spell]))
+            else:
+                done.discard(index)
+    return len(done)
 
 
 # ---------------------------------------------------------------------------------------------

@@ -158,14 +158,15 @@ class KalzithTests(unittest.TestCase):
         self.assertNotEqual(kalzith.PORTRAIT, kalzith.PORTRAIT_FROM)
 
     def test_scroll(self):
-        """The game's own spell scroll, teaching the spell at the price."""
+        """The game's own spell scroll, teaching the spell at the price (named one past the
+        game's number for it, as the game's scrolls name theirs: 33 is Lightning Bolt's, 32)."""
         rec = kalzith.scroll(32, 500, 4)
         self.assertEqual(struct.unpack_from("<h", rec, 0)[0], -(kalzith.OBJECT + 5))  # (each his own object)
         self.assertEqual(struct.unpack_from("<H", rec, kalzith.ITEM_LINK)[0], game.NO_ITEM)
         self.assertEqual(len(rec), game.ITEM_SIZE)
         self.assertEqual(struct.unpack_from("<H", rec, game.ITEM_TYPE)[0], kalzith.SCROLL_TYPE)
-        self.assertEqual(struct.unpack_from("<H", rec, kalzith.ITEM_SPELL)[0], 32)
-        self.assertEqual(rec[kalzith.ITEM_SPELL_AGAIN], 32)
+        self.assertEqual(struct.unpack_from("<H", rec, kalzith.ITEM_SPELL)[0], 33)
+        self.assertEqual(rec[kalzith.ITEM_SPELL_AGAIN], 33)
         self.assertEqual(struct.unpack_from("<H", rec, kalzith.ITEM_VALUE)[0], 500)
         self.assertEqual(rec[game.ITEM_SLOT], 0xFF)
 
@@ -194,6 +195,36 @@ class KalzithTests(unittest.TestCase):
             self.assertEqual(len(kalzith.stock(gd, cats_grace=True)), 6)
             # each scroll its own object
             self.assertEqual(len({struct.unpack_from("<h", r, 0)[0] for _, r in given}), 6)
+
+    def test_mend(self):
+        """His scrolls stocked with the spell before their own are made to teach their own,
+        wherever they are; right ones and anyone else's are left alone."""
+        from unittest import mock
+        from dscompanion import ring
+        k = 4  # Lightning Bolt's
+        spell = kalzith.SCROLLS[k][0]
+        old = bytearray(kalzith.scroll(spell, 500, k))
+        struct.pack_into("<H", old, kalzith.ITEM_SPELL, spell)
+        old[kalzith.ITEM_SPELL_AGAIN] = spell
+        records = [bytearray(old), bytearray(kalzith.scroll(8, 100, 0)), bytearray(old)]
+        struct.pack_into("<h", records[2], 0, -1403)  # (one of the game's scrolls)
+        game_scroll = bytes(records[2])
+        class Guest:
+            def write(self, at, data): records[at // game.ITEM_SIZE][at % game.ITEM_SIZE:at % game.ITEM_SIZE + len(data)] = data
+        class Items:
+            items = 0
+            def __init__(self, gd): pass
+            def chain(self, thing):
+                if thing == 0:
+                    yield from ((i, bytes(r)) for i, r in enumerate(records))
+        class Game:
+            guest = Guest()
+        with mock.patch.object(ring, "Items", Items):
+            self.assertEqual(kalzith.mend(Game()), 1)
+            self.assertEqual(bytes(records[0]), kalzith.scroll(spell, 500, k))
+            self.assertEqual(bytes(records[1]), kalzith.scroll(8, 100, 0))
+            self.assertEqual(bytes(records[2]), game_scroll)
+            self.assertEqual(kalzith.mend(Game()), 0)
 
     def test_six_scrolls(self):
         """Two of each level 1-3, at 100, 250 and 500."""
