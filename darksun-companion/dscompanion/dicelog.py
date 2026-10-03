@@ -24,7 +24,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Callable, Dict, List, NamedTuple, Optional, Tuple
 
-from . import bonescale, game, icons, kalzith, monsters, names, npcitems, pickpocket, ring, shadows, sprites, stealth, tools, vulture
+from . import bonescale, game, icons, kalzith, monsters, names, npcitems, pickpocket, ring, scrolling, shadows, sprites, stealth, tools, vulture
 from .game import (CONVENTIONAL_AND_UPPER, CREATURE_ABILITIES, CREATURE_SIDE, CREATURE_THAC0, EFFECT_NAMES,
                    EFFECT_RULES, MATERIAL_TO_HIT, MATERIALS, SAVE_NAMES, STR_DAMAGE, GameData)
 from .guestmem import GuestMemory
@@ -328,6 +328,9 @@ class DiceLog:
         self.show_gear = True  # the party's map sprites dressed in what they wear (sprites.py)
         self.show_shadows = True  # shadows under the figures on the map (shadows.py)
         self._shadows = shadows.Shadows()
+        self.scroll_map = True  # the map scrolled with the right button held, and the wheel (scrolling.py)
+        self._scrolling = scrolling.Scrolling()
+        self._wheel: Optional[scrolling.WheelWatch] = None
         self._dresser: Optional[sprites.Dresser] = None
         self._dresser_tried = False
         self.picked: set = set()  # the pockets tried already (each person gets one try)
@@ -398,6 +401,11 @@ class DiceLog:
         self.tsr_hdr, self.rand_addr = hdr, rand_addr
         self.guest.write(hdr + 22, struct.pack("<5H", SEED, TARGET_GLOBAL, 0, 0, 0))
         self.game = GameData(self.guest, ds)
+        self._scrolling.forget()  # (a DSCLOG of its own: told again)
+        if self._wheel is None:
+            proc = getattr(self.guest, "proc", None)
+            self._wheel = scrolling.WheelWatch(lambda: getattr(proc, "pid", None), self._scrolling.add)
+            self._wheel.start()
         self.tracker = PartyTracker(self.game)
         self.text = TextBuffer(self.guest.read, hdr)
         self.set_record_everything(self.record_everything)
@@ -585,6 +593,7 @@ class DiceLog:
         self.pickpockets = bool(settings.get("pickpockets", True))
         self.show_gear = bool(settings.get("show_gear", True))
         self.show_shadows = bool(settings.get("shadows", True))
+        self.scroll_map = bool(settings.get("scroll_map", True))
         self.load_picked(settings.get("pickpocketed", []))
         self.tools_given = set(settings.get("tools_given", []))
         self.rules = game.rules_from_settings(settings)
@@ -965,6 +974,7 @@ class DiceLog:
             self._dress(now)
             if self.tsr_hdr is not None:
                 self._shadows.update(self.game, self.tsr_hdr, self.show_shadows, now)
+                self._scrolling.update(self.game, self.tsr_hdr, self.scroll_map)
         except (struct.error, IndexError, ValueError):
             return out
         return out

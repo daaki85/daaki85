@@ -42,6 +42,7 @@ VEC_TYPES_SIZE, VEC_TYPES_FILL = 0xE9, 0xE8
 VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED = 0xE7, 0xE6, 0xE5, 0xE4, 0xE3
 VEC_SPELL_TEXT, VEC_CHUNK_ID = 0xE2, 0xE1
 VEC_FLOOR_ALL, VEC_FLOOR_RECT, VEC_REDRAW, VEC_REDRAW_ALL = 0xE0, 0xDF, 0xDE, 0xDD
+VEC_SCROLL = 0xDC
 
 
 class Patch(NamedTuple):
@@ -178,6 +179,10 @@ PATCHES = (
     # ... and where the routine drawing again what moved starts to, its rectangle made:
     # "push word [bp+8] / push word [bp+6]"
     Patch("redraw_all", 0x24B18, bytes.fromhex("ff7608ff7606"), _interrupt(VEC_REDRAW_ALL, 6)),
+    # scrolling (DSCLOG's SCROLLING): the main loop asking where the pointer is, "call far
+    # 3118:002E", its first 3 bytes (the segment after them is relocated as the game loads: A9h
+    # makes the 5 a "test ax,<segment>", which DSCLOG returns past)
+    Patch("scroll", 0x1CAAC, bytes.fromhex("9a2e00"), bytes((0xCD, VEC_SCROLL, 0xA9))),
     Patch("thief_skill", 0x80307, bytes.fromhex("8bc6c1e00203d08bf2"),
           bytes((0xCD, VEC_THIEF_SKILL, 0x72, 0x80386 - 0x8030B)) + b"\x90" * 5),
     # (not changed: DSCLOG reads the segment this "mov dx,<segment>" loads, the pointer's items')

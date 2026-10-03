@@ -62,6 +62,7 @@ VEC_FLOOR_ALL equ 0xE0     ; PROBE_FLOOR (the whole view's floor)
 VEC_FLOOR_RECT equ 0xDF    ; PROBE_FLOOR (a rectangle's floor)
 VEC_REDRAW equ 0xDE        ; PROBE_REDRAW
 VEC_REDRAW_ALL equ 0xDD    ; PROBE_REDRAW_ALL
+VEC_SCROLL equ 0xDC        ; PROBE_SCROLL
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -187,6 +188,10 @@ shadow_tab_off dw shadow_tab    ; +222 offset of SHADOW_TAB: a byte for each of 
 dark_build dw 0                 ; +224 the companion sets 1 to have DARK made again from the palette
                                 ;      (after the area, so the palette, changes); 0 once it is
 shadow_passes dw 0              ; +226 shadow passes drawn (counted)
+scroll_on  dw 0                 ; +228 the companion sets 1 to have a right-button drag scroll the
+                                ;      map (SCROLLING)
+pan_x      dw 0                 ; +230 the companion adds to these (wrapping) to scroll the map by
+pan_y      dw 0                 ; +232   as many pixels (the mouse wheel, read in Windows)
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -3387,6 +3392,252 @@ build_dark:
         clc
         ret
 
+; SCROLLING (SCROLL_ON): holding the right mouse button and moving scrolls the map with the pointer,
+; as if dragging it; a right click (released before the pointer has moved DRAG_START pixels) is
+; still the game's (it changes what the pointer does: walk, use, look).
+;
+; The game is told of the mouse's buttons by the mouse driver calling its handler (INT 33h, 0Ch).
+; INT33 puts MOUSE_EVENT in its place, which keeps the right button from the game while it is
+; held: if it was a click, the game gets the press and the release when it is let go; if it was a
+; drag, nothing. The game's main loop reads where the pointer is (DSUN.EXE 1CAACh, the call to the
+; driver's 03h), to scroll the map when it is at the screen's edge; PROBE_SCROLL makes that call
+; itself and, while dragging, has the game centre its view where the drag puts it (191F:0281h, as
+; clicking on the overview map does: the view is then drawn again), and the pointer is kept off
+; the edges. It also scrolls by what the companion adds to PAN_X and PAN_Y.
+
+DRAG_START  equ 4               ; pixels the pointer moves before a right click is a drag
+CAM_X       equ 0x1178          ; DS: the view's top left on the map
+CAM_Y       equ 0x117A
+CAM_X_MOST  equ 0x6C0           ; (as far as the game lets it go: the map less the view)
+CAM_Y_MOST  equ 0x558
+CENTRE_SEG  equ 0x191F          ; (DSUN.EXE 1E871h) centre the view on (x, y, 1: draw it again)
+CENTRE_OFF  equ 0x0281
+EVENT_PRESS equ 8               ; the driver's events: right button pressed, released
+EVENT_LEAVE equ 16
+RIGHT       equ 2               ; the right button, in the buttons held
+
+int33:
+        cmp ax, 0x0C
+        jne .chain
+        or cx, cx
+        jz .chain                       ; (taking the handler away)
+        mov [cs:game_handler], dx
+        mov [cs:game_handler + 2], es
+        mov [cs:game_mask], cx
+        push es
+        push dx
+        push cx
+        or cx, 0x1F                     ; (moves, and both buttons)
+        push cs
+        pop es
+        mov dx, mouse_event
+        pushf
+        call far [cs:old33]
+        pop cx
+        pop dx
+        pop es
+        iret
+.chain: jmp far [cs:old33]
+
+mouse_event:                            ; AX = events, BX = buttons held, CX, DX = where
+        cmp word [cs:scroll_on], 0
+        je .pass
+        test al, EVENT_PRESS
+        jz .held
+        cmp byte [cs:drag], 0
+        jne .held
+        mov byte [cs:drag], 1
+        mov [cs:drag_x], cx
+        mov [cs:drag_y], dx
+        and al, ~EVENT_PRESS
+.held:  cmp byte [cs:drag], 0
+        je .pass
+        and bx, ~RIGHT
+        cmp byte [cs:drag], 1
+        jne .leave
+        push ax                         ; moved far enough to be a drag?
+        mov ax, cx
+        sub ax, [cs:drag_x]
+        call .apart
+        jnc .y
+        mov ax, dx
+        sub ax, [cs:drag_y]
+        call .apart
+        jc .near
+.y:     mov byte [cs:drag], 2
+        mov byte [cs:drag_new], 1
+.near:  pop ax
+.leave: test al, EVENT_LEAVE
+        jz .pass
+        and al, ~EVENT_LEAVE
+        cmp byte [cs:drag], 1
+        mov byte [cs:drag], 0
+        jne .pass                       ; (a drag: the game never knows)
+        pusha                           ; a click: pressed and released, where it was pressed
+        or bx, RIGHT
+        mov cx, [cs:drag_x]
+        mov dx, [cs:drag_y]
+        mov ax, EVENT_PRESS
+        call .give
+        popa
+        pusha
+        mov ax, EVENT_LEAVE
+        call .give
+        popa
+.pass:  call .give
+        retf
+.give:  and ax, [cs:game_mask]          ; the events the game asked for, to its handler
+        jz .none
+        pusha
+        push ds
+        push es
+        call far [cs:game_handler]
+        pop es
+        pop ds
+        popa
+.none:  ret
+.apart: or ax, ax                       ; CF clear when |AX| >= DRAG_START
+        jns .pos
+        neg ax
+.pos:   cmp ax, DRAG_START
+        ret
+
+; PROBE_SCROLL: INT VEC_SCROLL replaces the start of "call far 3118:002E" (9Ah 2Eh 00h, then the
+; segment: A9h makes it a harmless "test ax,<segment>" the loader may relocate), the game's main
+; loop asking where the pointer is (its arguments, far pointers to x and y, on the stack).
+probe_scroll:
+        pop word [cs:s_resume]
+        pop word [cs:s_resume + 2]
+        pop word [cs:s_resume_fl]
+        add word [cs:s_resume], 3       ; (past the segment)
+        push bp
+        mov bp, sp
+        push es
+        push bx
+        push cx
+        push dx
+        push si
+        push di
+        mov ax, 3
+        int 0x33                        ; BX = buttons, CX, DX = where
+        cmp word [cs:scroll_on], 0
+        je .report
+        cmp byte [cs:drag], 2
+        jne .wheel
+        cmp byte [cs:drag_new], 0
+        je .follow
+        mov byte [cs:drag_new], 0
+        mov ax, [CAM_X]
+        mov [cs:cam0_x], ax
+        mov ax, [CAM_Y]
+        mov [cs:cam0_y], ax
+.follow:
+        mov ax, [cs:cam0_x]             ; where the drag puts the view: the map moves with it
+        sub ax, cx
+        add ax, [cs:drag_x]
+        mov si, [cs:cam0_y]
+        sub si, dx
+        add si, [cs:drag_y]
+        call pan_to
+.wheel: mov ax, [cs:pan_x]              ; the companion's
+        sub ax, [cs:pan_x_done]
+        mov si, [cs:pan_y]
+        sub si, [cs:pan_y_done]
+        mov di, ax
+        or di, si
+        jz .report
+        add [cs:pan_x_done], ax
+        add [cs:pan_y_done], si
+        add [cs:cam0_x], ax             ; (a drag under way goes on from there)
+        add [cs:cam0_y], si
+        add ax, [CAM_X]
+        add si, [CAM_Y]
+        call pan_to
+.report:
+        cmp byte [cs:drag], 0
+        je .put
+        and bx, ~RIGHT
+        cmp cx, 1                       ; (off the edges: no scrolling of the game's own)
+        jge .x1
+        mov cx, 1
+.x1:    cmp cx, 0x13D
+        jle .y0
+        mov cx, 0x13D
+.y0:    cmp dx, 1
+        jge .y1
+        mov dx, 1
+.y1:    cmp dx, 0xC6
+        jle .put
+        mov dx, 0xC6
+.put:   les di, [bp + 2]
+        mov [es:di], cx
+        les di, [bp + 6]
+        mov [es:di], dx
+        mov ax, bx
+        pop di
+        pop si
+        pop dx
+        pop cx
+        pop bx
+        pop es
+        pop bp
+        push word [cs:s_resume_fl]
+        push word [cs:s_resume + 2]
+        push word [cs:s_resume]
+        iret
+
+pan_to:                                 ; the view's top left to (AX, SI) as far as the map goes;
+        cmp ax, 0                       ;   keeps CX, DX
+        jge .x1
+        xor ax, ax
+.x1:    cmp ax, CAM_X_MOST
+        jle .y0
+        mov ax, CAM_X_MOST
+.y0:    cmp si, 0
+        jge .y1
+        xor si, si
+.y1:    cmp si, CAM_Y_MOST
+        jle .snap
+        mov si, CAM_Y_MOST
+.snap:  and ax, 0xFFF8                  ; (as the game keeps it)
+        and si, 0xFFF8
+        cmp ax, [CAM_X]
+        jne .go
+        cmp si, [CAM_Y]
+        je .done
+.go:    push cx
+        push dx
+        push bx
+        mov bx, ds
+        sub bx, DGROUP_SEG - CENTRE_SEG
+        mov [cs:centre + 2], bx
+        push 1
+        add si, 100
+        push si
+        add ax, 160
+        push ax
+        call far [cs:centre]
+        add sp, 6
+        pop bx
+        pop dx
+        pop cx
+.done:  ret
+
+old33        dd 0
+game_handler dd 0
+game_mask    dw 0
+centre       dw CENTRE_OFF, 0
+s_resume     dd 0
+s_resume_fl  dw 0
+drag         db 0               ; 0: the right button isn't held; 1: held, not moved yet; 2: dragging
+drag_new     db 0
+drag_x       dw 0               ; where it was pressed
+drag_y       dw 0
+cam0_x       dw 0               ; the view's top left then
+cam0_y       dw 0
+pan_x_done   dw 0
+pan_y_done   dw 0
+
 loader     dw LOADER_OFF, 0
 resume     dd 0
 resume_fl  dw 0
@@ -3445,7 +3696,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 40
+        mov cx, 41
 .check:
         lodsb
         mov ah, 35h
@@ -3581,6 +3832,20 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_REDRAW_ALL
         mov dx, probe_redraw_all
         int 21h
+        mov ax, 2500h + VEC_SCROLL
+        mov dx, probe_scroll
+        int 21h
+        mov ax, 3533h           ; the mouse driver's (SCROLLING), if there is one
+        int 21h
+        mov ax, es
+        or ax, bx
+        jz .no_mouse
+        mov [old33], bx
+        mov [old33 + 2], es
+        mov ax, 2533h
+        mov dx, int33
+        int 21h
+.no_mouse:
         mov ax, 3521h           ; DOS itself last: opening the objects file (PROBE_DOS_OPEN)
         int 21h
         mov [old21], bx
@@ -3603,8 +3868,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or DDh-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED, VEC_SPELL_TEXT, VEC_CHUNK_ID, VEC_FLOOR_ALL, VEC_FLOOR_RECT, VEC_REDRAW, VEC_REDRAW_ALL
+busy    db 'DSCLOG: interrupts 60h-65h or DCh-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED, VEC_SPELL_TEXT, VEC_CHUNK_ID, VEC_FLOOR_ALL, VEC_FLOOR_RECT, VEC_REDRAW, VEC_REDRAW_ALL, VEC_SCROLL
 
         align 16, db 0
 image_len equ $ - $$

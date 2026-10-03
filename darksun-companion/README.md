@@ -81,6 +81,8 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   change when their gear does (see [What the party wears](#what-the-party-wears)).
 - **Shadows** under every figure on the map, see-through and in the floor's own
   colours (see [Shadows](#shadows)).
+- **Scrolling the map with the mouse:** hold the right button and move to drag
+  the map, or turn the wheel (see [Scrolling the map](#scrolling-the-map)).
 
 Nothing in the game folder or your save files is changed, except that a game
 you save keeps what the Ledger has handed out or changed in play: the Ring +1,
@@ -1027,6 +1029,33 @@ moves are widened by the length of a shadow, so none is left behind. The
 Ledger keeps DSCLOG's list of who casts one (`dscompanion/shadows.py`) and has
 those figures drawn again when it changes.
 
+### Scrolling the map
+
+Hold the right mouse button on the map and move the mouse: the map moves with
+the pointer, as if dragged, in fights too. A right click (let go before the
+pointer has moved) still does what it does in the game, changing the pointer
+between walking, using and looking. In Windows the mouse wheel scrolls the map
+up and down while the game's window is in front, and sideways with Shift held
+(or a wheel that tilts). Switch it off on the Options tab. The game still
+scrolls on its own when the pointer touches the screen's edge, and still
+brings the view back to whoever's turn it is in a fight.
+
+How: the game hears of the mouse's buttons from the mouse driver, through a
+handler it gives it (`INT 33h`, function 0Ch). DSCLOG hooks `INT 33h` and puts
+its own handler in between, which keeps the right button from the game while it
+is held: a click reaches the game when it is let go (pressed and released where
+it was pressed), a drag never does. The game's main loop asks where the pointer
+is (to scroll at the screen's edge); there DSCLOG has the game centre its view
+where the drag puts it, with the game's own routine (the one clicking on the
+overview map uses, which draws the view again), and keeps the pointer it reports
+off the edges meanwhile. DOSBox 0.74, GOG's, never passes the wheel on to the
+game, so the Ledger watches for it in Windows (a low-level mouse hook, only
+while DOSBox's window is in front) and tells DSCLOG how far to scroll
+(`dscompanion/scrolling.py`).
+
+The view can't be zoomed: the game draws a 320 by 200 screen at one scale,
+with the view's size built into its drawing code and its video memory pages.
+
 ### The bone scale set
 
 The game has Bone Scale Chest Armor, Arm Armor and Leg Armor (objects 1033 to
@@ -1703,7 +1732,8 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    `INT E9h` and `INT E8h` (for [the slave pens' gear](#the-slave-pens-gear)), and
    the start of the routines drawing the map's floor `INT E0h` and `INT DFh`
    and of two that draw a rectangle of it again `INT DEh` and `INT DDh` (for
-   [shadows](#shadows)), and
+   [shadows](#shadows)), and where the main loop asks where the pointer is
+   `INT DCh` (for [scrolling the map](#scrolling-the-map)), and
    the copy looks for its data files in the current
    folder rather than next to itself. The helper also hooks DOS's `INT 21h`, to
    open the launcher's copies of `SEGOBJEX.GFF`, `RESOURCE.GFF` (see

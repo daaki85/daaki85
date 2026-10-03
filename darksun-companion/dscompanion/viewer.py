@@ -350,6 +350,10 @@ class Viewer:
         self.show_shadows = tk.BooleanVar(value=bool(settings.get("shadows", True)))
         ttk.Checkbutton(rules, text="Shadows under the figures in the game (see-through, on the floor)",
                         variable=self.show_shadows, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        self.scroll_map = tk.BooleanVar(value=bool(settings.get("scroll_map", True)))
+        ttk.Checkbutton(rules, text="Scroll the map by holding the right mouse button and moving, or with the "
+                        "mouse wheel (Shift: sideways); a right click still changes the pointer",
+                        variable=self.scroll_map, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
         ttk.Button(rules, text="Give thieving tools now", command=self.give_tools).pack(anchor="w", pady=(8, 0))
 
     def give_tools(self) -> None:
@@ -644,6 +648,7 @@ class Viewer:
                 self.dice.pickpockets = self.pickpockets.get()
                 self.dice.show_gear = self.show_gear.get()
                 self.dice.show_shadows = self.show_shadows.get()
+                self.dice.scroll_map = self.scroll_map.get()
                 self.dice.load_picked(launch.pickpocketed())
                 self.dice.tools_given = launch.tools_given()
                 self.dice.rules = self._rules()
@@ -727,6 +732,7 @@ class Viewer:
         settings["pickpockets"] = self.pickpockets.get()
         settings["show_gear"] = self.show_gear.get()
         settings["shadows"] = self.show_shadows.get()
+        settings["scroll_map"] = self.scroll_map.get()
         for key, var in self.rule_vars.items():
             settings[key] = var.get()
         launch.save_settings(settings)
@@ -738,6 +744,7 @@ class Viewer:
             self.dice.set_pickpockets(self.pickpockets.get())
             self.dice.show_gear = self.show_gear.get()
             self.dice.show_shadows = self.show_shadows.get()
+            self.dice.scroll_map = self.scroll_map.get()
             self.dice.set_rules(self._rules())
 
     def _rules(self) -> int:
