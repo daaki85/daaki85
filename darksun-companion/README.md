@@ -85,6 +85,9 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   map, or turn it (see [Scrolling the map](#scrolling-the-map)).
 - **Dust** raised behind the feet of anyone walking on sand or dirt (see
   [Dust](#dust)).
+- **Choosing an enemy with Tab** in a fight, marked by a red ring, and
+  attacking it with Enter even when someone stands in front of it (see
+  [Choosing an enemy](#choosing-an-enemy-tab-enter-and-the-rings)).
 
 Nothing in the game folder or your save files is changed, except that a game
 you save keeps what the Ledger has handed out or changed in play: the Ring +1,
@@ -258,6 +261,7 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 | `    no hit point roll: that comes only when the highest class level rises (still 3rd)` | A multi-class character's level in one class went up without raising their highest level: the game gives no hit points for it. |
 | `Cilla's 3rd Ranger level: hit points d10 = 2, raised to 3 for CON 21` | The hit point roll for a new level: the class's die (d8 clerics and druids, d10 fighters, gladiators and rangers, d4 preservers, d6 psionicists and thieves), never less than 2, 3 or 4 with CON 20, 21-22 or 23+, and doubled for half-giants. After level 9 or 10 there's no roll, just a fixed gain (thieves roll at 10th too with [levels up to 10](#rule-changes)). |
 | `Cilla hides in shadows: d100 = 21, needs 27 or less (54, halved in daylight) -> hidden` / `  Cilla moves silently: ...` | A thief's or ranger's hiding and moving silently at the start of their turn (the [stealth rule](#rule-changes)). |
+| `Chosen with Tab: Guard (50 HP) - Enter attacks it` | An enemy chosen with Tab in a fight (see [Choosing an enemy](#choosing-an-enemy-tab-enter-and-the-rings)). |
 | `Dinos cooks the vulture and the party eats with him: ... +100 XP each, and restored as after a full rest` | The cooked vulture used on Dinos (see [The cooked vulture](#the-cooked-vulture)). |
 | `Character creation, STR 17: best of four 4d4 (7, 11, 9, 10) = 11, +4, +1 dwarf = 16, raised to 17 (the Fighter's prime requisite)` | An ability score rolled on the character creation screen (see below). |
 | `Character creation, hit points 15: Fighter d10 per level: 7 + 9; Thief d6 per level: 5 + 1 = 22, / 2 classes = 11, +4 CON 16 = 15` | The new character's hit points: a die for every level of every class, divided by the number of classes, plus CON's bonus (see below). |
@@ -1002,12 +1006,14 @@ from where `dscompanion/spriteparts.py` finds the head, hair, hands and the
 rest in each frame) and writes them over the copies the game has loaded,
 which it draws from at once, and into the copy of the file, so a picture the
 game loads again (in a fight, in another area) comes dressed
-(`dscompanion/sprites.py`); it marks the party's figures changed, so the game
-draws them again at once, standing still or not. The copy also has a spare
+(`dscompanion/sprites.py`); it has the helper draw the view again (see
+[Shadows](#shadows)), so the figures show it at once, standing still or not.
+The copy also has a spare
 pair of pictures for each party place. Each thing on the map names the
 picture it is drawn with and the slot in the game's picture cache it is drawn
 from; for a second member of the same figure the Ledger names their spare
-there and empties the slot, and the game loads the picture and fills it.
+there and empties the slot, and marks the figure changed: the game loads the
+picture and fills it.
 
 ### Shadows
 
@@ -1040,6 +1046,8 @@ Anyone walking on sand or dirt raises little puffs of dust behind their feet,
 which spread, rise a little and fade in about a second. The walls and figures
 stand in front of them, as with the shadows. Switch it off on the Options tab.
 
+![Jellybelly walking across the arena's sand in a fight: puffs of dust behind her, spreading and fading](docs/dust.png)
+
 How: DSCLOG notes, each time round the game's main loop, how far each figure
 that casts a shadow has walked, and raises a puff a little behind and to one
 side of its feet every 6 pixels (the feet in turn). The puffs are drawn on the
@@ -1064,6 +1072,10 @@ figure stands in front of it. On the Options tab the rings are **none**, **only
 under the enemy chosen with Tab** (the default: none until Tab is pressed) or
 **under all the enemies** (the chosen one's thicker and redder); Tab and Enter
 have a switch of their own.
+
+![The arena fight with rings under all the enemies: the guard chosen with Tab (middle) has the thicker, redder ring](docs/rings.png)
+
+Tab and Enter also make attacking possible without aiming the mouse at all.
 
 How: DSCLOG hooks the keyboard (`INT 16h`) and takes Tab, Shift+Tab and, with an
 enemy chosen, Enter from what the game reads, counting them for the Ledger
@@ -1702,6 +1714,10 @@ From the game's damage code (DSUN.EXE); none of this is in the manual:
 - Undead (race 9 on the character sheet) take nothing from poison and
   draining, and mind-affecting spells, charms and holds don't work on them.
 
+The dice log notes a weapon hit that takes less than its roll, or nothing at
+all, with what the monster's defences say about it (`Skeleton takes none of
+the 6 damage: crushing weapons can't hurt it`).
+
 ### The Spells tab
 
 What each wizard and priest spell and psionic power does, read from the
@@ -1781,12 +1797,16 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    the start of the routines drawing the map's floor `INT E0h` and `INT DFh`
    and of two that draw a rectangle of it again `INT DEh` and `INT DDh` (for
    [shadows](#shadows)), and where the main loop asks where the pointer is
-   `INT DCh` (for [scrolling the map](#scrolling-the-map)), and
+   `INT DCh` (for [scrolling the map](#scrolling-the-map) and the
+   [dust](#dust)), and the start of the routine finding what is under the
+   pointer `INT DBh` (for [choosing an enemy](#choosing-an-enemy-tab-enter-and-the-rings)), and
    the copy looks for its data files in the current
    folder rather than next to itself. The helper also hooks DOS's `INT 21h`, to
    open the launcher's copies of `SEGOBJEX.GFF`, `RESOURCE.GFF` (see
    [Item icons](#item-icons)), `GPLDATA.GFF` and `RGN29.GFF` (see
-   [Kalzith](#kalzith) and [Semyon](#semyon)). DOSBox runs it from the game folder, so
+   [Kalzith](#kalzith) and [Semyon](#semyon)), the mouse driver's `INT 33h`
+   (for [scrolling the map](#scrolling-the-map)) and the keyboard's `INT 16h`
+   (for Tab and Enter). DOSBox runs it from the game folder, so
    it uses your saves as usual.
 2. `dos\DSCLOG.EXE` (source in `dos\dsclog.asm`) is a tiny DOS program loaded
    into upper memory before the game, so the game loses no memory. It answers
@@ -1807,7 +1827,8 @@ Because the replacement produces identical numbers, the game plays exactly as
 it would without it, apart from what you choose on the Options tab (the
 Ring +1, picking pockets, the [rule changes](#rule-changes)), the Ledger's
 other additions (the slave pens' gear, the cooked vulture, Kalzith, Semyon,
-shadows) and one fix that is
+what the party wears, shadows, dust, rings, Tab and Enter, scrolling) and one
+fix that is
 always in the patched copy: no equipment penalty on thief skills (see
 [Thief skills](#thief-skills)).
 
@@ -1849,6 +1870,8 @@ WCAG 2.0 level AA:
   **Alt+L** (Dice log), **Alt+I** (Dialogue), **Alt+S** (Spells), **Alt+M**
   (Memory tools) and **Alt+O** (Options), and on the party side **Alt+C** (Characters) and
   **Alt+A** (All fields).
+- **In the game,** Tab and Enter choose and attack an enemy in a fight with no
+  aiming of the mouse (see [Choosing an enemy](#choosing-an-enemy-tab-enter-and-the-rings)).
 - **The game's font** is only used for the title: it's a 9-pixel bitmap
   font, fine enlarged as a heading but harder to read than ordinary text,
   so everything else is in the system's fonts.
@@ -1894,8 +1917,10 @@ turn's rolls and how much they say, monster descriptions) and the rule
 changes (helms, boots, two weapons, the spell save, doubled saves, Cat's
 Grace, hiding in shadows, levels up to 10, the thief skill table,
 half-giants' two-handed weapons), with the
-Ledger's additions to play after them: the Ring +1, picking pockets, and a
-button that gives each thief a set of Thieves' Tools now. The switches for the
+Ledger's additions to play after them: the Ring +1, picking pockets, what the
+party wears, shadows, dust, the rings in a fight (none, the chosen enemy's,
+or all), Tab and Enter, scrolling with the wheel (and the right button), and
+a button that gives each thief a set of Thieves' Tools now. The switches for the
 game are remembered for next time. In a window too small to show them all,
 the tab scrolls (scrollbar, mouse wheel, or arrow and page keys once it has
 the focus).
@@ -2069,6 +2094,6 @@ After changing `dos/dsclog.asm`, rebuild the helper with
 nasm -f bin -o dos/DSCLOG.EXE dos/dsclog.asm
 ```
 
-The header's signature (`DSCLOGvR` now) goes up whenever the helper and the
+The header's signature (`DSCLOGvS` now) goes up whenever the helper and the
 Ledger must change together (`HDR_SIG` in `dscompanion/dicelog.py`), so a
 Ledger never talks to an older helper.

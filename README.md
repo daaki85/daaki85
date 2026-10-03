@@ -126,6 +126,14 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
 - **Dust behind walking feet:** puffs on sand and dirt behind anyone walking,
   spreading and fading in about a second, under the walls and figures. A
   switch on the Options tab, on by default.
+- **Choosing an enemy with Tab, attacking it with Enter:** on a party member's
+  turn in a fight, Tab picks an enemy (nearest first; Shift+Tab back), marked
+  by a red ring, with the view scrolled to it; Enter attacks it as a click on
+  it would, even when someone stands in front of it. Rings on the Options tab:
+  none, only the chosen enemy's (the default) or all the enemies'.
+- **Hits that do less than rolled** in the dice log: a weapon hit that took
+  part of its damage, or none, with what the monster's defences say (`Skeleton
+  takes none of the 6 damage: crushing weapons can't hurt it`).
 - **The quest sound for the vulture:** giving Dinos the cooked vulture plays
   the sound the game plays when a quest is done (the Trustee's key, the
   filled water jug).
@@ -150,6 +158,10 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
 - **"Who are you?" hung the game** when asked of Kalzith.
 - **Pickpocketing said "won't get another chance" to everyone** in a new game
   with the same party: the last game's tries were remembered.
+- **Figures taking extra steps after their turn in a fight:** to have figures
+  drawn again with their shadows, the Ledger marked them "changed", which in a
+  fight could set one walking again after its turn (in this pull request's
+  earlier builds). The view is now drawn again whole instead.
 - **"Killed" lines for everyone in an area the party left:** walking from the
   slave pens into the arena logged most of the pens as "is killed (7261 XP)".
 
