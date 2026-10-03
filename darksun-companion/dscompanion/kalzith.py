@@ -427,7 +427,10 @@ def conversation() -> bytes:
         s.say("Words are cheap in the pens.")
         s.page()
 
-    for name, body in (("respect", respect), ("friend", friend), ("accused", accused)):
+    # (every menu in a subroutine of its own: one laid out in the greeting's "if"s hung the game
+    # when a reply went back to it, "Who are you?")
+    for name, body in (("first", first), ("cold", cold), ("respect", respect), ("friend", friend),
+                       ("accused", accused)):
         s.sub(name, body)
 
     def meeting():
@@ -437,11 +440,11 @@ def conversation() -> bytes:
 
     s.op(BEGIN)  # (every script of the game's opens so; its talk commands start after it)
     s.op(0x54, ("n", PORTRAIT))
-    s.when(_is(cold_, 1), cold,
+    s.when(_is(cold_, 1), lambda: s.call("cold"),
            lambda: s.when(_is(friendly, 1),
                           lambda: (s.say("Back again? Keep your voice down."), s.call("friend")),
                           lambda: (s.when(_is(met, 1), lambda: s.say("You again. Well?"), meeting),
-                                   first())))
+                                   s.call("first"))))
     return s.bytes()
 
 
