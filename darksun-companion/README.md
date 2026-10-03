@@ -789,8 +789,9 @@ use to anyone: no script asks for it. With the Ledger running, take it to
 the game with it on the pointer, and click him. He shows the party how it
 should be done, everyone eats together, and each party member gets **100 XP**
 and is **restored as after a full rest**: HP, PSP and spell slots full, and
-anyone knocked out back on their feet. The vulture is eaten, gone from the
-pointer. (Not during a fight: Dinos says to come back when it's over. Eaten by
+anyone knocked out back on their feet, to the sound the game plays when a
+quest is done (as for the Trustee's key or the filled water jug). The vulture
+is eaten, gone from the pointer. (Not during a fight: Dinos says to come back when it's over. Eaten by
 the party on their own, it's too tough to be worth the chewing.)
 
 ![Dinos cooks the vulture](docs/vulture.png)
@@ -800,6 +801,9 @@ Ledger first (`INT FDh`, as for the Thieves' Tools). For the cooked vulture
 (the game's object A4Ch) on Dinos, the Ledger adds the XP and refills the
 party, and the helper lets go of the pointer's item the way the game does with
 coins once it has counted them, so the item goes back to the game's free list.
+The sound is the game's own (sound 53, which its scripts play with "...
+receives N experience points!"): the helper calls the game's routine for it,
+the one behind the scripts' 5Dh command.
 
 ### The slave pens' gear
 

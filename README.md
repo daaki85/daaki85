@@ -98,6 +98,9 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
   preserver learns them as from any scroll. Accuse him and threaten to tell
   the templars, and he won't trade until the party pays 50 ceramic or wins
   him over (a Charisma check). New games only.
+- **The quest sound for the vulture:** giving Dinos the cooked vulture plays
+  the sound the game plays when a quest is done (the Trustee's key, the
+  filled water jug).
 
 **Changed**
 - **Cat's Grace's icon** is a cat's paw print instead of a cat's face.
@@ -105,6 +108,20 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
   conversations are people speaking).
 
 **Fixed**
+- **The slave pens broken by Kalzith** (in this pull request's earlier
+  builds): Kurzak vanished after leading the party in, people were missing,
+  Merzol didn't stop the party, the doors' "pick the lock" and "knock" and the
+  main door's "Summon Kurzak!" were gone and the water jug couldn't be filled.
+  Kalzith was put in among the pens' people and their scripts, moving what came
+  after him; he now comes after everything of the game's. A game whose party
+  has already been in the pens with an earlier build keeps the damage: start
+  a new game, or load a save from before the pens.
+- **Kalzith's scrolls taught the spell before their own** (Flame Arrow for
+  Haste, Grease for Magic Missile...). Ones already bought or in his stock are
+  put right by the Ledger.
+- **"Who are you?" hung the game** when asked of Kalzith.
+- **Pickpocketing said "won't get another chance" to everyone** in a new game
+  with the same party: the last game's tries were remembered.
 - **"Killed" lines for everyone in an area the party left:** walking from the
   slave pens into the arena logged most of the pens as "is killed (7261 XP)".
 

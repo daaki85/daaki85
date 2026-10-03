@@ -1152,6 +1152,7 @@ pick_show:
 PICK_SIZE equ 240
 pick_text times PICK_SIZE db 0
 drop_call dw DROP_OFF, 0
+sound_call dw SOUND_OFF, 0
 
 ; PROBE_USE_ITEM: INT VEC_USE_ITEM replaces "cmp si,-1 / jne +3" (5 bytes: INT + 3 NOPs) in the
 ; routine that uses the item on the pointer on whatever is under it on the map (SI: that
@@ -1170,6 +1171,8 @@ HELD_LIST equ 0x179E            ; DS: the object whose item list is the pointer'
 DGROUP_SEG equ 0x4356           ; the game's DS, less its load segment
 DROP_SEG  equ 0x1A0A            ; and the resident routine (21134h in DSUN.EXE) that empties an
 DROP_OFF  equ 0x1C94            ;   object's item list, putting the items back on the free list
+SOUND_OFF equ 0x0663            ; the resident routine there that plays a sound (GPL's 5Dh)
+QUEST_SOUND equ 53              ; the sound of a quest done (the game's scripts, with their XP)
 probe_use_item:
         sti
         pushad
@@ -1223,6 +1226,12 @@ probe_use_item:
         call far [cs:drop_call]
         add sp, 2
         mov word [HELD], -1
+        mov ax, ds              ; (the drop routine's AX is its own)
+        sub ax, DGROUP_SEG - DROP_SEG
+        mov [cs:sound_call + 2], ax  ; and the sound the game plays when a quest is done (with
+        push word QUEST_SOUND   ;   "... receives N experience points!": its 5Dh command)
+        call far [cs:sound_call]
+        add sp, 2
         pop bx
 .kept:
         mov dx, USE_DONE
