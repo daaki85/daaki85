@@ -24,7 +24,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Callable, Dict, List, NamedTuple, Optional, Tuple
 
-from . import bonescale, game, icons, kalzith, monsters, names, npcitems, pickpocket, ring, scrolling, shadows, sprites, stealth, tools, vulture
+from . import bonescale, dust, game, icons, kalzith, monsters, names, npcitems, pickpocket, ring, scrolling, shadows, sprites, stealth, tools, vulture
 from .game import (CONVENTIONAL_AND_UPPER, CREATURE_ABILITIES, CREATURE_SIDE, CREATURE_THAC0, EFFECT_NAMES,
                    EFFECT_RULES, MATERIAL_TO_HIT, MATERIALS, SAVE_NAMES, STR_DAMAGE, GameData)
 from .guestmem import GuestMemory
@@ -328,7 +328,10 @@ class DiceLog:
         self.show_gear = True  # the party's map sprites dressed in what they wear (sprites.py)
         self.show_shadows = True  # shadows under the figures on the map (shadows.py)
         self._shadows = shadows.Shadows()
-        self.scroll_map = True  # the map scrolled with the right button held, and the wheel (scrolling.py)
+        self.show_dust = True  # dust raised by walkers on sand and dirt (dust.py)
+        self._dust = dust.Dust()
+        self.scroll_map = True  # the map scrolled with the wheel, turned or pressed and dragged (scrolling.py)
+        self.scroll_right = False  # ... and dragged with the right button held
         self._scrolling = scrolling.Scrolling()
         self._wheel: Optional[scrolling.WheelWatch] = None
         self._dresser: Optional[sprites.Dresser] = None
@@ -402,6 +405,7 @@ class DiceLog:
         self.guest.write(hdr + 22, struct.pack("<5H", SEED, TARGET_GLOBAL, 0, 0, 0))
         self.game = GameData(self.guest, ds)
         self._scrolling.forget()  # (a DSCLOG of its own: told again)
+        self._dust = dust.Dust()
         if self._wheel is None:
             proc = getattr(self.guest, "proc", None)
             self._wheel = scrolling.WheelWatch(lambda: getattr(proc, "pid", None), self._scrolling.add)
@@ -594,6 +598,8 @@ class DiceLog:
         self.show_gear = bool(settings.get("show_gear", True))
         self.show_shadows = bool(settings.get("shadows", True))
         self.scroll_map = bool(settings.get("scroll_map", True))
+        self.show_dust = bool(settings.get("dust", True))
+        self.scroll_right = bool(settings.get("scroll_right", False))
         self.load_picked(settings.get("pickpocketed", []))
         self.tools_given = set(settings.get("tools_given", []))
         self.rules = game.rules_from_settings(settings)
@@ -973,8 +979,9 @@ class DiceLog:
             icons.repaint(self.game, icons.ready(self.game, self.tsr_hdr))  # the items' own icons
             self._dress(now)
             if self.tsr_hdr is not None:
-                self._shadows.update(self.game, self.tsr_hdr, self.show_shadows, now)
-                self._scrolling.update(self.game, self.tsr_hdr, self.scroll_map)
+                self._shadows.update(self.game, self.tsr_hdr, self.show_shadows, now, needed=self.show_dust)
+                self._dust.update(self.game, self.tsr_hdr, self.show_dust, self._shadows.palettes)
+                self._scrolling.update(self.game, self.tsr_hdr, self.scroll_map, self.scroll_right)
         except (struct.error, IndexError, ValueError):
             return out
         return out
@@ -991,6 +998,9 @@ class DiceLog:
             copy = os.path.join(launch.DOS_DIR, icons.OBJECTS_FILE)
             self._dresser = sprites.Dresser.for_game(self.game, launch.find_game_dir(),
                                                      copy if os.path.exists(copy) else None)
+            if self._dresser is not None and self.tsr_hdr is not None:
+                hdr = self.tsr_hdr
+                self._dresser.request_redraw = lambda: shadows.redraw(self.game, hdr)
         if self._dresser is not None and (self.show_gear or self._dresser.shown):
             self._dresser.update(self.show_gear, now)
 

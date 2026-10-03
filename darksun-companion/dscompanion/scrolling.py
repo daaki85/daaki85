@@ -1,8 +1,8 @@
 """Scrolling the map with the mouse (DSCLOG's SCROLLING), switched and fed by the Ledger.
 
-DSCLOG does the dragging: holding the right mouse button and moving scrolls the map with the
-pointer, and a right click is still the game's (walk, use, look). The mouse wheel the game never
-hears of (DOSBox 0.74, GOG's, doesn't pass it on), so in Windows the Ledger watches for it
+DSCLOG does the dragging: holding the wheel pressed (the middle button) and moving scrolls the
+map with the pointer; so, if switched on, does holding the right button, a right click still
+being the game's (walk, use, look). The wheel's turns the game never hears of (DOSBox 0.74, GOG's, doesn't pass it on), so in Windows the Ledger watches for it
 (WheelWatch: a low-level mouse hook) while DOSBox's window is the one in front, and DSCLOG scrolls
 the map by what the Ledger adds up for it: up and down, sideways with Shift or a sideways wheel.
 """
@@ -13,6 +13,7 @@ import threading
 from typing import Callable, Optional, Tuple
 
 TSR_SCROLL_ON, TSR_PAN_X, TSR_PAN_Y = 228, 230, 232  # DSCLOG's header
+DRAG_MIDDLE, DRAG_RIGHT = 1, 2  # (TSR_SCROLL_ON's bits: the buttons that drag the map)
 WHEEL_NOTCH = 120  # Windows' wheel delta for one notch
 NOTCH_PIXELS = 48  # how far one notch scrolls the map (the game keeps its view to steps of 8)
 
@@ -26,7 +27,7 @@ def notch_pan(delta: int, sideways: bool) -> Tuple[int, int]:
 
 class Scrolling:
     def __init__(self):
-        self._on: Optional[bool] = None
+        self._on: Optional[int] = None
         self._lock = threading.Lock()
         self._pending = [0, 0]
 
@@ -40,11 +41,14 @@ class Scrolling:
             self._pending[0] += dx
             self._pending[1] += dy
 
-    def update(self, gd, tsr_hdr: int, on: bool) -> None:
+    def update(self, gd, tsr_hdr: int, on: bool, right: bool = False) -> None:
+        """ON: the wheel scrolls the map, turned or pressed and dragged; RIGHT: so does a drag
+        with the right button."""
         guest = gd.guest
-        if on != self._on:
-            guest.write(tsr_hdr + TSR_SCROLL_ON, struct.pack("<H", int(on)))
-            self._on = on
+        bits = (DRAG_MIDDLE | (DRAG_RIGHT if right else 0)) if on else 0
+        if bits != self._on:
+            guest.write(tsr_hdr + TSR_SCROLL_ON, struct.pack("<H", bits))
+            self._on = bits
         with self._lock:
             dx, dy = self._pending
             self._pending = [0, 0]

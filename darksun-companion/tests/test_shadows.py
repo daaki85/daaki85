@@ -42,8 +42,11 @@ class Game:
     def word(self, at):
         return struct.unpack("<H", self.guest.read(at, 2))[0]
 
-    def changed(self, thing):
-        return self.guest.read(DS * 16 + shadows.MAP_THINGS + thing * shadows.MAP_THING_SIZE, 1)[0] & 1
+    def redrawn(self):
+        """The view asked to be drawn again (and the request taken, as DSCLOG does)."""
+        asked = self.word(HDR + shadows.TSR_VIEW_REDRAW)
+        self.guest.write(HDR + shadows.TSR_VIEW_REDRAW, b"\0\0")
+        return bool(asked)
 
 
 class ShadowsTests(unittest.TestCase):
@@ -55,7 +58,8 @@ class ShadowsTests(unittest.TestCase):
 
     def test_update(self):
         """On: DSCLOG's switch, its table, the darker colours asked for (and again after an area
-        change), the casting figures marked to be drawn again; off: drawn again without."""
+        change), the view drawn again (DSCLOG asked: no figure marked changed); off: drawn again
+        without."""
         gd, s = Game(), shadows.Shadows()
         s.update(gd, HDR, True, 100.0)
         self.assertEqual(gd.word(HDR + shadows.TSR_ON), 1)
@@ -64,19 +68,19 @@ class ShadowsTests(unittest.TestCase):
         self.assertEqual(gd.guest.read(BASE + TABLE_OFF + 300, 1), b"\x01")
         gd.guest.write(HDR + shadows.TSR_BUILD, struct.pack("<H", 0))  # (DSCLOG made them)
         s.update(gd, HDR, True, 100.3)
-        self.assertFalse(gd.changed(0))
+        self.assertFalse(gd.redrawn())
         s.update(gd, HDR, True, 101.0)
-        self.assertTrue(gd.changed(0) and gd.changed(300) and not gd.changed(1))
+        self.assertTrue(gd.redrawn())
+        self.assertEqual(s.palettes, 1)
         self.assertEqual(gd.word(HDR + shadows.TSR_BUILD), 0)
         gd.area = 0x2A  # (another area: its palette)
         s.update(gd, HDR, True, 102.0)
         self.assertEqual(gd.word(HDR + shadows.TSR_BUILD), 0)
         s.update(gd, HDR, True, 102.0 + shadows.BUILD_AFTER[0])
         self.assertEqual(gd.word(HDR + shadows.TSR_BUILD), 1)
-        gd.guest.write(DS * 16 + shadows.MAP_THINGS, b"\x00")
         s.update(gd, HDR, False, 110.0)
         self.assertEqual(gd.word(HDR + shadows.TSR_ON), 0)
-        self.assertTrue(gd.changed(0))  # (drawn again: its shadow gone)
+        self.assertTrue(gd.redrawn())  # (drawn again: the shadows gone)
 
 
 if __name__ == "__main__":

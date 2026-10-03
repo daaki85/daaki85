@@ -53,6 +53,8 @@ class ScrollingTests(unittest.TestCase):
         s.add(8, 8)
         s.update(gd, HDR, False)
         self.assertEqual(gd.words(scrolling.TSR_SCROLL_ON, 3), (0, 16, 0x10000 - 48))
+        s.update(gd, HDR, True, right=True)  # (the right button too)
+        self.assertEqual(gd.words(scrolling.TSR_SCROLL_ON, 1), (scrolling.DRAG_MIDDLE | scrolling.DRAG_RIGHT,))
 
     @unittest.skipIf(sys.platform == "win32", "the hook is Windows'")
     def test_wheel_elsewhere(self):

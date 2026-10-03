@@ -23,7 +23,7 @@ whose party still names the game's own pictures.
 """
 
 import struct
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from . import art, game, spritegear as sg, spriteparts as sp
 from .game import GameData
@@ -208,6 +208,7 @@ class Dresser:
             except OSError:
                 self.in_file = {}
         self.shown: Dict[int, tuple] = {}  # object: the outfit it shows
+        self.request_redraw: Optional[Callable[[], None]] = None  # has the view drawn again (DSCLOG)
         self.chunks: Dict[Tuple[int, bool], bytes] = {}  # (object, combat): the picture written
         self.copies: Dict[Tuple[int, bool], List[int]] = {}  # ... and where its copies are
         self._scanned = -RESCAN
@@ -273,7 +274,11 @@ class Dresser:
             at = self.gd.ds * 16 + MAP_ENTRIES + combatant * MAP_ENTRY_SIZE
             picture, = struct.unpack("<H", self.gd.guest.read(at + MAP_PICTURE, 2))
             if redraw and picture == wanted[0]:
-                self._changed(at)
+                request = getattr(self, "request_redraw", None)
+                if request is not None:
+                    request()  # (the view drawn again: not marked, as in a fight that
+                else:                      #   can set it walking again)
+                    self._changed(at)
             if picture in others:
                 self.gd.guest.write(at + MAP_PICTURE, struct.pack("<H", wanted[0]))
                 self.gd.guest.write(at + MAP_SLOT, struct.pack("<H", NO_SLOT))

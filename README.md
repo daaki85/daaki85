@@ -50,8 +50,9 @@ game itself, in the game's own lettering and windows:
 - **Shadows under every figure:** see-through, cast toward the lower left as
   the walls' are, in the floor's own colours, with the walls and figures in
   front standing on them.
-- **Scrolling the map with the mouse:** hold the right button and drag the
-  map, or turn the wheel; a right click still changes the pointer.
+- **Scrolling the map with the mouse:** press the wheel and drag the map, or
+  turn the wheel.
+- **Dust** raised behind the feet of anyone walking on sand or dirt.
 
 The game folder is never modified, and your save files only keep what you'd
 expect from play: the items the Ledger hands out, the XP it gives. For the dice
@@ -115,10 +116,13 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
   colours, drawn on the floor before the walls and figures, so everything in
   front stands on them. They follow figures as they move, in fights too. A
   switch on the Options tab, on by default.
-- **Scrolling the map with the mouse:** holding the right button and moving
-  drags the map with the pointer, in fights too, and in Windows the wheel
-  scrolls it (sideways with Shift). A right click still changes the pointer
-  (walk, use, look). A switch on the Options tab, on by default.
+- **Scrolling the map with the mouse:** pressing the wheel and moving drags
+  the map with the pointer, in fights too, and in Windows turning the wheel
+  scrolls it (sideways with Shift). Optionally the right button drags it too (a
+  right click still changes the pointer). Switches on the Options tab.
+- **Dust behind walking feet:** puffs on sand and dirt behind anyone walking,
+  spreading and fading in about a second, under the walls and figures. A
+  switch on the Options tab, on by default.
 - **The quest sound for the vulture:** giving Dinos the cooked vulture plays
   the sound the game plays when a quest is done (the Trustee's key, the
   filled water jug).

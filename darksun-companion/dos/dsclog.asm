@@ -188,10 +188,18 @@ shadow_tab_off dw shadow_tab    ; +222 offset of SHADOW_TAB: a byte for each of 
 dark_build dw 0                 ; +224 the companion sets 1 to have DARK made again from the palette
                                 ;      (after the area, so the palette, changes); 0 once it is
 shadow_passes dw 0              ; +226 shadow passes drawn (counted)
-scroll_on  dw 0                 ; +228 the companion sets 1 to have a right-button drag scroll the
-                                ;      map (SCROLLING)
+scroll_on  dw 0                 ; +228 the companion sets SCROLL_MIDDLE and/or SCROLL_RIGHT to have
+                                ;      a drag with that button scroll the map (SCROLLING)
 pan_x      dw 0                 ; +230 the companion adds to these (wrapping) to scroll the map by
 pan_y      dw 0                 ; +232   as many pixels (the mouse wheel, read in Windows)
+dust_on    dw 0                 ; +234 the companion sets 1 once LIGHT is made, to have walkers raise
+                                ;      dust (DUST)
+light_off  dw light             ; +236 offset of LIGHT: each colour's lighter one (0: none, not ground
+                                ;      dust shows on), the companion makes it from DAC
+dac_off    dw dac               ; +238 offset of DAC: the palette as DARK was last made from it
+dust_puffs dw 0                 ; +240 puffs of dust raised (counted)
+view_redraw dw 0                ; +242 the companion sets 1 to have the view drawn again (all of it, from
+                                ;      the main loop: VIEW_AGAIN), as it is once it has been
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -2830,14 +2838,15 @@ probe_redraw_all:
         pop word [cs:resume + 2]
         pop word [cs:resume_fl]
         cmp word [cs:shadows_on], 0
-        je .go
+        je .dust
         sub word [bp-8], SHADOW_LEFT
         jge .x
         mov word [bp-8], 0
 .x:     add word [bp-0x0E], SHADOW_DOWN
         cmp word [bp-0x0E], 0xC7
-        jle .go
+        jle .dust
         mov word [bp-0x0E], 0xC7
+.dust:  call dust_union
 .go:    push word [bp+8]
         push word [bp+6]
         push word [cs:resume_fl]
@@ -2861,8 +2870,10 @@ floor_enter:
         pop word [cs:resume + 2]
         popf
         cmp word [cs:shadows_on], 0
+        jne .on
+        cmp word [cs:dust_on], 0
         je .plain
-        cmp byte [cs:floor_busy], 0
+.on:    cmp byte [cs:floor_busy], 0
         jne .plain
         cmp word [FLOOR_ON], 0          ; (DS: the game's) the routine draws nothing without it
         je .plain
@@ -2972,10 +2983,11 @@ shadow_pass:
         call build_dark
         jc .dark                        ; (not yet: the screen is fading)
         mov word [cs:dark_build], 0
-.dark:  cmp byte [cs:dark_ready], 0
-        jne .vga
-        ret                             ; (no colours to darken with yet)
-.vga:   call vga_save
+.dark:  call vga_save
+        cmp word [cs:shadows_on], 0
+        je .dust
+        cmp byte [cs:dark_ready], 0
+        je .dust                        ; (no colours to darken with yet)
         mov ds, [cs:game_ds]
         les di, [OBJ_LIST]
         mov cx, [OBJ_COUNT]
@@ -2989,6 +3001,7 @@ shadow_pass:
         pop cx
         add di, 8
         loop .thing
+.dust:  call dust_pass
 .done:  call vga_restore
         ret
 
@@ -3415,6 +3428,11 @@ CENTRE_OFF  equ 0x0281
 EVENT_PRESS equ 8               ; the driver's events: right button pressed, released
 EVENT_LEAVE equ 16
 RIGHT       equ 2               ; the right button, in the buttons held
+MIDDLE      equ 4               ; the middle one (pressing the wheel)
+EVENT_MID_PRESS equ 0x20
+EVENT_MID_LEAVE equ 0x40
+SCROLL_MIDDLE equ 1             ; SCROLL_ON's bits: dragging with the wheel pressed,
+SCROLL_RIGHT  equ 2             ;   with the right button held
 
 int33:
         cmp ax, 0x0C
@@ -3427,7 +3445,7 @@ int33:
         push es
         push dx
         push cx
-        or cx, 0x1F                     ; (moves, and both buttons)
+        or cx, 0x7F                     ; (moves, and all three buttons)
         push cs
         pop es
         mov dx, mouse_event
@@ -3442,6 +3460,28 @@ int33:
 mouse_event:                            ; AX = events, BX = buttons held, CX, DX = where
         cmp word [cs:scroll_on], 0
         je .pass
+        test byte [cs:scroll_on], SCROLL_MIDDLE
+        jz .right
+        test al, EVENT_MID_PRESS        ; the wheel pressed: a drag at once (the game has no use
+        jz .mheld                       ;   for that button)
+        cmp byte [cs:drag], 0
+        jne .mheld
+        mov byte [cs:drag], 2
+        mov byte [cs:drag_mid], 1
+        mov byte [cs:drag_new], 1
+        mov [cs:drag_x], cx
+        mov [cs:drag_y], dx
+.mheld: cmp byte [cs:drag_mid], 0
+        je .right
+        and bx, ~MIDDLE
+        test al, EVENT_MID_LEAVE
+        jz .mdone
+        mov byte [cs:drag], 0
+        mov byte [cs:drag_mid], 0
+.mdone: and al, ~(EVENT_MID_PRESS | EVENT_MID_LEAVE)
+        jmp .pass
+.right: test byte [cs:scroll_on], SCROLL_RIGHT
+        jz .pass
         test al, EVENT_PRESS
         jz .held
         cmp byte [cs:drag], 0
@@ -3518,7 +3558,12 @@ probe_scroll:
         push dx
         push si
         push di
-        mov ax, 3
+        call dust_tick
+        cmp word [cs:view_redraw], 0
+        je .read
+        mov word [cs:view_redraw], 0
+        call view_again
+.read:  mov ax, 3
         int 0x33                        ; BX = buttons, CX, DX = where
         cmp word [cs:scroll_on], 0
         je .report
@@ -3556,7 +3601,7 @@ probe_scroll:
 .report:
         cmp byte [cs:drag], 0
         je .put
-        and bx, ~RIGHT
+        and bx, ~(RIGHT | MIDDLE)
         cmp cx, 1                       ; (off the edges: no scrolling of the game's own)
         jge .x1
         mov cx, 1
@@ -3605,7 +3650,11 @@ pan_to:                                 ; the view's top left to (AX, SI) as far
         jne .go
         cmp si, [CAM_Y]
         je .done
-.go:    push cx
+.go:    call centre_on
+.done:  ret
+
+centre_on:                              ; the view's top left to (AX, SI), drawn again; keeps CX, DX
+        push cx
         push dx
         push bx
         mov bx, ds
@@ -3621,7 +3670,516 @@ pan_to:                                 ; the view's top left to (AX, SI) as far
         pop bx
         pop dx
         pop cx
-.done:  ret
+        ret
+
+; DUST (DUST_ON): a figure walking raises puffs of dust behind it, which spread, rise a little and
+; fade away in about a second (DUST_LIFE ticks of the BIOS clock). Each is drawn on the floor as the
+; shadows are (DUST_PASS: before the walls and figures, which stand in it), lightening the ground's
+; colours through LIGHT (made by the companion from the palette: 0 for colours that aren't ground
+; dust shows on, so only sand and dirt take it), dithered thinner toward its edge and as it fades,
+; by a pattern fixed to the map (so a puff looks the same however much of it is drawn again).
+;
+; DUST_TICK, from the main loop (PROBE_SCROLL), notes how far each figure that casts a shadow
+; (SHADOW_TAB) has walked, and raises a puff behind its feet every DUST_STEP pixels. While puffs
+; change (each tick of the clock), their ground is to be drawn again: the rectangle the game draws
+; again round what moved takes them in (DUST_UNION, from PROBE_REDRAW_ALL), and when no one is
+; walking, DUST_NUDGE has the game draw the view again. Nothing of the game's is changed (marking a
+; figure changed to have it drawn again can set one in a fight walking again).
+
+DUST_LIFE  equ 18               ; ticks of the BIOS clock (18.2 a second) a puff lasts
+DUST_STEP  equ 6                ; pixels walked for each puff
+JUMP_MOST  equ 40               ; a move further than this (across or up and down) is a jump, not a walk
+PUFFS      equ 24               ; puffs at most at once
+PUFF_SIZE  equ 12               ; a puff: x, y (on the map), born (ticks), owner (thing), seed, live
+BIOS_TICKS equ 0x46C
+
+dust_tick:                      ; DS = the game's
+        cmp word [cs:dust_on], 0
+        jne .on
+        ret
+.on:    push es
+        push bp
+        xor ax, ax
+        mov es, ax
+        mov ax, [es:BIOS_TICKS]
+        mov [cs:d_now], ax
+        cmp ax, [cs:d_last]
+        je .walk
+        mov [cs:d_last], ax
+        mov si, puffs                   ; a tick on: each puff looks different, or is gone
+        mov cx, PUFFS
+.age:   cmp byte [cs:si + 10], 0
+        je .anext
+        call puff_dirty
+        mov ax, [cs:d_now]
+        sub ax, [cs:si + 4]
+        cmp ax, DUST_LIFE
+        jbe .anext
+        mov byte [cs:si + 10], 0        ; (drawn once more, gone: now free)
+.anext: add si, PUFF_SIZE
+        loop .age
+.walk:  les di, [OBJ_LIST]
+        mov cx, [OBJ_COUNT]
+        or cx, cx
+        jz .done
+.thing: push cx
+        mov bx, [es:di + 6]
+        cmp bx, MAP_COUNT - 1
+        ja .tnext
+        cmp byte [cs:shadow_tab + bx], 0
+        je .tnext
+        mov [cs:t_thing], bx
+        mov ax, [es:di]
+        mov [cs:t_x], ax
+        mov dx, [es:di + 2]
+        mov [cs:t_y], dx
+        shl bx, 1
+        sub ax, [cs:last_x + bx]
+        mov [cs:t_dx], ax
+        sub dx, [cs:last_y + bx]
+        mov [cs:t_dy], dx
+        mov ax, [cs:t_x]
+        mov [cs:last_x + bx], ax
+        mov ax, [cs:t_y]
+        mov [cs:last_y + bx], ax
+        mov ax, [cs:t_dx]               ; walked a little (not a jump: an area loaded, someone placed)
+        call abs16
+        cmp ax, JUMP_MOST
+        jae .tnext
+        mov cx, ax
+        mov ax, [cs:t_dy]
+        call abs16
+        cmp ax, JUMP_MOST
+        jae .tnext
+        add ax, cx
+        jz .tnext
+        mov ax, [cs:d_now]
+        mov [cs:d_walked_at], ax
+        mov bx, [cs:t_thing]
+        add [cs:walked + bx], al
+        cmp byte [cs:walked + bx], DUST_STEP
+        jb .tnext
+        sub byte [cs:walked + bx], DUST_STEP
+        cmp byte [cs:walked + bx], DUST_STEP
+        jb .one
+        mov byte [cs:walked + bx], 0        ; (one puff a tick at most)
+.one:
+        call puff_raise
+.tnext: pop cx
+        add di, 8
+        dec cx
+        jnz .thing
+.done:  call dust_nudge
+        pop bp
+        pop es
+        ret
+
+abs16:  or ax, ax
+        jns .pos
+        neg ax
+.pos:   ret
+
+sgn16:  or ax, ax                       ; AX -> -1, 0 or 1
+        jz .z
+        mov ax, 1
+        jg .z
+        neg ax
+.z:     ret
+
+puff_raise:                             ; behind T_THING's feet at (T_X, T_Y), walking (T_DX, T_DY)
+        mov ax, [cs:d_next]             ; the next in turn (the oldest, if all are in use)
+        inc word [cs:d_next]
+        cmp word [cs:d_next], PUFFS
+        jb .slot
+        mov word [cs:d_next], 0
+.slot:  imul si, ax, PUFF_SIZE
+        add si, puffs
+        cmp byte [cs:si + 10], 0
+        je .free
+        call puff_dirty                 ; (its ground drawn again without it)
+.free:  xor byte [cs:d_side], 1         ; (the feet in turn: a little to one side, then the other)
+        mov ax, [cs:t_dx]
+        call sgn16
+        mov [cs:t_sx], ax
+        mov ax, [cs:t_dy]
+        call sgn16
+        mov [cs:t_sy], ax
+        mov ax, [cs:t_sx]               ; x: behind, and to the side across the way it goes
+        imul ax, ax, -3
+        add ax, [cs:t_x]
+        mov dx, [cs:t_sy]
+        shl dx, 1
+        cmp byte [cs:d_side], 0
+        je .x
+        neg dx
+.x:     add ax, dx
+        mov [cs:si], ax
+        mov ax, [cs:t_sy]               ; y: behind, and to the side
+        imul ax, ax, -2
+        add ax, [cs:t_y]
+        mov dx, [cs:t_sx]
+        cmp byte [cs:d_side], 0
+        jne .y
+        neg dx
+.y:     add ax, dx
+        mov [cs:si + 2], ax
+        mov ax, [cs:d_now]
+        mov [cs:si + 4], ax
+        mov ax, [cs:t_thing]
+        mov [cs:si + 6], ax
+        inc word [cs:dust_puffs]
+        imul ax, [cs:dust_puffs], 0x3D7
+        mov [cs:si + 8], ax
+        mov byte [cs:si + 10], 1
+        call puff_dirty
+        ret
+
+puff_dirty:                             ; the puff at CS:SI: its ground to be drawn again (DS = the game's)
+        mov ax, [cs:si]
+        sub ax, 12
+        mov dx, [cs:si + 2]
+        sub dx, 12
+        cmp byte [cs:d_dirty], 0
+        je .first
+        cmp ax, [cs:d_x0]
+        jge .x1
+.first: mov [cs:d_x0], ax
+.x1:    add ax, 24
+        cmp byte [cs:d_dirty], 0
+        je .fx1
+        cmp ax, [cs:d_x1]
+        jle .y0
+.fx1:   mov [cs:d_x1], ax
+.y0:    cmp byte [cs:d_dirty], 0
+        je .fy0
+        cmp dx, [cs:d_y0]
+        jge .y1
+.fy0:   mov [cs:d_y0], dx
+.y1:    add dx, 19
+        cmp byte [cs:d_dirty], 0
+        je .fy1
+        cmp dx, [cs:d_y1]
+        jle .mark
+.fy1:   mov [cs:d_y1], dx
+.mark:  mov byte [cs:d_dirty], 1
+        mov ax, [cs:si + 6]
+        mov [cs:d_owner], ax
+        ret
+
+STILL_TICKS equ 3              ; how long no one has walked (nor the view moved) before DUST_NUDGE
+NUDGE_TICKS equ 4               ; ... and between its drawings of the view
+
+; DUST_NUDGE: with puffs to draw again while no one walks and the view stands still (when the
+; game draws again round what moved anyway, DUST_UNION taking them in), the view drawn again
+; (VIEW_AGAIN) every NUDGE_TICKS, till they are gone
+dust_nudge:
+        mov ax, [CAM_X]                 ; (the view: when it last moved)
+        cmp ax, [cs:d_cam_x]
+        jne .cam
+        mov ax, [CAM_Y]
+        cmp ax, [cs:d_cam_y]
+        je .still
+.cam:   mov ax, [CAM_X]
+        mov [cs:d_cam_x], ax
+        mov ax, [CAM_Y]
+        mov [cs:d_cam_y], ax
+        mov ax, [cs:d_now]
+        mov [cs:d_walked_at], ax
+        ret
+.still: cmp byte [cs:d_dirty], 0
+        je .ret
+        mov ax, [cs:d_now]
+        sub ax, [cs:d_walked_at]
+        cmp ax, STILL_TICKS
+        jb .ret
+        mov ax, [cs:d_now]
+        sub ax, [cs:d_nudged]
+        cmp ax, NUDGE_TICKS
+        jb .ret
+        mov ax, [cs:d_now]
+        mov [cs:d_nudged], ax
+        mov byte [cs:d_dirty], 0
+        call view_again
+.ret:   ret
+
+; VIEW_AGAIN: the view drawn again, all of it, as the game does when the view is centred where it
+; is (DS = the game's). The figures are never marked changed to have them drawn again: in a fight
+; that can set one walking again.
+view_again:
+        push ax
+        push bx
+        push cx
+        push dx
+        push si
+        mov si, [CAM_Y]
+        mov ax, [CAM_X]
+        call centre_on
+        pop si
+        pop dx
+        pop cx
+        pop bx
+        pop ax
+        ret
+
+; DUST_UNION: in PROBE_REDRAW_ALL (x0 [BP-8], x1 [BP-0Ah], y0 [BP-0Ch], y1 [BP-0Eh]: on screen),
+; the puffs' ground taken in, as far as it is on screen
+dust_union:
+        cmp byte [cs:d_dirty], 0
+        je .ret
+        mov byte [cs:d_dirty], 0
+        mov ax, [cs:d_x0]
+        sub ax, [CAM_X]
+        mov cx, [cs:d_x1]
+        sub cx, [CAM_X]
+        mov dx, [cs:d_y0]
+        sub dx, [CAM_Y]
+        mov bx, [cs:d_y1]
+        sub bx, [CAM_Y]
+        cmp cx, 0                       ; (off screen: nothing)
+        jl .ret
+        cmp ax, 0x13F
+        jg .ret
+        cmp bx, 0
+        jl .ret
+        cmp dx, 0xC7
+        jg .ret
+        cmp ax, 0
+        jge .ax
+        xor ax, ax
+.ax:    and ax, 0xFFFC
+        cmp ax, [bp-8]
+        jge .cx
+        mov [bp-8], ax
+.cx:    cmp cx, 0x13F
+        jle .cx3
+        mov cx, 0x13F
+.cx3:   or cx, 3
+        cmp cx, [bp-0x0A]
+        jle .dx
+        mov [bp-0x0A], cx
+.dx:    cmp dx, 0
+        jge .dx0
+        xor dx, dx
+.dx0:   cmp dx, [bp-0x0C]
+        jge .bx
+        mov [bp-0x0C], dx
+.bx:    cmp bx, 0xC7
+        jle .bx1
+        mov bx, 0xC7
+.bx1:   cmp bx, [bp-0x0E]
+        jle .ret
+        mov [bp-0x0E], bx
+.ret:   ret
+
+; DUST_PASS: in SHADOW_PASS (the VGA's registers kept; the clip, camera and page known), each puff
+dust_pass:
+        cmp word [cs:dust_on], 0
+        je .ret
+        push ds
+        xor ax, ax
+        mov ds, ax
+        mov ax, [BIOS_TICKS]
+        pop ds
+        mov [cs:d_now], ax
+        mov si, puffs
+        mov cx, PUFFS
+.puff:  cmp byte [cs:si + 10], 0
+        je .next
+        push cx
+        push si
+        call puff_draw
+        pop si
+        pop cx
+.next:  add si, PUFF_SIZE
+        loop .puff
+.ret:   ret
+
+puff_draw:                              ; the puff at CS:SI
+        mov ax, [cs:d_now]
+        sub ax, [cs:si + 4]
+        cmp ax, DUST_LIFE
+        jb .young
+        ret
+.young: mov bx, ax                      ; BX: its age
+        shl ax, 3                       ; across: 3, growing to 11
+        xor dx, dx
+        mov cx, DUST_LIFE
+        div cx
+        add ax, 3
+        mov [cs:d_rx], ax
+        imul ax, ax, 9                  ; up and down: a little over half that
+        add ax, 8
+        shr ax, 4
+        mov [cs:d_ry], ax
+        mov al, [cs:dust_dens + bx]
+        xor ah, ah
+        mov [cs:d_dens], ax
+        mov al, [cs:dust_core + bx]
+        mov [cs:d_core], ax
+        imul ax, bx, 5                  ; rising, 5 pixels in all
+        xor dx, dx
+        div cx
+        mov dx, [cs:si + 2]
+        sub dx, ax
+        mov [cs:d_wy], dx
+        mov ax, [cs:si]
+        mov [cs:d_wx], ax
+        mov ax, [cs:si + 8]
+        mov [cs:d_seed], ax
+        mov ax, [cs:d_ry]
+        neg ax
+        mov [cs:d_yy], ax
+.row:   mov ax, [cs:d_yy]
+        cmp ax, [cs:d_ry]
+        jle .inrow
+        ret
+.inrow: mov bx, [cs:d_wy]
+        add bx, ax
+        mov [cs:d_wrow], bx
+        sub bx, [cs:cam_y]
+        cmp bx, [cs:clip_y0]
+        jl .nrow
+        cmp bx, [cs:clip_y1]
+        jg .nrow
+        mov ax, bx                      ; the row's place in the page
+        sub ax, [cs:v_y0]
+        mul word [cs:v_row]
+        sub ax, [cs:v_x0]
+        mov [cs:row_at], ax
+        mov ax, [cs:d_yy]               ; how far out it is, up and down: (y / ry)^2, of 256
+        imul ax, ax
+        shl ax, 8
+        mov cx, [cs:d_ry]
+        imul cx, cx
+        xor dx, dx
+        div cx
+        mov [cs:d_ey], ax
+        mov ax, [cs:d_rx]
+        neg ax
+        mov [cs:d_xx], ax
+.col:   mov ax, [cs:d_xx]
+        cmp ax, [cs:d_rx]
+        jg .nrow
+        imul ax, ax                     ; and across
+        shl ax, 8
+        mov cx, [cs:d_rx]
+        imul cx, cx
+        xor dx, dx
+        div cx
+        add ax, [cs:d_ey]
+        cmp ax, 256
+        ja .ncol
+        mov [cs:d_e], ax
+        mov bx, [cs:d_wx]
+        add bx, [cs:d_xx]
+        mov [cs:d_wcol], bx
+        sub bx, [cs:cam_x]
+        cmp bx, [cs:clip_x0]
+        jl .ncol
+        cmp bx, [cs:clip_x1]
+        jg .ncol
+        mov ax, [cs:d_e]                ; how thick it is here: thinner toward the edge
+        imul ax, ax, 154
+        shr ax, 8
+        neg ax
+        add ax, 256
+        mul word [cs:d_dens]
+        shr ax, 8
+        mov [cs:d_thr], ax
+        mov ax, [cs:d_wcol]             ; the pattern, fixed to the map
+        imul ax, ax, 0x9E5
+        mov dx, [cs:d_wrow]
+        imul dx, dx, 0x3B1
+        xor ax, dx
+        add ax, [cs:d_seed]
+        mov dx, ax
+        shr dx, 7
+        xor ax, dx
+        imul ax, ax, 0x2C5
+        shr ax, 4
+        and ax, 0xFF
+        cmp ax, [cs:d_thr]
+        jae .ncol
+        call dust_px
+.ncol:  inc word [cs:d_xx]
+        jmp .col
+.nrow:  inc word [cs:d_yy]
+        jmp .row
+
+dust_px:                                ; lighten screen x BX on the row at ROW_AT (twice in the core)
+        mov cx, bx
+        and cx, 3
+        mov dx, 0x3C4
+        mov al, 2
+        mov ah, 1
+        shl ah, cl
+        out dx, ax
+        mov dx, 0x3CE
+        mov al, 4
+        mov ah, cl
+        out dx, ax
+        shr bx, 2
+        add bx, [cs:row_at]
+        mov es, [cs:v_seg]
+        xor ax, ax
+        mov al, [es:bx]
+        mov di, ax
+        mov al, [cs:light + di]
+        or al, al
+        jz .ret
+        mov cx, [cs:d_e]
+        cmp cx, [cs:d_core]
+        jae .put
+        mov di, ax
+        mov ah, [cs:light + di]
+        or ah, ah
+        jz .put
+        mov al, ah
+.put:   mov [es:bx], al
+.ret:   ret
+
+dust_dens  db 255, 255, 255, 255, 247, 238, 229, 219, 209, 198, 187, 174, 161, 147, 132, 114, 93, 66   ; how thick, by age (of 256)
+dust_core  db 140, 132, 125, 117, 109, 101, 93, 86, 78, 70, 62, 54, 46, 39, 31, 23, 15, 7   ; the core (twice as light), by age
+d_now      dw 0
+d_nudged   dw 0
+d_cam_x    dw 0
+d_cam_y    dw 0
+d_owner    dw 0
+d_walked_at dw 0                ; when someone last took a step
+d_last     dw 0
+d_next     dw 0
+d_side     db 0
+d_dirty    db 0
+d_x0       dw 0
+d_x1       dw 0
+d_y0       dw 0
+d_y1       dw 0
+d_rx       dw 0
+d_ry       dw 0
+d_dens     dw 0
+d_core     dw 0
+d_wx       dw 0
+d_wy       dw 0
+d_seed     dw 0
+d_yy       dw 0
+d_xx       dw 0
+d_wrow     dw 0
+d_wcol     dw 0
+d_ey       dw 0
+d_e        dw 0
+d_thr      dw 0
+t_thing    dw 0
+t_x        dw 0
+t_y        dw 0
+t_dx       dw 0
+t_dy       dw 0
+t_sx       dw 0
+t_sy       dw 0
+puffs      times PUFFS * PUFF_SIZE db 0
+last_x     times MAP_COUNT dw 0
+last_y     times MAP_COUNT dw 0
+walked     times MAP_COUNT db 0
+light      times 256 db 0
 
 old33        dd 0
 game_handler dd 0
@@ -3629,7 +4187,8 @@ game_mask    dw 0
 centre       dw CENTRE_OFF, 0
 s_resume     dd 0
 s_resume_fl  dw 0
-drag         db 0               ; 0: the right button isn't held; 1: held, not moved yet; 2: dragging
+drag         db 0               ; 0: no drag; 1: the right button held, not moved yet; 2: dragging
+drag_mid     db 0               ; 1: dragging with the wheel pressed
 drag_new     db 0
 drag_x       dw 0               ; where it was pressed
 drag_y       dw 0

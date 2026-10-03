@@ -81,8 +81,10 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   change when their gear does (see [What the party wears](#what-the-party-wears)).
 - **Shadows** under every figure on the map, see-through and in the floor's own
   colours (see [Shadows](#shadows)).
-- **Scrolling the map with the mouse:** hold the right button and move to drag
-  the map, or turn the wheel (see [Scrolling the map](#scrolling-the-map)).
+- **Scrolling the map with the mouse:** press the wheel and move to drag the
+  map, or turn it (see [Scrolling the map](#scrolling-the-map)).
+- **Dust** raised behind the feet of anyone walking on sand or dirt (see
+  [Dust](#dust)).
 
 Nothing in the game folder or your save files is changed, except that a game
 you save keeps what the Ledger has handed out or changed in play: the Ring +1,
@@ -1027,24 +1029,46 @@ its fade-in is over, and now and then; the colours the game cycles, for water
 and fire, are never picked as darker ones). The rectangles the game draws again when a figure
 moves are widened by the length of a shadow, so none is left behind. The
 Ledger keeps DSCLOG's list of who casts one (`dscompanion/shadows.py`) and has
-those figures drawn again when it changes.
+DSCLOG draw the view again when it changes (from the game's main loop, as
+centring the view does: marking the figures changed instead, as the game's own
+code does to draw one again, can set one in a fight walking again).
+
+### Dust
+
+Anyone walking on sand or dirt raises little puffs of dust behind their feet,
+which spread, rise a little and fade in about a second. The walls and figures
+stand in front of them, as with the shadows. Switch it off on the Options tab.
+
+How: DSCLOG notes, each time round the game's main loop, how far each figure
+that casts a shadow has walked, and raises a puff a little behind and to one
+side of its feet every 6 pixels (the feet in turn). The puffs are drawn on the
+floor after the shadows, lightening it through a table of each colour's lighter
+one, which the Ledger makes from the area's palette (`dscompanion/dust.py`):
+only warm, middling colours (sand, dirt) have one, so stone, water and the
+figures take none. Each puff is dithered thinner toward its edge and as it
+fades, by a pattern fixed to the map, so a puff looks the same however much of
+it the game draws again. While anyone walks, the rectangle the game draws again
+round what moved is made to take the puffs in; once everyone stands, DSCLOG has
+the view drawn again a few times a second until the last puff is gone.
 
 ### Scrolling the map
 
-Hold the right mouse button on the map and move the mouse: the map moves with
-the pointer, as if dragged, in fights too. A right click (let go before the
-pointer has moved) still does what it does in the game, changing the pointer
-between walking, using and looking. In Windows the mouse wheel scrolls the map
-up and down while the game's window is in front, and sideways with Shift held
-(or a wheel that tilts). Switch it off on the Options tab. The game still
-scrolls on its own when the pointer touches the screen's edge, and still
-brings the view back to whoever's turn it is in a fight.
+Press the mouse wheel on the map and move the mouse: the map moves with the
+pointer, as if dragged, in fights too. In Windows, turning the wheel scrolls the
+map up and down while the game's window is in front, and sideways with Shift
+held (or a wheel that tilts). On the Options tab it can be switched off, or
+holding the right button made to drag the map as well (a right click, let go
+before the pointer has moved, still changes the pointer between walking, using
+and looking). The game still scrolls on its own when the pointer touches the
+screen's edge, and still brings the view back to whoever's turn it is in a
+fight.
 
 How: the game hears of the mouse's buttons from the mouse driver, through a
 handler it gives it (`INT 33h`, function 0Ch). DSCLOG hooks `INT 33h` and puts
-its own handler in between, which keeps the right button from the game while it
-is held: a click reaches the game when it is let go (pressed and released where
-it was pressed), a drag never does. The game's main loop asks where the pointer
+its own handler in between, which keeps the middle button (the wheel pressed)
+from the game, and, with the right button dragging too, keeps the right button
+from it while it is held: a click reaches the game when it is let go (pressed
+and released where it was pressed), a drag never does. The game's main loop asks where the pointer
 is (to scroll at the screen's edge); there DSCLOG has the game centre its view
 where the drag puts it, with the game's own routine (the one clicking on the
 overview map uses, which draws the view again), and keeps the pointer it reports
