@@ -183,6 +183,7 @@ def places(data: bytes) -> Dict[Tuple[int, bool], Tuple[int, int]]:
 
 
 RESCAN = 10.0  # seconds between looks through the game's memory for copies not yet found
+AREA_RESCANS = (0.5, 2.0, 5.0)  # ... and after an area change, these seconds after it
 
 
 class Dresser:
@@ -212,6 +213,7 @@ class Dresser:
         self.chunks: Dict[Tuple[int, bool], bytes] = {}  # (object, combat): the picture written
         self.copies: Dict[Tuple[int, bool], List[int]] = {}  # ... and where its copies are
         self._scanned = -RESCAN
+        self._rescans: List[float] = []  # (looks through memory soon after an area change)
 
     def _to_file(self, key: Tuple[int, bool], chunk: bytes) -> None:
         place = self.in_file.get(key)
@@ -312,10 +314,18 @@ class Dresser:
         return chunk is not None and all(self.gd.guest.read(start, len(chunk)) == chunk
                                          for start in self.copies.get(key, []))
 
+    def area_changed(self, now: float) -> None:
+        """A new area: its pictures are loaded anew, so memory is looked through for them soon
+        (AREA_RESCANS after), not only every RESCAN."""
+        self._rescans = [now + after for after in AREA_RESCANS]
+
     def update(self, on: bool = True, now: float = 0.0) -> List[int]:
         """Each party member's sprites in what they wear (ON; else as the game's own): where it
         has changed, or the game has loaded a picture of theirs anew. The objects written."""
-        if now - self._scanned >= RESCAN:
+        due = [t for t in self._rescans if t <= now]
+        if due:
+            self._rescans = [t for t in self._rescans if t > now]
+        if due or now - self._scanned >= RESCAN:
             self._scan()
             self._scanned = now
         changed = []

@@ -167,6 +167,11 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
   conversations are people speaking).
 
 **Fixed**
+- **The party's gear showed late after an area change:** the Ledger looked for the
+  area's newly loaded pictures only every 10 seconds, and dressed the party with
+  its slower checks (every 3 seconds); a party walking off as the area loaded
+  stayed plain meanwhile. It now dresses them four times a second and looks for
+  the new pictures half a second, 2 and 5 seconds after the area changes.
 - **Cat's Grace was missing from the Effects screen:** its effect (54, one the
   game leaves unused) had no icon in the game's table of effects, and the
   screen shows only effects with one. It now has its paw and its name.

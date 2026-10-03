@@ -356,6 +356,7 @@ class DiceLog:
         self.rules = 0  # RULE_HELMS | RULE_BOOTS: rule changes DSCLOG makes (set_rules)
         self.stealth_roll: Callable[[], int] = lambda: random.randint(1, 100)  # hiding, moving silently
         self._ring_check = 0.0
+        self._dress_region: Optional[int] = None  # the area the party's pictures were last looked for in
         self._main_ticks: Optional[int] = None  # DSCLOG's count of the map's main loop, last read
         self._look_seq = 0
         self._turn_seq = 0
@@ -951,6 +952,7 @@ class DiceLog:
                 out += self._arena_ring(now)
                 out += self._drawn(now)
                 self._kalzith_sold_out()
+                self._dress_now(now)
         self._scroll()
         if self._initiative and now - self._initiative_at >= INITIATIVE_WAIT:
             out += self.initiative_lines()
@@ -999,7 +1001,6 @@ class DiceLog:
                 self._tools_new += sorted(self.tools_given - before)
             out += self._ring_search()
             icons.repaint(self.game, icons.ready(self.game, self.tsr_hdr))  # the items' own icons
-            self._dress(now)
         except (struct.error, IndexError, ValueError):
             return out
         return out
@@ -1042,6 +1043,20 @@ class DiceLog:
             return
         try:
             self._scrolling.update(self.game, self.tsr_hdr, self.scroll_map, self.scroll_right)
+        except (struct.error, IndexError, ValueError):
+            pass
+
+    def _dress_now(self, now: float) -> None:
+        """The party dressed four times a second (not with the ring's search, every 3 s: a party
+        walking off as an area loads was drawn plain till then), and memory looked through
+        again soon after an area change, when its pictures are loaded anew."""
+        try:
+            region = self.game.region()
+            if region != self._dress_region:
+                self._dress_region = region
+                if self._dresser is not None:
+                    self._dresser.area_changed(now)
+            self._dress(now)
         except (struct.error, IndexError, ValueError):
             pass
 

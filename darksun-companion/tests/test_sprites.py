@@ -130,6 +130,28 @@ class SpriteTests(unittest.TestCase):
         self.assertEqual(gd.entry_fields(0), (shared[0], sprites.NO_SLOT))
         self.assertEqual(gd.guest.read(at, 2), bytes([9 + sprites.PAD, 26 + sprites.PAD]))  # (where ours has room)
 
+    def test_rescans_after_an_area_change(self):
+        """Memory looked through every RESCAN, and soon after an area change (its pictures are
+        loaded anew) at each of AREA_RESCANS."""
+        dresser = sprites.Dresser.__new__(sprites.Dresser)
+        dresser.gd = FakeGame(figures=[])
+        dresser.pics = sprites.Pictures(game_chunks())
+        dresser.shown, dresser.chunks, dresser.copies = {}, {}, {}
+        dresser._scanned, dresser._rescans = -sprites.RESCAN, []
+        scans = []
+        dresser._scan = lambda: scans.append(True)
+        dresser.update(True, 0.0)
+        dresser.update(True, 1.0)
+        self.assertEqual(len(scans), 1)
+        dresser.area_changed(1.0)
+        times = [1.0 + t for t in sprites.AREA_RESCANS]
+        for now in times:
+            dresser.update(True, now - 0.01)
+            before = len(scans)
+            dresser.update(True, now)
+            self.assertEqual(len(scans), before + 1)
+        self.assertEqual(dresser._rescans, [])
+
 
 class FakeGuest:
     def __init__(self):
