@@ -167,6 +167,12 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
   conversations are people speaking).
 
 **Fixed**
+- **Tab + Enter froze the game:** after Enter, the walk to the chosen enemy
+  stalled, sometimes until a mouse click. The helper answered the game's "what is
+  under the pointer" with the enemy and returned without giving back the game's
+  interrupt state, so the game ran on with its timer stopped. Fixed; the
+  helper's waits for the Ledger also no longer depend on the BIOS clock, so
+  they can't hang if it stands still.
 - **The party's gear showed late after an area change:** the Ledger looked for the
   area's newly loaded pictures only every 10 seconds, and dressed the party with
   its slower checks (every 3 seconds); a party walking off as the area loaded

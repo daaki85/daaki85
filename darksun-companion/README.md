@@ -2201,6 +2201,6 @@ After changing `dos/dsclog.asm`, rebuild the helper with
 nasm -f bin -o dos/DSCLOG.EXE dos/dsclog.asm
 ```
 
-The header's signature (`DSCLOGvT` now) goes up whenever the helper and the
+The header's signature (`DSCLOGvU` now) goes up whenever the helper and the
 Ledger must change together (`HDR_SIG` in `dscompanion/dicelog.py`), so a
 Ledger never talks to an older helper.

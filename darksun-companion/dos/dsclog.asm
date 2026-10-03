@@ -92,7 +92,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvT'          ; +0
+sig      db 'DSCLOGvU'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -1140,13 +1140,17 @@ probe_pick:
         xor ax, ax
         mov es, ax
         mov dx, [es:0x46C]      ; the BIOS timer
+        call rtc_begin
 .wait:  mov ax, [cs:pick_reply]
         cmp ax, [cs:pick_seq]
         je .ready
         mov ax, [es:0x46C]
         sub ax, dx
         cmp ax, PICK_WAIT
-        jb .wait
+        jae .late_pick_reply
+        call rtc_waited         ; (the BIOS clock can stand still: the game's timer
+        jnc .wait               ;   doesn't always pass its ticks on; at most 2 s by the real-time clock)
+.late_pick_reply:
         jmp .out                ; no answer: the companion isn't reading
 .ready: cmp byte [cs:pick_text], 0
         je .out
@@ -1240,13 +1244,17 @@ probe_use_item:
         xor ax, ax
         mov es, ax
         mov cx, [es:0x46C]      ; the BIOS timer
+        call rtc_begin
 .wait:  mov ax, [cs:use_reply]
         cmp ax, [cs:use_seq]
         je .ready
         mov ax, [es:0x46C]
         sub ax, cx
         cmp ax, PICK_WAIT
-        jb .wait
+        jae .late_use_reply
+        call rtc_waited         ; (the BIOS clock can stand still: the game's timer
+        jnc .wait               ;   doesn't always pass its ticks on; at most 2 s by the real-time clock)
+.late_use_reply:
         jmp .go                 ; no answer: the companion isn't reading
 .ready: cmp word [cs:use_taken], 0
         je .go
@@ -1308,13 +1316,17 @@ turn_check:
         xor ax, ax
         mov es, ax
         mov dx, [es:0x46C]      ; the BIOS timer
+        call rtc_begin
 .wait:  mov ax, [cs:reply_seq]
         cmp ax, [cs:turn_seq]
         je .ready
         mov ax, [es:0x46C]
         sub ax, dx
         cmp ax, TURN_WAIT
-        jb .wait
+        jae .late_reply_seq
+        call rtc_waited         ; (the BIOS clock can stand still: the game's timer
+        jnc .wait               ;   doesn't always pass its ticks on; at most 2 s by the real-time clock)
+.late_reply_seq:
         jmp .out                ; no answer: the companion isn't reading
 .ready: cmp byte [cs:msg_buf], 0
         je .out                 ; nothing to say about that turn
@@ -1536,13 +1548,17 @@ probe_look:
         xor ax, ax
         mov es, ax
         mov dx, [es:0x46C]      ; the BIOS timer
+        call rtc_begin
 .wait:  mov ax, [cs:look_reply]
         cmp ax, [cs:look_seq]
         je .ready
         mov ax, [es:0x46C]
         sub ax, dx
         cmp ax, TURN_WAIT
-        jb .wait
+        jae .late_look_reply
+        call rtc_waited         ; (the BIOS clock can stand still: the game's timer
+        jnc .wait               ;   doesn't always pass its ticks on; at most 2 s by the real-time clock)
+.late_look_reply:
         jmp .done               ; no answer: the companion isn't reading
 .ready: mov es, [ss:si + 36]
         mov di, [ss:si + 34]
@@ -1649,13 +1665,16 @@ stats_sync:
         cmp ax, STATS_FRESH
         jae .out                ; the companion isn't running
         inc word [cs:stats_req]
+        call rtc_begin
 .wait:  mov ax, [cs:stats_reply]
         cmp ax, [cs:stats_req]
         je .done
         mov ax, [es:0x46C]
         sub ax, dx
         cmp ax, STATS_WAIT
-        jb .wait
+        jae .done
+        call rtc_waited         ; (as the waits for the companion: the BIOS clock can stand still)
+        jnc .wait
 .done:  mov ax, [es:0x46C]
         mov [cs:sync_at], ax
 .out:   pop es
@@ -1664,6 +1683,42 @@ stats_sync:
         ret
 
 sync_at dw 0
+
+; RTC_BEGIN, RTC_WAITED: a wait for the companion ends after its BIOS ticks, or, as the BIOS clock
+; stands still while the game's timer handler keeps its ticks to itself (as in some fights), once
+; the real-time clock's second has changed twice (1 to 2 seconds): never a hang.
+rtc_begin:
+        push ax
+        call rtc_second
+        mov [cs:w_sec], al
+        mov byte [cs:w_flips], 0
+        pop ax
+        ret
+rtc_waited:                             ; CF set: the wait is over
+        push ax
+        call rtc_second
+        cmp al, [cs:w_sec]
+        je .no
+        mov [cs:w_sec], al
+        inc byte [cs:w_flips]
+        cmp byte [cs:w_flips], 2
+        jb .no
+        pop ax
+        stc
+        ret
+.no:    pop ax
+        clc
+        ret
+rtc_second:                             ; AL = the real-time clock's seconds (CMOS register 0)
+        pushf
+        cli
+        mov al, 0
+        out 0x70, al
+        in al, 0x71
+        popf
+        ret
+w_sec   db 0
+w_flips db 0
 
 ; BX = a party member (0-3): CF clear and CS:BX = their STATS entry if the companion keeps it
 ; current, CF set if not
@@ -4326,13 +4381,15 @@ red        times 256 db 0
 ; an enemy chosen) Enter out of what it sees. For Enter, the main loop (TARGET_CLICK, from
 ; PROBE_SCROLL) puts the pointer at the enemy's feet and gives the game a left click there, while
 ; the routine that finds what is under the pointer (PROBE_HIT, DSUN.EXE 25B52h) answers with the
-; chosen enemy for a moment (HIT_TICKS), whatever is in front of it.
+; chosen enemy for a moment (HIT_PASSES), whatever is in front of it.
 
 KEY_TAB     equ 0x0F09
 KEY_BACKTAB equ 0x0F00
 KEY_ENTER   equ 0x1C0D
 KEY_PAD_ENTER equ 0xE00D
-HIT_TICKS   equ 9               ; BIOS ticks the hit is the chosen enemy, from the click
+HIT_PASSES  equ 600             ; passes of the map's main loop the hit is the chosen enemy, from the
+                                ;   click (not BIOS ticks: the BIOS clock can stand still in a fight,
+                                ;   and the hit stayed the enemy, the walk to it stalling)
 EVENT_LEFT_PRESS equ 2
 EVENT_LEFT_LEAVE equ 4
 LEFT        equ 1
@@ -4434,12 +4491,8 @@ target_click:
         jg .ret
         mov [cs:t_x], cx
         mov [cs:t_y], dx
-        push es
-        xor ax, ax
-        mov es, ax
-        mov ax, [es:BIOS_TICKS]
-        pop es
-        add ax, HIT_TICKS
+        mov ax, [cs:main_ticks]
+        add ax, HIT_PASSES
         mov [cs:hit_until], ax
         mov byte [cs:hit_forced], 1
         mov ax, 4                       ; the pointer there
@@ -4481,14 +4534,15 @@ probe_hit:
         cmp byte [cs:hit_forced], 0
         je .plain
         push ax
-        push es
-        xor ax, ax
-        mov es, ax
-        mov ax, [es:BIOS_TICKS]
-        pop es
+        mov ax, [cs:main_ticks]
         sub ax, [cs:hit_until]
         pop ax
         jns .over
+        push bp                         ; (the caller's flags back: the INT turned interrupts off,
+        mov bp, sp                      ;   and a RETF leaves them so; the game then ran on without
+        push word [bp + 6]              ;   its timer, a walk to the enemy frozen till something
+        popf                            ;   turned them on again)
+        pop bp
         add sp, 6                       ; (the interrupt's frame: back to the caller, the enemy)
         mov ax, [cs:hit_target]
         retf
