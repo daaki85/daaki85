@@ -74,6 +74,8 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   that treats him well (see [Kalzith](#kalzith)).
 - **Semyon back in the slave pens,** as he promises when he leaves the arena
   (see [Semyon](#semyon)).
+- **Dinos and the Trustee asked about Kalzith and Semyon** (see
+  [Dinos and the Trustee on Kalzith and Semyon](#dinos-and-the-trustee-on-kalzith-and-semyon)).
 - **Icons of their own** for the Ledger's magic items and the Short Sword,
   made from the game's (see [Item icons](#item-icons)).
 - **What the party wears, on the map:** their weapons and shields, bows and
@@ -856,8 +858,8 @@ don't load a save that has them without the dice log.
 ### Kalzith
 
 A new person in the slave pens: **Kalzith**, a defiler slave the templars put
-in the arena now and then (the crowd loves to watch a defiler burn), kept
-chained in an empty pen in the middle column the rest of the time. He has the
+in the arena now and then (the crowd loves to watch a defiler burn), kept in
+a pen of his own in the middle column the rest of the time. He has the
 arena Defiler's figure and a face of his own: the game's portrait 61 with a
 slave's brand on the brow, so the Dialogue tab never mistakes him for anyone
 else.
@@ -921,9 +923,10 @@ meet you in the holding pen?") In the game he never arrives: every way he
 leaves walks him to the arena's door to the pens, where a script takes him off
 the map, and nothing in the pens brings him back.
 
-With the Ledger he is there, in the empty pen above Kalzith's, the first time
-the party is in the pens after he has left. Talk to him (Look, then Talk):
-he says how he got back in, passes on what he has heard (who carries keys),
+With the Ledger he is there, in a pen of his own above Kalzith's, the first
+time the party is in the pens after he has left. Talk to him (Look, then
+Talk): he says why the templars tied him up in the arena (he was asking about
+the Veiled Alliance), passes on what he has heard (who carries keys),
 reminds the party where he hid his gem (the grain pots), and talks about the
 Alliance's plans, in his own voice from the arena. If he died or never left
 the party, he isn't there.
@@ -936,6 +939,32 @@ he's talked to, with its entry in the game's table of entry points. Flags 764
 and 765 (his own: placed, met) keep the rest, so a save keeps him. Like
 Kalzith's, his commands come after everything of the game's, which keeps its
 place.
+
+### Dinos and the Trustee on Kalzith and Semyon
+
+Dinos ("Who else is in here?") and the Trustee ("Who else is in the
+slavepens?") each answer questions about the others in the pens. With the
+Ledger their menus also ask about Kalzith, and about Semyon once he is in his
+pen ("What do you know about Kalzith?", "What can you tell me about
+Semyon?"). Kalzith's question waits until the Ledger has found him in the pens
+(the game's test for whether someone is there only knows the game's own
+people); Semyon's is shown while he is in his pen. As with the game's own
+questions, each is shown only until it's answered in that talk.
+
+How: in the Ledger's copy of `GPLDATA.GFF`, their scripts (139 and 146) keep
+every byte where it was, since the game's jumps go to fixed places. Two
+commands become jumps to code after the script's end: the one starting the
+menu's part goes to the same command followed by the new questions' flags
+(766-769), and the menu goes to a copy of it (the game's own bytes) with the
+new questions after its last about someone. Each then jumps back to where the
+game's script carries on.
+
+That makes the Trustee's script 10,540 bytes, and the game reads every script
+into one buffer of 10,000 bytes (a script that calls into another reads it in
+over its own). One of 9,800 bytes ran; one of 10,000 ended with "BAD GPL
+EXIT" (the game's own largest is 9,792). So the Ledger's copy of the game
+makes the buffer 11,264 bytes where it is allocated (`push dword 10000` at
+6A692h becomes 2C00h), about 1 KB more of the game's memory.
 
 ### Item icons
 

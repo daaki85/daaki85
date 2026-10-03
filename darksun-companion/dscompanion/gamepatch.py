@@ -27,6 +27,7 @@ original DSUN.EXE is only read.
 """
 
 import os
+import struct
 from typing import NamedTuple
 
 GOG_SIZE = 611408  # DSUN.EXE of the GOG release (1.1)
@@ -43,6 +44,9 @@ VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED = 0xE7, 0xE6
 VEC_SPELL_TEXT, VEC_CHUNK_ID = 0xE2, 0xE1
 VEC_FLOOR_ALL, VEC_FLOOR_RECT, VEC_REDRAW, VEC_REDRAW_ALL = 0xE0, 0xDF, 0xDE, 0xDD
 VEC_SCROLL, VEC_HIT = 0xDC, 0xDB
+
+
+SCRIPT_BUFFER = 0x2C00  # the scripts' buffer, made bigger (the game's: 10000 bytes)
 
 
 class Patch(NamedTuple):
@@ -188,6 +192,12 @@ PATCHES = (
     Patch("hit", 0x25B52, bytes.fromhex("558bec83ec10"), _interrupt(VEC_HIT, 6)),
     Patch("thief_skill", 0x80307, bytes.fromhex("8bc6c1e00203d08bf2"),
           bytes((0xCD, VEC_THIEF_SKILL, 0x72, 0x80386 - 0x8030B)) + b"\x90" * 5),
+    # the scripts' buffer (one: a script called from another is read in over it): "push dword
+    # 10000", its size, as it is allocated. A script of 9800 bytes ran, one of 10000 ended with
+    # "BAD GPL EXIT" (the game's largest is 9792); the Trustee's, with the questions about
+    # Kalzith and Semyon (pensasks.py), is 10540
+    Patch("script_buffer", 0x6A692, bytes.fromhex("666810270000"),
+          bytes.fromhex("6668") + struct.pack("<I", SCRIPT_BUFFER)),
     # (not changed: DSCLOG reads the segment this "mov dx,<segment>" loads, the pointer's items')
     Patch("use_item_seg", 0x73A14, bytes.fromhex("ba8003"), bytes.fromhex("ba8003")),
     # The data path is argv[0] cut after its last \ or :, kept at DS:4B81h. The

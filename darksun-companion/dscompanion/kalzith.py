@@ -1,7 +1,7 @@
 """Kalzith, a defiler in the slave pens who sells spell scrolls to a party that treats him well.
 
 He is a slave the templars put in the arena now and then (the crowd loves to watch a defiler burn),
-kept chained in an empty pen the rest of the time; he has the look of the arena's Defiler, but the
+kept in a pen of his own the rest of the time; he has the look of the arena's Defiler, but the
 party has never fought him. He secretly scribes spells on scraps of hide, to buy a guard's blind eye; a preserver can learn from them (the game's own scrolls: right-click one, click
 its spell). Insult him or threaten to report him and he won't trade until the party makes amends:
 50 ceramic pieces, or a Charisma check.
@@ -41,7 +41,7 @@ BEGIN, START = 0x19, 1  # the byte every game script opens with, and where talki
                          # (the game takes a talk command for offset 0 as none: clicking did nothing)
 PORTRAIT = 101  # his own: the game's portrait 61 with a slave's brand (101 is free in the game's)
 PORTRAIT_FROM = 61  # a gaunt, bald man (shown also for another of the game's people)
-PEN = (1580, 880)  # by the straw in the middle column's empty pen (its door on the left)
+PEN = (1580, 880)  # by the straw in a free pen of the middle column (its door on the left)
 ENTITY_FLAGS = 14  # as the pens' other people have
 OJFF_PICTURE = 0x0C  # an object's picture
 RDFF_SELF, RDFF_NAME, RDFF_NAME_SIZE = 0x10, 0x32, 8  # the record's own object number; its name
@@ -311,6 +311,7 @@ class _Script:
         # (a jump's place is 2 bytes whatever it is, so the lengths are known before the places)
         labels = {i: 0 for i in self.items if isinstance(i, str)}
         at, pos = {}, base
+        self.at = at  # (where each label went)
         for item in self.items:
             if isinstance(item, str):
                 at[item] = pos
@@ -354,7 +355,7 @@ def conversation() -> bytes:
     def who():
         s.say("Kalzith. Once a sorcerer's apprentice in Draj, now Pehtucl's property. The templars "
               "put a defiler in the arena now and then: the crowd loves to watch one burn. The rest of "
-              "the time they chain me here, where the ground's already dead.")
+              "the time they put me in here, where the ground's already dead.")
 
     def respect():
         s.clear()
@@ -437,8 +438,8 @@ def conversation() -> bytes:
         s.sub(name, body)
 
     def meeting():
-        s.say("New faces in the pens. Mind the dust: the ground in here died the day they chained me "
-              "to it. What do you want?")
+        s.say("New faces in the pens. Mind the dust: nothing has grown in here since they put me in. "
+              "What do you want?")
         s.flag(MET, 1)
 
     s.op(BEGIN)  # (every script of the game's opens so; its talk commands start after it)
@@ -506,6 +507,9 @@ def script_chunks(gpldata: bytes) -> Dict[Tuple[str, int], bytes]:
     out[("MAS ", MASTER)] = semyon.with_semyon(out[("MAS ", MASTER)], field_types)
     if ENTRIES in out:
         out[ENTRIES] = with_entry(out[ENTRIES], semyon.SCRIPT)
+    # Dinos and the Trustee asked about him and Semyon (pensasks.py)
+    from . import pensasks
+    out.update(pensasks.script_chunks(chunks, field_types))
     return out
 
 

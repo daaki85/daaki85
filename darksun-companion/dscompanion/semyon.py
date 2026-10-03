@@ -7,7 +7,7 @@ off the map (5Eh to region 255). Nothing in the pens ever brings him back: no sc
 names him or the flag. With the Ledger, the pens' master script (MAS 41) does, the way the
 arena's script first put him on the map (25h: an object made at a place, as script 5 does when he
 is untied): once the flag is set, the first time the party is in the pens after it he is in the
-empty pen above Kalzith's (CELL), and talking to him runs his conversation (script SCRIPT).
+free pen above Kalzith's (CELL), and talking to him runs his conversation (script SCRIPT).
 
 His words are his own voice from the arena (a cheerful scout of the Veiled Alliance, who hid a
 gem in one of the pens' grain pots), with no narration, as the game's talks.
@@ -23,7 +23,7 @@ SCRIPT = 219  # his conversation in the pens (Kalzith's is 218; the game's run t
 PORTRAIT = 118  # the game's portrait for him
 GONE = 7  # the game's flag: he has gone to the holding pens
 PLACED, MET = 764, 765  # (the companion's flags: Kalzith's are 760-763; the game's run to 755)
-CELL = (99, 45)  # (tiles) the empty pen above Kalzith's, by its straw
+CELL = (99, 45)  # (tiles) a free pen above Kalzith's, by its straw
 MADE_AS = 6  # 25h's fifth number when the game makes him (script 5)
 
 
@@ -67,9 +67,10 @@ def conversation() -> bytes:
         s.leave()
 
     def menu():
-        s.menu([("How did you get back in here?", reply(
-                    "I walked in behind the water carriers. The guard counted heads, got one too "
-                    "many, and decided he'd counted wrong. No templar ever doubts his own sums."), ALWAYS),
+        s.menu([("Why did they tie you up out there?", reply(
+                    "I was asking around the pens about the Veiled Alliance. Someone told the "
+                    "templars, so they tied me out in the arena under the sun to see if I'd talk. "
+                    "I didn't. After the fight they threw me back in here."), ALWAYS),
                 ("Have you heard anything useful?", reply(
                     "Only the trustee, the head templar and Kurzak carry keys. The trustee keeps "
                     "his on his belt. Do with that what you will."), ALWAYS),
