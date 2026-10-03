@@ -912,7 +912,10 @@ His state is in the game's own flags (760 to 763: met, friendly, cold, his
 scrolls given; the game uses flags up to 755), so a save keeps it. The first
 time the party is in the pens, the Ledger puts his six scrolls among his
 things (from the game's free list, as for [the slave pens' gear](#the-slave-pens-gear)),
-once a game.
+once a game. If he is killed, the Ledger marks it (flag 772) and the others
+speak of him as dead (see
+[Dinos and the Trustee](#dinos-and-the-trustee-on-kalzith-and-semyon)); after
+the party's escape he is gone from the pens with everyone else.
 
 ### Semyon
 
@@ -957,18 +960,20 @@ Semyon?"). Kalzith's question waits until the Ledger has found him in the pens
 people); Semyon's once he has been in his pen. As with the game's own
 questions, each is shown only until it's answered in that talk.
 
+![The Trustee's menu (left) and Dinos's (right), scrolled to the end: after the game's own questions about people, the new ones about Kalzith and Semyon, then "Let's change the subject." and "Goodbye."](docs/pens-asks.png)
+
 If either has been killed, they speak of him as they do of the game's dead:
 the Trustee asks "What was Kalzith like?" (or Semyon) instead, with an answer
 of its own, and Dinos keeps the question and answers it differently. The
 Ledger marks each death with a flag (772 Kalzith, 771 Semyon) when it sees his
 record dead.
 
+![The Trustee's menu with both dead (left): "What was Kalzith like?" and "What was Semyon like?" after the game's own questions; and his answer about Kalzith (right)](docs/pens-asks-dead.png)
+
 After the party's escape, when the game empties the pens ("They killed
 everybody except for myself", the Trustee says on the torture rack), Kalzith
 and Semyon are taken off the map too, the way the game takes the others (flag
 775), and Semyon is never put in his pen after it.
-
-![The Trustee's menu (left) and Dinos's (right), scrolled to the end: after the game's own questions about people, the new ones about Kalzith and Semyon, then "Let's change the subject." and "Goodbye."](docs/pens-asks.png)
 
 How: in the Ledger's copy of `GPLDATA.GFF`, their scripts (139 and 146) keep
 every byte where it was, since the game's jumps go to fixed places. Two
@@ -1847,12 +1852,15 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    [shadows](#shadows)), and where the main loop asks where the pointer is
    `INT DCh` (for [scrolling the map](#scrolling-the-map) and the
    [dust](#dust)), and the start of the routine finding what is under the
-   pointer `INT DBh` (for [choosing an enemy](#choosing-an-enemy-tab-enter-and-the-rings)), and
-   the copy looks for its data files in the current
-   folder rather than next to itself. The helper also hooks DOS's `INT 21h`, to
+   pointer `INT DBh` (for [choosing an enemy](#choosing-an-enemy-tab-enter-and-the-rings)). The
+   copy also allocates a bigger buffer for the game's scripts (11,776 bytes
+   rather than 10,000, for
+   [Dinos and the Trustee](#dinos-and-the-trustee-on-kalzith-and-semyon)), and
+   looks for its data files in the current folder rather than next to itself. The helper also hooks DOS's `INT 21h`, to
    open the launcher's copies of `SEGOBJEX.GFF`, `RESOURCE.GFF` (see
    [Item icons](#item-icons)), `GPLDATA.GFF` and `RGN29.GFF` (see
-   [Kalzith](#kalzith) and [Semyon](#semyon)), the mouse driver's `INT 33h`
+   [Kalzith](#kalzith), [Semyon](#semyon) and
+   [Dinos and the Trustee](#dinos-and-the-trustee-on-kalzith-and-semyon)), the mouse driver's `INT 33h`
    (for [scrolling the map](#scrolling-the-map)) and the keyboard's `INT 16h`
    (for Tab and Enter). DOSBox runs it from the game folder, so
    it uses your saves as usual.

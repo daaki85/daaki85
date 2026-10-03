@@ -110,12 +110,15 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
   the templars, and he won't trade until the party pays 50 ceramic or wins
   him over (a Charisma check). New games only.
 - **Semyon in the slave pens,** once he has left the arena (after the fight he
-  helps in, if the party recruits him): in a pen of his own above Kalzith's, with his
-  own conversation (why he was tied up in the arena, who carries keys, where
+  helps in, if the party recruits him): in a pen of his own above Kalzith's,
+  with his own conversation (why he was tied up in the arena, who carries keys, where
   his gem is hidden, the Alliance's plans). The game itself never puts him
   there; if he was killed, or left the arena another way, he isn't there.
 - **Dinos and the Trustee know about them:** their "who else is in here"
-  questions also ask about Kalzith, and about Semyon once he is in the pens.
+  questions also ask about Kalzith, and about Semyon once he is in the pens;
+  if either is killed, they speak of him as of the game's dead ("What was
+  Kalzith like?"). After the party's escape both are gone from the pens with
+  everyone else.
 - **Shadows under every figure on the map:** each living creature's outline,
   laid down toward the lower left (the light on the maps comes from the upper
   right, as the walls' shadows show), see-through and in the floor's own
