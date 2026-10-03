@@ -97,6 +97,13 @@ RULE_SETTINGS = (("helm_ac", RULE_HELMS), ("boots_move", RULE_BOOTS), ("two_weap
 # a number the game leaves unused) that adds to DEX, at most 24, as Strength's adds to STR.
 FLAMING_SPHERE, STRENGTH_SPELL, GRACE_EFFECT = 14, 23, 54
 GRACE_NAME, SPHERE_NAME = b"CAT'S GRACE", b"FLAMING SPHERE"  # (in the game's capitals)
+# The game's table of effects (DSUN.EXE 44CD0h, from the load segment 3F8Dh), 6 bytes each from
+# effect 1: a far pointer to its name (the line under a portrait: "Hasted" for "Okay") and its
+# icon (an ICON chunk of RESOURCE.GFF, as the spells' are) on the Effects screen, which shows
+# only those with one. Effect 54 has neither (an empty name, icon 0): with the rule, it has
+# Cat's Grace's spell icon (Flaming Sphere's, the cat's paw with the rule) and the spell's name.
+EFFECT_TABLE_SEG, EFFECT_ENTRY = 0x3F8D, 6
+GRACE_ICON, NO_NAME = 21014, 0x1FF0  # (NO_NAME: the empty string the game's unnamed effects use)
 # Flaming Sphere's own record, from DSUN.EXE, to put back when the rule is off
 SPHERE_RECORD = bytes.fromhex("067800000000003c0014000001ffff4dff004049ffff6106ff000202001104a1")
 # The game turns a spell's kind of save (bits 5-7 of its +0Fh) into one of the sheet's five
@@ -791,6 +798,9 @@ class GameData:
             self.guest.write(sphere, want)
         text = GRACE_NAME if on else SPHERE_NAME
         self.guest.write(name_at, text.ljust(len(SPHERE_NAME), b"\0") + b"\0")
+        entry = (self.load_seg + EFFECT_TABLE_SEG) * 16 + (GRACE_EFFECT - 1) * EFFECT_ENTRY
+        name_off = name_at - self.ds * 16 if on else NO_NAME
+        self.guest.write(entry, struct.pack("<HHH", name_off, self.ds, GRACE_ICON if on else 0))
         return True
 
     def spell_record(self, spell: int) -> bytes:

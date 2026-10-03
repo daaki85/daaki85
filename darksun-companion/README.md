@@ -911,8 +911,13 @@ originals:
 
 - `SEGOBJEX.GFF`: object 1000 (a person's object with the Defiler's picture,
   and a slave's record, Dinos's, with his name and a defiler's class), and his
-  scrolls' objects 1001 to 1006 (copies of the game's scroll object). None of
-  these numbers is the game's.
+  scrolls' objects 1440 to 1445 (copies of the game's scroll object, with a
+  scroll's picture). The game teaches a scroll's spell only from an object
+  numbered 1400 to 1499 (any other it casts); its own end at 1432, and the
+  numbers after are pictures, most of them other objects' icons, which the copy
+  moves to pictures of their own (2440 to 2445). None of these objects is the
+  game's. Scrolls bought with earlier builds (objects 1001 to 1006, which cast
+  their spell) are renumbered wherever they are.
 - `RGN29.GFF`, the slave pens: an entry setting him in his pen.
 - `GPLDATA.GFF`: his conversation (script 218, after the game's 217), its entry
   in the game's table of script entry points (which saves go by), the command
@@ -1400,6 +1405,14 @@ abilities from its own scores and its effects, adds that to DEX the way
 Strength's adds to STR (`INT EFh`). When the spell runs out, the game works
 the abilities out again without it. A game saved while Cat's Grace lasts and
 loaded without the dice log simply ignores the effect it doesn't know.
+On the Effects screen, Cat's Grace shows as the game's own effects do: its icon
+(the cat's paw), and its name on the bar below when the pointer is over it.
+The game's table of effects (6 bytes each, from the load segment + 3F8Dh: a far
+pointer to the name, then the icon) has an empty name and no icon for 54, and
+the screen shows only effects with an icon; with the rule on, the Ledger gives
+54 Flaming Sphere's icon (21014, read as Cat's Grace's) and the spell's name.
+
+![The Effects screen: Cat's Grace's paw, and its name below](docs/cats-grace-effect.png)
 The description: the game reads a spell's text from RESOURCE.GFF (chunk SPIN,
 the spell's number + 1) into a buffer for the box; after the read
 (`INT E2h`) the helper puts Cat's Grace's in, in the game's words for

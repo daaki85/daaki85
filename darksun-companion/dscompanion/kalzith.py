@@ -62,8 +62,17 @@ SCROLLS = ((8, "Magic Missile", 100), (4, "Color Spray", 100), (12, "Blur", 250)
 SCROLL_TYPE = 0x60  # the game's spell scrolls (its objects 1400-1418)
 SCROLL_TEMPLATE = "88fa01000f2700000f2760000000000105ff7f0000"  # its scroll of spell 1 (object 1400)
 SCROLL_FROM = 1400  # the game's first scroll object, which his scrolls' objects copy
-SCROLL_OBJECT = OBJECT + 1  # his k-th scroll is object 1001 + k: one each (the shop shows items of
-# one object as one: six of 1400 showed as a single scroll), none of the game's (1001-1009 unused)
+# His k-th scroll is object SCROLL_OBJECT + k: one each (the shop shows items of one object as one:
+# six of 1400 showed as a single scroll), and among the numbers the game takes for scrolls: right-
+# clicked, it teaches its spell only for an object from 1400 to 1499 (DSUN.EXE 8B6A3h), and
+# casts it otherwise. The game's objects stop at 1432; from 1433 the numbers are pictures only,
+# most of them other objects' icons: those of 1440-1445 move to pictures of their own
+# (MOVED_ICONS: no chunk of the game's has those numbers, nor the Ledger's other pictures), and
+# the scrolls take theirs. Earlier builds' scrolls (OLD_SCROLL_OBJECT + k) are renumbered (mend).
+SCROLL_OBJECT = 1440
+SCROLL_LEARNED = range(1400, 1500)
+OLD_SCROLL_OBJECT = OBJECT + 1
+MOVED_ICONS = 2440
 ITEM_OBJECT, ITEM_SPELL, ITEM_SPELL_AGAIN, ITEM_VALUE, ITEM_LINK = 0x00, 0x02, 0x0F, 0x06, 0x08
 
 
@@ -99,9 +108,24 @@ def object_chunks(chunks) -> Dict[Tuple[str, int], bytes]:
     obj = bytearray(chunks[("OJFF", DINOS)])  # a person's object (not a fighter's), with his picture
     obj[OJFF_PICTURE:OJFF_PICTURE + 2] = chunks[("OJFF", DEFILER)][OJFF_PICTURE:OJFF_PICTURE + 2]
     out = {("OJFF", OBJECT): bytes(obj), ("RDFF", OBJECT): bytes(rec)}
-    if ("OJFF", SCROLL_FROM) in chunks:
+    if ("OJFF", SCROLL_FROM) in chunks and ("BMP ", SCROLL_FROM) in chunks:
+        owners: Dict[int, List[int]] = {}
+        for (kind, number), data in chunks.items():
+            if kind == "OJFF" and len(data) >= OJFF_PICTURE + 2:
+                owners.setdefault(struct.unpack_from("<H", data, OJFF_PICTURE)[0], []).append(number)
         for k in range(len(SCROLLS)):
-            out[("OJFF", SCROLL_OBJECT + k)] = chunks[("OJFF", SCROLL_FROM)]
+            number, moved = SCROLL_OBJECT + k, MOVED_ICONS + k
+            if ("OJFF", number) in chunks or any(key[1] == moved for key in chunks):
+                raise KeyError(f"object {number} or picture {moved} taken")  # (then none of his)
+            if ("BMP ", number) in chunks:
+                out[("BMP ", moved)] = chunks[("BMP ", number)]
+                for owner in owners.get(number, ()):
+                    rec_ = bytearray(out.get(("OJFF", owner), chunks[("OJFF", owner)]))
+                    struct.pack_into("<H", rec_, OJFF_PICTURE, moved)
+                    out[("OJFF", owner)] = bytes(rec_)
+            out[("OJFF", number)] = chunks[("OJFF", SCROLL_FROM)]
+            out[("BMP ", number)] = chunks[("BMP ", SCROLL_FROM)]  # (its picture on the map: a scroll's)
+            out[("OJFF", OLD_SCROLL_OBJECT + k)] = chunks[("OJFF", SCROLL_FROM)]  # (until mended)
     return out
 
 
@@ -726,25 +750,30 @@ def stock(gd, cats_grace: bool) -> List[str]:
 
 
 def mend(gd) -> int:
-    """His scrolls stocked before SCROLL_SPELL_FROM (each teaching the spell before its own),
-    wherever they are now (his things, the party's, the ground: each scroll is its own object),
-    made to teach their own. How many were."""
+    """His scrolls of earlier builds, wherever they are now (his things, the party's, the ground:
+    each scroll is its own object), made as they are now: each teaching its own spell (before
+    SCROLL_SPELL_FROM, the one before it), and with its object among those the game teaches from
+    (before SCROLL_OBJECT, OLD_SCROLL_OBJECT + k, which it cast from). How many were."""
     from . import ring
     it = ring.Items(gd)
-    want = {-(SCROLL_OBJECT + k): spell + SCROLL_SPELL_FROM for k, (spell, _, _) in enumerate(SCROLLS)}
+    want = {}
+    for k, (spell, _, _) in enumerate(SCROLLS):
+        for number in (SCROLL_OBJECT + k, OLD_SCROLL_OBJECT + k):
+            want[-number] = (-(SCROLL_OBJECT + k), spell + SCROLL_SPELL_FROM)
     done = set()
     for thing in range(ring.THING_COUNT):
         for index, rec in it.chain(thing):
-            spell = want.get(struct.unpack_from("<h", rec, ITEM_OBJECT)[0])
-            if spell is None or index in done:
+            now = struct.unpack_from("<h", rec, ITEM_OBJECT)[0]
+            if now not in want or index in done:
+                continue
+            obj, spell = want[now]
+            if (now, struct.unpack_from("<H", rec, ITEM_SPELL)[0], rec[ITEM_SPELL_AGAIN]) == (obj, spell, spell):
                 continue
             done.add(index)
-            if struct.unpack_from("<H", rec, ITEM_SPELL)[0] != spell or rec[ITEM_SPELL_AGAIN] != spell:
-                at = it.items + index * game.ITEM_SIZE
-                gd.guest.write(at + ITEM_SPELL, struct.pack("<H", spell))
-                gd.guest.write(at + ITEM_SPELL_AGAIN, bytes([spell]))
-            else:
-                done.discard(index)
+            at = it.items + index * game.ITEM_SIZE
+            gd.guest.write(at + ITEM_OBJECT, struct.pack("<h", obj))
+            gd.guest.write(at + ITEM_SPELL, struct.pack("<H", spell))
+            gd.guest.write(at + ITEM_SPELL_AGAIN, bytes([spell]))
     return len(done)
 
 

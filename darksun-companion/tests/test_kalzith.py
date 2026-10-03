@@ -136,8 +136,20 @@ class KalzithTests(unittest.TestCase):
         p = kalzith.OJFF_PICTURE
         self.assertEqual(out[("OJFF", kalzith.OBJECT)], bytes(range(p)) + bytes(range(100 + p, 102 + p)) + bytes(range(p + 2, 16)))
         self.assertNotIn(("BMP ", kalzith.OBJECT), out)
-        out = kalzith.object_chunks({**chunks, ("OJFF", kalzith.SCROLL_FROM): b"scroll"})
-        self.assertEqual([out.get(("OJFF", kalzith.OBJECT + 1 + k)) for k in range(6)], [b"scroll"] * 6)  # (his picture is the Defiler's, by number)
+        icon_owner = struct.pack("<H", kalzith.SCROLL_OBJECT + 2).rjust(kalzith.OJFF_PICTURE + 2, b"\0") + b"rest"
+        out = kalzith.object_chunks({**chunks, ("OJFF", kalzith.SCROLL_FROM): b"scroll", ("BMP ", kalzith.SCROLL_FROM): b"map",
+                                     ("BMP ", kalzith.SCROLL_OBJECT + 2): b"its icon", ("OJFF", 1383): icon_owner})
+        numbers = [kalzith.SCROLL_OBJECT + k for k in range(6)]
+        self.assertTrue(all(n in kalzith.SCROLL_LEARNED for n in numbers))  # (the game teaches from these)
+        self.assertEqual([out.get(("OJFF", n)) for n in numbers], [b"scroll"] * 6)
+        self.assertEqual([out.get(("BMP ", n)) for n in numbers], [b"map"] * 6)  # (on the map: a scroll)
+        moved = kalzith.MOVED_ICONS + 2  # (the picture another object used as its icon, moved)
+        self.assertEqual(out[("BMP ", moved)], b"its icon")
+        self.assertEqual(struct.unpack_from("<H", out[("OJFF", 1383)], kalzith.OJFF_PICTURE)[0], moved)
+        self.assertEqual([out.get(("OJFF", kalzith.OLD_SCROLL_OBJECT + k)) for k in range(6)], [b"scroll"] * 6)
+        with self.assertRaises(KeyError):  # (a number taken: none of his, rather than a wrong one)
+            kalzith.object_chunks({**chunks, ("OJFF", kalzith.SCROLL_FROM): b"scroll", ("BMP ", kalzith.SCROLL_FROM): b"map",
+                                   ("OJFF", kalzith.SCROLL_OBJECT): b"the game's"})
         self.assertGreaterEqual(kalzith.OBJECT, 520)  # (past the game's object table)
         self.assertEqual(kalzith.object_chunks({}), {})
 
@@ -161,7 +173,7 @@ class KalzithTests(unittest.TestCase):
         """The game's own spell scroll, teaching the spell at the price (named one past the
         game's number for it, as the game's scrolls name theirs: 33 is Lightning Bolt's, 32)."""
         rec = kalzith.scroll(32, 500, 4)
-        self.assertEqual(struct.unpack_from("<h", rec, 0)[0], -(kalzith.OBJECT + 5))  # (each his own object)
+        self.assertEqual(struct.unpack_from("<h", rec, 0)[0], -(kalzith.SCROLL_OBJECT + 4))  # (each his own object)
         self.assertEqual(struct.unpack_from("<H", rec, kalzith.ITEM_LINK)[0], game.NO_ITEM)
         self.assertEqual(len(rec), game.ITEM_SIZE)
         self.assertEqual(struct.unpack_from("<H", rec, game.ITEM_TYPE)[0], kalzith.SCROLL_TYPE)
@@ -206,7 +218,9 @@ class KalzithTests(unittest.TestCase):
         old = bytearray(kalzith.scroll(spell, 500, k))
         struct.pack_into("<H", old, kalzith.ITEM_SPELL, spell)
         old[kalzith.ITEM_SPELL_AGAIN] = spell
-        records = [bytearray(old), bytearray(kalzith.scroll(8, 100, 0)), bytearray(old)]
+        older = bytearray(kalzith.scroll(12, 250, 2))  # (an earlier build's: the object it cast from)
+        struct.pack_into("<h", older, 0, -(kalzith.OLD_SCROLL_OBJECT + 2))
+        records = [bytearray(old), bytearray(kalzith.scroll(8, 100, 0)), bytearray(old), older]
         struct.pack_into("<h", records[2], 0, -1403)  # (one of the game's scrolls)
         game_scroll = bytes(records[2])
         class Guest:
@@ -220,8 +234,9 @@ class KalzithTests(unittest.TestCase):
         class Game:
             guest = Guest()
         with mock.patch.object(ring, "Items", Items):
-            self.assertEqual(kalzith.mend(Game()), 1)
+            self.assertEqual(kalzith.mend(Game()), 2)
             self.assertEqual(bytes(records[0]), kalzith.scroll(spell, 500, k))
+            self.assertEqual(bytes(records[3]), kalzith.scroll(12, 250, 2))  # (renumbered: it teaches now)
             self.assertEqual(bytes(records[1]), kalzith.scroll(8, 100, 0))
             self.assertEqual(bytes(records[2]), game_scroll)
             self.assertEqual(kalzith.mend(Game()), 0)

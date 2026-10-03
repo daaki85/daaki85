@@ -46,8 +46,8 @@ class LootTests(unittest.TestCase):
         Quarterstaff after it; the party's own scroll untouched; once only."""
         left = kalzith.loot(self.gd, choose=lambda items: 81)
         self.assertEqual(left, ["Scroll of Blur", "Quarterstaff", "Cloak"])
-        self.assertEqual(self.objects(PILE), [1003, 1053, 1019])
-        self.assertEqual(self.objects(BAG), [1002])
+        self.assertEqual(self.objects(PILE), [kalzith.SCROLL_OBJECT + 2, 1053, 1019])
+        self.assertEqual(self.objects(BAG), [kalzith.SCROLL_OBJECT + 1])
         free = struct.unpack_from("<H", self.m, DS * 16 + ring.FREE_ITEMS)[0]
         self.assertEqual(free, 90)  # (80 and 82 given back, then taken again for the two)
         self.assertIn(kalzith.LOOTED, self.flags)
@@ -56,12 +56,12 @@ class LootTests(unittest.TestCase):
     def test_kept_first(self):
         """The kept scroll first in the pile: the others after it go."""
         kalzith.loot(self.gd, choose=lambda items: 80)
-        self.assertEqual(self.objects(PILE), [1001, 1053, 1019])
+        self.assertEqual(self.objects(PILE), [kalzith.SCROLL_OBJECT, 1053, 1019])
 
     def test_alive(self):
         self.flags.discard(kalzith.DIED)
         self.assertEqual(kalzith.loot(self.gd), [])
-        self.assertEqual(self.objects(PILE), [1001, 1003, 1005])
+        self.assertEqual(self.objects(PILE), [kalzith.SCROLL_OBJECT + k for k in (0, 2, 4)])
 
     def test_nothing_left(self):
         """All bought: nothing of his anywhere but with the party; nothing left, nothing added."""

@@ -167,6 +167,12 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
   conversations are people speaking).
 
 **Fixed**
+- **Cat's Grace was missing from the Effects screen:** its effect (54, one the
+  game leaves unused) had no icon in the game's table of effects, and the
+  screen shows only effects with one. It now has its paw and its name.
+- **Kalzith's scrolls cast their spell instead of teaching it:** the game
+  teaches only from scroll objects numbered 1400 to 1499, and his were 1001 to
+  1006. They are now 1440 to 1445; scrolls bought before are renumbered.
 - **Figures' shadows fell the wrong way:** they lay toward the lower left, while
   the walls', bones' and stones' shadows on the maps fall toward the lower right
   (the light comes from the upper left). They now fall the same way.
