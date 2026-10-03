@@ -353,6 +353,13 @@ class Viewer:
         self.show_dust = tk.BooleanVar(value=bool(settings.get("dust", True)))
         ttk.Checkbutton(rules, text="Dust raised behind the feet of anyone walking on sand or dirt",
                         variable=self.show_dust, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        self.show_rings = tk.BooleanVar(value=bool(settings.get("rings", True)))
+        ttk.Checkbutton(rules, text="Red rings on the ground under the enemies in a fight",
+                        variable=self.show_rings, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        self.use_targeting = tk.BooleanVar(value=bool(settings.get("targeting", True)))
+        ttk.Checkbutton(rules, text="In a fight, Tab (Shift+Tab back) chooses an enemy, its ring brighter, and "
+                        "Enter attacks it, even behind someone", variable=self.use_targeting,
+                        command=self._popups_changed).pack(anchor="w", pady=(4, 0))
         self.scroll_map = tk.BooleanVar(value=bool(settings.get("scroll_map", True)))
         ttk.Checkbutton(rules, text="Scroll the map with the mouse wheel: press it and move, or turn it "
                         "(Shift: sideways)", variable=self.scroll_map,
@@ -656,6 +663,8 @@ class Viewer:
                 self.dice.show_gear = self.show_gear.get()
                 self.dice.show_shadows = self.show_shadows.get()
                 self.dice.show_dust = self.show_dust.get()
+                self.dice.show_rings = self.show_rings.get()
+                self.dice.use_targeting = self.use_targeting.get()
                 self.dice.scroll_map = self.scroll_map.get()
                 self.dice.scroll_right = self.scroll_right.get()
                 self.dice.load_picked(launch.pickpocketed())
@@ -742,6 +751,8 @@ class Viewer:
         settings["show_gear"] = self.show_gear.get()
         settings["shadows"] = self.show_shadows.get()
         settings["dust"] = self.show_dust.get()
+        settings["rings"] = self.show_rings.get()
+        settings["targeting"] = self.use_targeting.get()
         settings["scroll_map"] = self.scroll_map.get()
         settings["scroll_right"] = self.scroll_right.get()
         for key, var in self.rule_vars.items():
@@ -756,6 +767,8 @@ class Viewer:
             self.dice.show_gear = self.show_gear.get()
             self.dice.show_shadows = self.show_shadows.get()
             self.dice.show_dust = self.show_dust.get()
+            self.dice.show_rings = self.show_rings.get()
+            self.dice.use_targeting = self.use_targeting.get()
             self.dice.scroll_map = self.scroll_map.get()
             self.dice.scroll_right = self.scroll_right.get()
             self.dice.set_rules(self._rules())

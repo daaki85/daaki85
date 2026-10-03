@@ -63,6 +63,7 @@ VEC_FLOOR_RECT equ 0xDF    ; PROBE_FLOOR (a rectangle's floor)
 VEC_REDRAW equ 0xDE        ; PROBE_REDRAW
 VEC_REDRAW_ALL equ 0xDD    ; PROBE_REDRAW_ALL
 VEC_SCROLL equ 0xDC        ; PROBE_SCROLL
+VEC_HIT    equ 0xDB        ; PROBE_HIT
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -200,6 +201,16 @@ dac_off    dw dac               ; +238 offset of DAC: the palette as DARK was la
 dust_puffs dw 0                 ; +240 puffs of dust raised (counted)
 view_redraw dw 0                ; +242 the companion sets 1 to have the view drawn again (all of it, from
                                 ;      the main loop: VIEW_AGAIN), as it is once it has been
+rings_on   dw 0                 ; +244 the companion sets 1 to have rings drawn under the things RING_TAB
+                                ;      marks (RINGS), once RED is made
+ring_tab_off dw ring_tab        ; +246 offset of RING_TAB: a byte for each of the game's 520 things: 1 a
+                                ;      ring, 2 the chosen one's (brighter, thicker)
+red_off    dw red               ; +248 offset of RED: each colour's reddened one (0: none), as LIGHT
+target_on  dw 0                 ; +250 the companion sets 1 while Tab chooses an enemy (TARGETING)
+tab_seq    dw 0                 ; +252 Tab pressed (counted) ...
+back_seq   dw 0                 ; +254 ... and Shift+Tab
+hit_target dw 0xFFFF            ; +256 the enemy chosen (the companion sets it; FFFFh: none)
+attack_seq dw 0                 ; +258 Enter pressed on it (counted)
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -2818,7 +2829,10 @@ probe_redraw:
         push bp
         mov bp, sp
         cmp word [cs:shadows_on], 0
+        jne .wide
+        cmp word [cs:rings_on], 0
         je .go
+.wide:
         sub word [bp+18], SHADOW_LEFT   ; x0 (after BP, the interrupt's IP, CS and flags, and the
         add word [bp+24], SHADOW_DOWN   ;   caller's way back); y1 (the routine keeps both on screen)
 .go:    pop bp
@@ -2838,8 +2852,10 @@ probe_redraw_all:
         pop word [cs:resume + 2]
         pop word [cs:resume_fl]
         cmp word [cs:shadows_on], 0
+        jne .wide
+        cmp word [cs:rings_on], 0
         je .dust
-        sub word [bp-8], SHADOW_LEFT
+.wide:  sub word [bp-8], SHADOW_LEFT
         jge .x
         mov word [bp-8], 0
 .x:     add word [bp-0x0E], SHADOW_DOWN
@@ -2872,6 +2888,8 @@ floor_enter:
         cmp word [cs:shadows_on], 0
         jne .on
         cmp word [cs:dust_on], 0
+        jne .on
+        cmp word [cs:rings_on], 0
         je .plain
 .on:    cmp byte [cs:floor_busy], 0
         jne .plain
@@ -3001,7 +3019,8 @@ shadow_pass:
         pop cx
         add di, 8
         loop .thing
-.dust:  call dust_pass
+.dust:  call ring_pass
+        call dust_pass
 .done:  call vga_restore
         ret
 
@@ -3559,6 +3578,7 @@ probe_scroll:
         push si
         push di
         call dust_tick
+        call target_click
         cmp word [cs:view_redraw], 0
         je .read
         mov word [cs:view_redraw], 0
@@ -3566,7 +3586,7 @@ probe_scroll:
 .read:  mov ax, 3
         int 0x33                        ; BX = buttons, CX, DX = where
         cmp word [cs:scroll_on], 0
-        je .report
+        je .wheel                       ; (the companion's scrolling, as for a chosen enemy, anyway)
         cmp byte [cs:drag], 2
         jne .wheel
         cmp byte [cs:drag_new], 0
@@ -4181,6 +4201,310 @@ last_y     times MAP_COUNT dw 0
 walked     times MAP_COUNT db 0
 light      times 256 db 0
 
+; RINGS (RINGS_ON): a ring on the ground under each thing RING_TAB marks (the companion marks the
+; enemies in a fight, and the one chosen with Tab), drawn in the floor pass as the shadows are, so
+; the figures stand in it, the ground's colours reddened through RED (made by the companion from the
+; palette): two pixels thick, the chosen one's three, and redder.
+ring_pass:
+        cmp word [cs:rings_on], 0
+        je .ret
+        mov ds, [cs:game_ds]
+        les di, [OBJ_LIST]
+        mov cx, [OBJ_COUNT]
+        or cx, cx
+        jz .ret
+.thing: push cx
+        push di
+        push es
+        mov bx, [es:di + 6]
+        cmp bx, MAP_COUNT - 1
+        ja .next
+        mov al, [cs:ring_tab + bx]
+        or al, al
+        jz .next
+        mov [cs:r_kind], al
+        mov ax, [es:di]
+        sub ax, [cs:cam_x]
+        mov [cs:r_fx], ax
+        mov ax, [es:di + 2]
+        sub ax, [cs:cam_y]
+        mov [cs:r_fy], ax
+        mov si, ring_outer
+        mov cx, RING_OUTER
+        call ring_points
+        mov si, ring_inner
+        mov cx, RING_INNER
+        call ring_points
+        cmp byte [cs:r_kind], 2
+        jne .next
+        mov si, ring_extra
+        mov cx, RING_EXTRA
+        call ring_points
+.next:  pop es
+        pop di
+        pop cx
+        add di, 8
+        loop .thing
+.ret:   ret
+
+ring_points:                            ; CX points (dx, dy bytes) at CS:SI, round (R_FX, R_FY)
+.pt:    push cx
+        mov al, [cs:si]
+        cbw
+        add ax, [cs:r_fx]
+        mov bx, ax
+        mov al, [cs:si + 1]
+        cbw
+        add ax, [cs:r_fy]
+        add si, 2
+        cmp ax, [cs:clip_y0]
+        jl .skip
+        cmp ax, [cs:clip_y1]
+        jg .skip
+        cmp bx, [cs:clip_x0]
+        jl .skip
+        cmp bx, [cs:clip_x1]
+        jg .skip
+        sub ax, [cs:v_y0]               ; the row's place in the page
+        mul word [cs:v_row]
+        sub ax, [cs:v_x0]
+        mov [cs:row_at], ax
+        push si
+        call ring_px
+        pop si
+.skip:  pop cx
+        loop .pt
+        ret
+
+ring_px:                                ; redden screen x BX on the row at ROW_AT (twice for the chosen)
+        mov cx, bx
+        and cx, 3
+        mov dx, 0x3C4
+        mov al, 2
+        mov ah, 1
+        shl ah, cl
+        out dx, ax
+        mov dx, 0x3CE
+        mov al, 4
+        mov ah, cl
+        out dx, ax
+        shr bx, 2
+        add bx, [cs:row_at]
+        mov es, [cs:v_seg]
+        xor ax, ax
+        mov al, [es:bx]
+        mov cl, [cs:r_kind]
+        inc cl                          ; (reddened twice, the chosen one three times)
+.again: mov di, ax
+        mov ah, [cs:red + di]
+        or ah, ah
+        jz .put
+        mov al, ah
+        xor ah, ah
+        dec cl
+        jnz .again
+.put:   mov [es:bx], al
+        ret
+
+RING_OUTER equ 76
+RING_INNER equ 68
+RING_EXTRA equ 84
+ring_outer db 13, 0, 13, 1, 13, 2, 12, 2, 12, 3, 11, 3, 11, 4, 10, 4, 9, 4, 9, 5, 8, 5, 7, 5, 6, 5, 5, 5, 5, 6, 4, 6, 3, 6, 2, 6, 1, 6, 0, 6, 255, 6, 254, 6, 253, 6, 252, 6, 251, 6, 251, 5, 250, 5, 249, 5, 248, 5, 247, 5, 247, 4, 246, 4, 245, 4, 245, 3, 244, 3, 244, 2, 243, 2, 243, 1, 243, 0, 243, 255, 243, 254, 244, 254, 244, 253, 245, 253, 245, 252, 246, 252, 247, 252, 247, 251, 248, 251, 249, 251, 250, 251, 251, 251, 251, 250, 252, 250, 253, 250, 254, 250, 255, 250, 0, 250, 1, 250, 2, 250, 3, 250, 4, 250, 5, 250, 5, 251, 6, 251, 7, 251, 8, 251, 9, 251, 9, 252, 10, 252, 11, 252, 11, 253, 12, 253, 12, 254, 13, 254, 13, 255
+ring_inner db 12, 0, 12, 1, 11, 1, 11, 2, 10, 2, 10, 3, 9, 3, 9, 4, 8, 4, 7, 4, 6, 4, 5, 4, 5, 5, 4, 5, 3, 5, 2, 5, 1, 5, 0, 5, 255, 5, 254, 5, 253, 5, 252, 5, 251, 5, 251, 4, 250, 4, 249, 4, 248, 4, 247, 4, 247, 3, 246, 3, 246, 2, 245, 2, 245, 1, 244, 1, 244, 0, 244, 255, 245, 255, 245, 254, 246, 254, 246, 253, 247, 253, 247, 252, 248, 252, 249, 252, 250, 252, 251, 252, 251, 251, 252, 251, 253, 251, 254, 251, 255, 251, 0, 251, 1, 251, 2, 251, 3, 251, 4, 251, 5, 251, 5, 252, 6, 252, 7, 252, 8, 252, 9, 252, 9, 253, 10, 253, 10, 254, 11, 254, 11, 255, 12, 255
+ring_extra db 14, 0, 14, 1, 14, 2, 13, 2, 13, 3, 12, 3, 12, 4, 11, 4, 11, 5, 10, 5, 9, 5, 9, 6, 8, 6, 7, 6, 6, 6, 5, 6, 5, 7, 4, 7, 3, 7, 2, 7, 1, 7, 0, 7, 255, 7, 254, 7, 253, 7, 252, 7, 251, 7, 251, 6, 250, 6, 249, 6, 248, 6, 247, 6, 247, 5, 246, 5, 245, 5, 245, 4, 244, 4, 244, 3, 243, 3, 243, 2, 242, 2, 242, 1, 242, 0, 242, 255, 242, 254, 243, 254, 243, 253, 244, 253, 244, 252, 245, 252, 245, 251, 246, 251, 247, 251, 247, 250, 248, 250, 249, 250, 250, 250, 251, 250, 251, 249, 252, 249, 253, 249, 254, 249, 255, 249, 0, 249, 1, 249, 2, 249, 3, 249, 4, 249, 5, 249, 5, 250, 6, 250, 7, 250, 8, 250, 9, 250, 9, 251, 10, 251, 11, 251, 11, 252, 12, 252, 12, 253, 13, 253, 13, 254, 14, 254, 14, 255
+r_kind     db 0
+r_fx       dw 0
+r_fy       dw 0
+ring_tab   times MAP_COUNT db 0
+red        times 256 db 0
+
+; TARGETING (TARGET_ON): Tab and Shift+Tab, counted for the companion, choose an enemy in a fight
+; (its ring brighter: RINGS); Enter attacks it, as a click on it does, even where another figure
+; stands in front of it. The game reads keys through INT 16h: INT16 takes Tab, Shift+Tab and (with
+; an enemy chosen) Enter out of what it sees. For Enter, the main loop (TARGET_CLICK, from
+; PROBE_SCROLL) puts the pointer at the enemy's feet and gives the game a left click there, while
+; the routine that finds what is under the pointer (PROBE_HIT, DSUN.EXE 25B52h) answers with the
+; chosen enemy for a moment (HIT_TICKS), whatever is in front of it.
+
+KEY_TAB     equ 0x0F09
+KEY_BACKTAB equ 0x0F00
+KEY_ENTER   equ 0x1C0D
+KEY_PAD_ENTER equ 0xE00D
+HIT_TICKS   equ 9               ; BIOS ticks the hit is the chosen enemy, from the click
+EVENT_LEFT_PRESS equ 2
+EVENT_LEFT_LEAVE equ 4
+LEFT        equ 1
+
+int16:
+        cmp word [cs:target_on], 0
+        je .chain
+        cmp ah, 0x00
+        je .read
+        cmp ah, 0x10
+        je .read
+        cmp ah, 0x01
+        je .peek
+        cmp ah, 0x11
+        je .peek
+.chain: jmp far [cs:old16]
+.peek:  push ax                         ; a key waiting: if it is ours, take it and say none is
+        pushf
+        call far [cs:old16]
+        jz .none
+        call our_key
+        jc .took
+        add sp, 2                       ; (not ours: as the BIOS said)
+        push bp
+        mov bp, sp
+        and word [bp + 6], ~0x40        ; ZF clear
+        pop bp
+        iret
+.took:  pop ax
+        push ax
+        xor ah, ah
+        pushf
+        call far [cs:old16]
+        pop ax
+        jmp .peek
+.none:  pop ax
+        push bp
+        mov bp, sp
+        or word [bp + 6], 0x40          ; ZF set: no key
+        pop bp
+        iret
+.read:  push ax                         ; reading: ours are taken out and the next one read
+.again: pop ax
+        push ax
+        pushf
+        call far [cs:old16]
+        call our_key
+        jc .again
+        add sp, 2
+        iret
+
+our_key:                                ; AX a key: CF set (and counted) if it is one of ours
+        cmp ax, KEY_TAB
+        jne .back
+        inc word [cs:tab_seq]
+        stc
+        ret
+.back:  cmp ax, KEY_BACKTAB
+        jne .enter
+        inc word [cs:back_seq]
+        stc
+        ret
+.enter: cmp word [cs:hit_target], 0xFFFF
+        je .no
+        cmp ax, KEY_ENTER
+        je .go
+        cmp ax, KEY_PAD_ENTER
+        jne .no
+.go:    inc word [cs:attack_seq]
+        mov byte [cs:t_click], 1
+        stc
+        ret
+.no:    clc
+        ret
+
+; TARGET_CLICK: (in PROBE_SCROLL, DS = the game's) Enter on the chosen enemy: a left click at its feet
+target_click:
+        cmp byte [cs:t_click], 0
+        je .ret
+        mov byte [cs:t_click], 0
+        cmp word [cs:game_mask], 0
+        je .ret
+        mov bx, [cs:hit_target]
+        cmp bx, MAP_COUNT - 1
+        ja .ret
+        shl bx, 5
+        mov cx, [bx + MAP_THINGS + 9]   ; its feet, on the map
+        mov dx, [bx + MAP_THINGS + 11]
+        sub cx, [CAM_X]
+        sub dx, [CAM_Y]
+        sub dx, 8                       ; (a little above them)
+        cmp cx, 1
+        jl .ret
+        cmp cx, 0x13E
+        jg .ret
+        cmp dx, 1
+        jl .ret
+        cmp dx, 0xC6
+        jg .ret
+        mov [cs:t_x], cx
+        mov [cs:t_y], dx
+        push es
+        xor ax, ax
+        mov es, ax
+        mov ax, [es:BIOS_TICKS]
+        pop es
+        add ax, HIT_TICKS
+        mov [cs:hit_until], ax
+        mov byte [cs:hit_forced], 1
+        mov ax, 4                       ; the pointer there
+        mov cx, [cs:t_x]
+        mov dx, [cs:t_y]
+        int 0x33
+        pusha                           ; and a click
+        push ds
+        push es
+        mov ax, EVENT_LEFT_PRESS
+        mov bx, LEFT
+        mov cx, [cs:t_x]
+        mov dx, [cs:t_y]
+        xor si, si
+        xor di, di
+        call far [cs:game_handler]
+        pop es
+        pop ds
+        popa
+        pusha
+        push ds
+        push es
+        mov ax, EVENT_LEFT_LEAVE
+        xor bx, bx
+        mov cx, [cs:t_x]
+        mov dx, [cs:t_y]
+        xor si, si
+        xor di, di
+        call far [cs:game_handler]
+        pop es
+        pop ds
+        popa
+.ret:   ret
+
+; PROBE_HIT: INT VEC_HIT replaces "push bp / mov bp,sp / sub sp,10h" (6 bytes: INT + 4 NOPs) at the
+; start of the routine that finds the thing under the pointer (camera x, y, x, y on screen; the
+; thing, or FFFFh): for a moment after TARGET_CLICK, the chosen enemy, wherever the pointer is.
+probe_hit:
+        cmp byte [cs:hit_forced], 0
+        je .plain
+        push ax
+        push es
+        xor ax, ax
+        mov es, ax
+        mov ax, [es:BIOS_TICKS]
+        pop es
+        sub ax, [cs:hit_until]
+        pop ax
+        jns .over
+        add sp, 6                       ; (the interrupt's frame: back to the caller, the enemy)
+        mov ax, [cs:hit_target]
+        retf
+.over:  mov byte [cs:hit_forced], 0
+.plain: pop word [cs:h_resume]
+        pop word [cs:h_resume + 2]
+        popf
+        push bp
+        mov bp, sp
+        sub sp, 0x10
+        jmp far [cs:h_resume]
+
+old16      dd 0
+t_click    db 0
+hit_forced db 0
+hit_until  dw 0
+h_resume   dd 0
+
 old33        dd 0
 game_handler dd 0
 game_mask    dw 0
@@ -4255,7 +4579,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 41
+        mov cx, 42
 .check:
         lodsb
         mov ah, 35h
@@ -4394,6 +4718,16 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_SCROLL
         mov dx, probe_scroll
         int 21h
+        mov ax, 2500h + VEC_HIT
+        mov dx, probe_hit
+        int 21h
+        mov ax, 3516h           ; the keyboard's (TARGETING)
+        int 21h
+        mov [old16], bx
+        mov [old16 + 2], es
+        mov ax, 2516h
+        mov dx, int16
+        int 21h
         mov ax, 3533h           ; the mouse driver's (SCROLLING), if there is one
         int 21h
         mov ax, es
@@ -4427,8 +4761,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or DCh-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED, VEC_SPELL_TEXT, VEC_CHUNK_ID, VEC_FLOOR_ALL, VEC_FLOOR_RECT, VEC_REDRAW, VEC_REDRAW_ALL, VEC_SCROLL
+busy    db 'DSCLOG: interrupts 60h-65h or DBh-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED, VEC_SPELL_TEXT, VEC_CHUNK_ID, VEC_FLOOR_ALL, VEC_FLOOR_RECT, VEC_REDRAW, VEC_REDRAW_ALL, VEC_SCROLL, VEC_HIT
 
         align 16, db 0
 image_len equ $ - $$

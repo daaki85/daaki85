@@ -1052,6 +1052,26 @@ it the game draws again. While anyone walks, the rectangle the game draws again
 round what moved is made to take the puffs in; once everyone stands, DSCLOG has
 the view drawn again a few times a second until the last puff is gone.
 
+### Choosing an enemy: Tab, Enter and the rings
+
+In a fight, a red ring on the ground marks each enemy, under their feet (the
+figures stand in it, as on their shadows). On a party member's turn, **Tab**
+chooses an enemy, the nearest first, then the next nearest (**Shift+Tab** goes
+back): its ring is drawn thicker and redder, the view scrolls to it if it is
+out of sight, and the log names it. **Enter** then attacks it, as clicking on
+it does (walking up to it first when it is out of reach), even where another
+figure stands in front of it. Both are switches on the Options tab.
+
+How: DSCLOG hooks the keyboard (`INT 16h`) and takes Tab, Shift+Tab and, with an
+enemy chosen, Enter from what the game reads, counting them for the Ledger
+(`dscompanion/targeting.py`), which keeps the enemies marked and the chosen one
+(`dscompanion/rings.py`). The rings are drawn in the floor pass, after the
+shadows, through a table of each colour's redder one made from the palette. For
+Enter, DSCLOG puts the pointer at the enemy's feet and gives the game a left
+click there, from the main loop, while the routine that finds what is under the
+pointer (`DSUN.EXE` 25B52h, `INT DBh`) answers with the chosen enemy for half a
+second, whatever stands in front of it.
+
 ### Scrolling the map
 
 Press the mouse wheel on the map and move the mouse: the map moves with the

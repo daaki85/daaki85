@@ -24,7 +24,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Callable, Dict, List, NamedTuple, Optional, Tuple
 
-from . import bonescale, dust, game, icons, kalzith, monsters, names, npcitems, pickpocket, ring, scrolling, shadows, sprites, stealth, tools, vulture
+from . import bonescale, dust, game, rings, targeting, icons, kalzith, monsters, names, npcitems, pickpocket, ring, scrolling, shadows, sprites, stealth, tools, vulture
 from .game import (CONVENTIONAL_AND_UPPER, CREATURE_ABILITIES, CREATURE_SIDE, CREATURE_THAC0, EFFECT_NAMES,
                    EFFECT_RULES, MATERIAL_TO_HIT, MATERIALS, SAVE_NAMES, STR_DAMAGE, GameData)
 from .guestmem import GuestMemory
@@ -331,6 +331,10 @@ class DiceLog:
         self._shadows = shadows.Shadows()
         self.show_dust = True  # dust raised by walkers on sand and dirt (dust.py)
         self._dust = dust.Dust()
+        self.show_rings = True  # rings under the enemies in a fight (rings.py)
+        self._rings = rings.Rings()
+        self.use_targeting = True  # Tab chooses an enemy in a fight, Enter attacks it (targeting.py)
+        self._targeting = targeting.Targeting()
         self.scroll_map = True  # the map scrolled with the wheel, turned or pressed and dragged (scrolling.py)
         self.scroll_right = False  # ... and dragged with the right button held
         self._scrolling = scrolling.Scrolling()
@@ -409,6 +413,8 @@ class DiceLog:
         self.game = GameData(self.guest, ds)
         self._scrolling.forget()  # (a DSCLOG of its own: told again)
         self._dust = dust.Dust()
+        self._rings = rings.Rings()
+        self._targeting.forget()
         if self._wheel is None:
             proc = getattr(self.guest, "proc", None)
             self._wheel = scrolling.WheelWatch(lambda: getattr(proc, "pid", None), self._scrolling.add)
@@ -602,6 +608,8 @@ class DiceLog:
         self.show_shadows = bool(settings.get("shadows", True))
         self.scroll_map = bool(settings.get("scroll_map", True))
         self.show_dust = bool(settings.get("dust", True))
+        self.show_rings = bool(settings.get("rings", True))
+        self.use_targeting = bool(settings.get("targeting", True))
         self.scroll_right = bool(settings.get("scroll_right", False))
         self.load_picked(settings.get("pickpocketed", []))
         self.tools_given = set(settings.get("tools_given", []))
@@ -982,7 +990,12 @@ class DiceLog:
             icons.repaint(self.game, icons.ready(self.game, self.tsr_hdr))  # the items' own icons
             self._dress(now)
             if self.tsr_hdr is not None:
-                self._shadows.update(self.game, self.tsr_hdr, self.show_shadows, now, needed=self.show_dust)
+                self._shadows.update(self.game, self.tsr_hdr, self.show_shadows, now,
+                                     needed=self.show_dust or self.show_rings)
+                foes = rings.enemies(self.game)
+                out += self._targeting.update(self.game, self.tsr_hdr, self.use_targeting, foes)
+                self._rings.update(self.game, self.tsr_hdr, self.show_rings or self.use_targeting,
+                                   self._shadows.palettes, self._targeting.chosen)
                 self._dust.update(self.game, self.tsr_hdr, self.show_dust, self._shadows.palettes)
                 self._scrolling.update(self.game, self.tsr_hdr, self.scroll_map, self.scroll_right)
         except (struct.error, IndexError, ValueError):
