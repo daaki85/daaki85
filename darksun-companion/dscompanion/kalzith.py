@@ -278,8 +278,11 @@ class _Script:
         """(In a reply:) leave the menu once the reply is done (and any menu it went through)."""
         self.set(DONE, 1)
 
-    def bytes(self) -> bytes:
-        self.op(0x31)  # the talk's end
+    def bytes(self, base: int = 0, end: bool = True) -> bytes:
+        """The script; BASE: where in its script it goes (a piece of another's), with END its own
+        end (31h) and subroutines after it."""
+        if end:
+            self.op(0x31)  # the talk's end
         done = set()
         while len(done) < len(self.subs):  # (subroutines may add subroutines)
             for name, body in list(self.subs.items()):
@@ -307,7 +310,7 @@ class _Script:
             return x
         # (a jump's place is 2 bytes whatever it is, so the lengths are known before the places)
         labels = {i: 0 for i in self.items if isinstance(i, str)}
-        at, pos = {}, 0
+        at, pos = {}, base
         for item in self.items:
             if isinstance(item, str):
                 at[item] = pos
@@ -474,18 +477,19 @@ ENTRY = struct.Struct("<HHH")  # GPLI: (entry number, place in the script, scrip
 ENTRIES = ("GPLI", 1)
 
 
-def with_entry(entries: bytes) -> bytes:
+def with_entry(entries: bytes, script: int = SCRIPT) -> bytes:
     """The game's table of script entry points with his talk's (once). A save keeps each talk
     command as its entry's number, and loading turns the number back into place and script: one
     not in the table is saved as 0 and comes back as entry 0, a dead one."""
     table = [ENTRY.unpack_from(entries, i) for i in range(0, len(entries) - ENTRY.size + 1, ENTRY.size)]
-    if any(e[1:] == (START, SCRIPT) for e in table):
+    if any(e[1:] == (START, script) for e in table):
         return entries
-    return entries + ENTRY.pack(max((e[0] for e in table), default=-1) + 1, START, SCRIPT)
+    return entries + ENTRY.pack(max((e[0] for e in table), default=-1) + 1, START, script)
 
 
 def script_chunks(gpldata: bytes) -> Dict[Tuple[str, int], bytes]:
-    """For the Ledger's copy of GPLDATA: his conversation, and the master script running it."""
+    """For the Ledger's copy of GPLDATA: his conversation, and the master script running it (and
+    Semyon's, semyon.py)."""
     chunks = read_gff(gpldata)
     if ("MAS ", MASTER) not in chunks:
         return {}
@@ -496,6 +500,12 @@ def script_chunks(gpldata: bytes) -> Dict[Tuple[str, int], bytes]:
     face = portrait_chunk(chunks)
     if face and ("PORT", PORTRAIT) not in chunks:
         out[("PORT", PORTRAIT)] = face
+    # Semyon, in the pens as he promises (semyon.py): his part after Kalzith's
+    from . import semyon
+    out[("GPL ", semyon.SCRIPT)] = semyon.conversation()
+    out[("MAS ", MASTER)] = semyon.with_semyon(out[("MAS ", MASTER)], field_types)
+    if ENTRIES in out:
+        out[ENTRIES] = with_entry(out[ENTRIES], semyon.SCRIPT)
     return out
 
 

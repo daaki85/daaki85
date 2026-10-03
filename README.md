@@ -42,6 +42,8 @@ game itself, in the game's own lettering and windows:
   cooks it for the party).
 - **A new person in the slave pens:** Kalzith, a defiler slave who, treated
   with respect, sells arcane spell scrolls that a preserver can learn from.
+- **Semyon kept his word:** after he leaves the arena ("I'll see you in the
+  holding pens"), he is in the pens to talk to, as the game promised and never did.
 - **What the party wears, on the map:** weapons, shields, bows, armour, helms,
   cloaks, boots and belts on their figures, walking and fighting, changing as
   their gear does.
@@ -98,6 +100,10 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
   preserver learns them as from any scroll. Accuse him and threaten to tell
   the templars, and he won't trade until the party pays 50 ceramic or wins
   him over (a Charisma check). New games only.
+- **Semyon in the slave pens,** as he promises when he leaves the arena ("I'll
+  see you in the holding pens"): in the empty pen above Kalzith's, with his own
+  conversation (how he got back in, who carries keys, where his gem is hidden,
+  the Alliance's plans). The game itself never puts him there.
 - **The quest sound for the vulture:** giving Dinos the cooked vulture plays
   the sound the game plays when a quest is done (the Trustee's key, the
   filled water jug).

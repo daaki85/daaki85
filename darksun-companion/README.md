@@ -72,6 +72,8 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   things worth taking from them (see [The slave pens' gear](#the-slave-pens-gear)).
 - **Kalzith, a defiler in the slave pens,** who sells spell scrolls to a party
   that treats him well (see [Kalzith](#kalzith)).
+- **Semyon back in the slave pens,** as he promises when he leaves the arena
+  (see [Semyon](#semyon)).
 - **Icons of their own** for the Ledger's magic items and the Short Sword,
   made from the game's (see [Item icons](#item-icons)).
 - **What the party wears, on the map:** their weapons and shields, bows and
@@ -896,6 +898,31 @@ scrolls given; the game uses flags up to 755), so a save keeps it. The first
 time the party is in the pens, the Ledger puts his six scrolls among his
 things (from the game's free list, as for [the slave pens' gear](#the-slave-pens-gear)),
 once a game.
+
+### Semyon
+
+Untie the arena's prisoner and he is **Semyon**, of the Veiled Alliance; he
+fights beside the party for a while, then leaves: "That's enough for me. I'll
+see you in the holding pens." (Or "Right, see you there!", or "Why don't I
+meet you in the holding pen?") In the game he never arrives: every way he
+leaves walks him to the arena's door to the pens, where a script takes him off
+the map, and nothing in the pens brings him back.
+
+With the Ledger he is there, in the empty pen above Kalzith's, the first time
+the party is in the pens after he has left. Talk to him (Look, then Talk):
+he says how he got back in, passes on what he has heard (who carries keys),
+reminds the party where he hid his gem (the grain pots), and talks about the
+Alliance's plans, in his own voice from the arena. If he died or never left
+the party, he isn't there.
+
+How: in the Ledger's copy of `GPLDATA.GFF`, the pens' script ends with, "if
+he has gone to the pens (the game's own flag 7) and isn't in his pen yet,
+make him there", the command the arena's script uses when he is untied (25h,
+his object 280), and the command that runs his conversation (script 219) when
+he's talked to, with its entry in the game's table of entry points. Flags 764
+and 765 (his own: placed, met) keep the rest, so a save keeps him. Like
+Kalzith's, his commands come after everything of the game's, which keeps its
+place.
 
 ### Item icons
 
