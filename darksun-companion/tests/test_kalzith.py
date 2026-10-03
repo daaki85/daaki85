@@ -23,13 +23,14 @@ def labels_land(ops) -> bool:
 
 class KalzithTests(unittest.TestCase):
     def test_entity(self):
-        """In his pen, once, the table kept in order down the map."""
+        """In his pen, once, at the end: every entry of the game's keeps its place (scripts name
+        the pens' people by it)."""
         e = kalzith.ENTITY
         etab = e.pack(10, 100, 0, 11, -5) + e.pack(10, 2000, 0, 11, -6)
         out = kalzith.with_entity(etab)
         entries = [e.unpack_from(out, i) for i in range(0, len(out), e.size)]
-        self.assertEqual(entries[1], (*kalzith.PEN, 0, kalzith.ENTITY_FLAGS, -kalzith.OBJECT))
-        self.assertEqual([x[1] for x in entries], sorted(x[1] for x in entries))
+        self.assertEqual(out[:len(etab)], etab)
+        self.assertEqual(entries[2], (*kalzith.PEN, 0, kalzith.ENTITY_FLAGS, -kalzith.OBJECT))
         self.assertEqual(kalzith.with_entity(out), out)
 
     def test_talk(self):

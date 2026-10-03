@@ -138,13 +138,13 @@ ENTITY = struct.Struct("<HHBBh")  # x, y, height, flags, object (negative: one o
 
 
 def with_entity(etab: bytes) -> bytes:
-    """The pens' entity table with Kalzith in his pen (once), kept in order down the map."""
+    """The pens' entity table with Kalzith in his pen (once), at its end: the game's scripts name
+    the pens' people by their place in it, so every entry of the game's keeps its own (an entry
+    put in among them moved everyone after it: Kurzak vanished, others went missing)."""
     entries = [ENTITY.unpack_from(etab, i) for i in range(0, len(etab) - ENTITY.size + 1, ENTITY.size)]
     if any(e[4] == -OBJECT for e in entries):
         return etab
-    entries.append((PEN[0], PEN[1], 0, ENTITY_FLAGS, -OBJECT))
-    entries.sort(key=lambda e: e[1])
-    return b"".join(ENTITY.pack(*e) for e in entries)
+    return etab[:len(entries) * ENTITY.size] + ENTITY.pack(PEN[0], PEN[1], 0, ENTITY_FLAGS, -OBJECT)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -184,8 +184,8 @@ class _Script:
     nothing. Shared parts are subroutines: 13h calls one, 15h returns.
 
     Menus are the game's: a loop showing the menu until a local flag (DONE) is set, each reply
-    a subroutine returning to it; a reply that leaves the menu sets DONE and NEXT (which way the
-    talk goes on), and after the loop the talk goes on that way."""
+    a subroutine returning to it, doing its own part (calling what comes next) and setting DONE
+    to end the talk. (Branching after the menu on a "which way" local went wrong in the game.)"""
 
     def __init__(self):
         self.items: List = []
@@ -250,9 +250,10 @@ class _Script:
         self.op(0x13, ("label", name))
         self.shown = 0
 
-    def menu(self, replies: List[Tuple[str, Callable[[], None], object]], ways: List[Callable[[], None]]) -> None:
-        """A menu: each reply's subroutine (REPLIES: text, body, shown when), shown again until a
-        reply leaves it (leave(k)); then the talk goes on the k-th of WAYS."""
+    def menu(self, replies: List[Tuple[str, Callable[[], None], object]]) -> None:
+        """A menu, shown again until a reply leaves it (leave()). Each reply (REPLIES: text, body,
+        shown when) is a subroutine doing its own part (calling the rest of the talk, as the
+        game's replies do), so nothing branches after the menu."""
         loop, out = self._new("menu"), self._new("menu out")
         names = []
         for text, body, shown in replies:
@@ -268,12 +269,9 @@ class _Script:
             for (text, _, shown), name in zip(replies, names)]})
         self.op(0x64, ("label", loop))
         self.label(out)
-        for k, way in enumerate(ways):
-            self.when(("expr", [("var", 0x8E, NEXT), "==", ("n", k)]), way)
 
-    def leave(self, k: int) -> None:
-        """(In a reply:) leave the menu, the talk going on its k-th way."""
-        self.set(NEXT, k)
+    def leave(self) -> None:
+        """(In a reply:) leave the menu once the reply is done (and any menu it went through)."""
         self.set(DONE, 1)
 
     def bytes(self) -> bytes:
@@ -315,7 +313,7 @@ class _Script:
 
 
 ALWAYS = ("n", 1)
-DONE, NEXT = 1, 2  # the script's locals (as the game's merchants use 1 for the menu loop)
+DONE = 1  # the script's local ending a menu (as the game's merchants use 1 for the menu loop)
 WINDOW = 4  # the lines the dialogue window shows
 
 
@@ -328,20 +326,23 @@ def conversation() -> bytes:
     s = _Script()
     friendly, cold_, met = (("var", 0x8D, f) for f in (FRIENDLY, COLD, MET))
 
-    def farewell():
-        s.page()
+    def then_leave(*parts):
+        def body():
+            for part in parts:
+                part()
+            s.leave()
+        return body
 
     def go():
         s.say("Go, then.")
         s.page()
 
-    # -- the first meeting, and the menu until he's a friend
+    # -- the first meeting
     def first():
-        s.menu([("We mean no harm. We're slaves too.", lambda: s.leave(0), ALWAYS),
-                ("You're a defiler. You kill the land.", lambda: s.leave(1), ALWAYS),
+        s.menu([("We mean no harm. We're slaves too.", then_leave(lambda: s.call("respect")), ALWAYS),
+                ("You're a defiler. You kill the land.", then_leave(lambda: s.call("accused")), ALWAYS),
                 ("Who are you?", who, ALWAYS),
-                ("Farewell.", lambda: s.leave(2), ALWAYS)],
-               [lambda: s.call("respect"), lambda: s.call("accused"), go])
+                ("Farewell.", then_leave(go), ALWAYS)])
 
     def who():
         s.say("Kalzith. Once a sorcerer's apprentice in Draj, now Pehtucl's property. The templars "
@@ -366,8 +367,7 @@ def conversation() -> bytes:
         s.menu([("Show us what you have.", shop, ALWAYS),
                 ("Why would a defiler help a preserver?", why, ALWAYS),
                 ("Isn't this dangerous for you?", danger, ALWAYS),
-                ("Farewell.", lambda: s.leave(0), ALWAYS)],
-               [see_you])
+                ("Farewell.", then_leave(see_you), ALWAYS)])
 
     def shop():
         s.say("Quietly, now. One of each, and they're not cheap.")
@@ -383,7 +383,6 @@ def conversation() -> bytes:
         s.say("Everything is dangerous for me. Pehtucl would flay me for this. So keep it quiet.")
 
     def see_you():
-        s.clear()
         s.say("Come back when you've earned some coin.")
         s.page()
 
@@ -391,43 +390,36 @@ def conversation() -> bytes:
     def accused():
         s.clear()
         s.say("And the templars kill slaves with every order. We do what Athas lets us.")
-        s.menu([("Fair enough. I spoke too quickly.", lambda: s.leave(0), ALWAYS),
-                ("We'll tell the templars about you.", lambda: s.leave(1), ALWAYS),
-                ("Farewell.", lambda: s.leave(2), ALWAYS)],
-               [lambda: s.call("respect"), turn_cold, go])
+        s.menu([("Fair enough. I spoke too quickly.", then_leave(lambda: s.call("respect")), ALWAYS),
+                ("We'll tell the templars about you.", then_leave(turn_cold), ALWAYS),
+                ("Farewell.", then_leave(go), ALWAYS)])
 
     def turn_cold():
-        s.clear()
         s.flag(COLD, 1)
         s.say("Then go and tell them, and see whom they believe. I have nothing more to say to you.")
         s.page()
 
     def cold():
         s.say("I have nothing to say to you. Go and tell your templars.")
-        s.menu([("Here's 50 ceramic, as an apology.", lambda: s.leave(0), ("expr", [MONEY, ">=", ("n", 50)])),
-                ("We're all slaves. Let's be friends.", plead, ALWAYS),
-                ("Farewell.", lambda: s.leave(3), ALWAYS)],
-               [paid, won_over, not_won, farewell])
+        s.menu([("Here's 50 ceramic, as an apology.", then_leave(paid), ("expr", [MONEY, ">=", ("n", 50)])),
+                ("We're all slaves. Let's be friends.", then_leave(plead), ALWAYS),
+                ("Farewell.", then_leave(lambda: None), ALWAYS)])
 
     def plead():
-        s.when(("op", gpl.Op(0, gpl.ABILITY_CHECK, [ACTOR, ("n", 1), ("n", CHA)])),
-               lambda: s.leave(1), lambda: s.leave(2))
+        s.when(("op", gpl.Op(0, gpl.ABILITY_CHECK, [ACTOR, ("n", 1), ("n", CHA)])), won_over, not_won)
 
     def paid():
-        s.clear()
         s.op(0x0C, ("n", -50))
         s.say("Coin that rings. That's an apology I'll take.")
         s.page()
         s.call("respect")
 
     def won_over():
-        s.clear()
         s.say("Hm. Fine. We're all slaves here.")
         s.page()
         s.call("respect")
 
     def not_won():
-        s.clear()
         s.say("Words are cheap in the pens.")
         s.page()
 
@@ -520,7 +512,7 @@ def stock(gd, cats_grace: bool) -> List[str]:
     if gd.region() != REGION or gd.flag(STOCKED):
         return []
     # (found by name among the region's creatures: not among the first 256 objects, where he
-    # is not - the pens' 304th)
+    # is not - the pens' last, past the 256th)
     table = gd.creatures(CREATURES_SEEN)
     name = NAME.encode("ascii") + b"\0"
     for index in range(game.PARTY_SIZE, len(table) // game.CREATURE_SIZE):
