@@ -81,8 +81,10 @@ class Rings:
         self._table: Optional[bytes] = None
         self._on: Optional[bool] = None
 
-    def update(self, gd, tsr_hdr: int, on: bool, palettes: int, chosen: Optional[int] = None) -> list:
-        """Keep DSCLOG's rings up; returns the enemies marked (for Tab)."""
+    def update(self, gd, tsr_hdr: int, on: bool, palettes: int, chosen: Optional[int] = None,
+               all_enemies: bool = True) -> list:
+        """Keep DSCLOG's rings up: under every enemy (ALL_ENEMIES), or only under the one chosen.
+        Returns the enemies."""
         guest = gd.guest
         base = tsr_hdr - struct.unpack("<H", guest.read(tsr_hdr + TSR_HDR_OFF, 2))[0]
         if not on:
@@ -99,7 +101,7 @@ class Rings:
             guest.write(tsr_hdr + TSR_RINGS_ON, struct.pack("<H", 1))
             self._palettes, self._on = palettes, True
         marked = enemies(gd)
-        table = ring_table(marked, chosen if chosen in marked else None)
+        table = ring_table(marked if all_enemies else [], chosen if chosen in marked else None)
         if table != self._table:
             off, = struct.unpack("<H", guest.read(tsr_hdr + TSR_RING_TAB, 2))
             guest.write(base + off, table)

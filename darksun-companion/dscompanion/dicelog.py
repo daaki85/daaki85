@@ -331,7 +331,7 @@ class DiceLog:
         self._shadows = shadows.Shadows()
         self.show_dust = True  # dust raised by walkers on sand and dirt (dust.py)
         self._dust = dust.Dust()
-        self.show_rings = True  # rings under the enemies in a fight (rings.py)
+        self.show_rings = True  # rings under all the enemies in a fight, else only the chosen one (rings.py)
         self._rings = rings.Rings()
         self.use_targeting = True  # Tab chooses an enemy in a fight, Enter attacks it (targeting.py)
         self._targeting = targeting.Targeting()
@@ -995,7 +995,7 @@ class DiceLog:
                 foes = rings.enemies(self.game)
                 out += self._targeting.update(self.game, self.tsr_hdr, self.use_targeting, foes)
                 self._rings.update(self.game, self.tsr_hdr, self.show_rings or self.use_targeting,
-                                   self._shadows.palettes, self._targeting.chosen)
+                                   self._shadows.palettes, self._targeting.chosen, all_enemies=self.show_rings)
                 self._dust.update(self.game, self.tsr_hdr, self.show_dust, self._shadows.palettes)
                 self._scrolling.update(self.game, self.tsr_hdr, self.scroll_map, self.scroll_right)
         except (struct.error, IndexError, ValueError):

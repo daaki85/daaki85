@@ -75,6 +75,23 @@ class TargetingTests(unittest.TestCase):
         t.update(gd, HDR, True, foes)
         self.assertEqual(struct.unpack("<hh", gd.guest.read(HDR + targeting.TSR_PAN, 4)), (500 - 160, 500 - 100))
 
+    def test_only_the_chosen(self):
+        """Rings switched to only the chosen one: the others unmarked."""
+        gd = Game()
+        gd.guest.write(HDR + rings.TSR_HDR_OFF, struct.pack("<H", HDR - BASE))
+        gd.guest.write(HDR + rings.TSR_RING_TAB, struct.pack("<H", 0x100))
+        gd.guest.write(HDR + rings.TSR_RED, struct.pack("<H", 0x400))
+        gd.guest.write(HDR + 238, struct.pack("<H", 0x500))
+        gd.creature = lambda i: b""
+        r = rings.Rings()
+        rings.enemies, saved = (lambda g: [42, 44]), rings.enemies
+        try:
+            r.update(gd, HDR, True, 1, chosen=44, all_enemies=False)
+        finally:
+            rings.enemies = saved
+        table = gd.guest.read(BASE + 0x100, 520)
+        self.assertEqual((table[42], table[44]), (0, rings.CHOSEN))
+
     def test_ring_table(self):
         table = rings.ring_table([42, 44], 44)
         self.assertEqual((table[42], table[44], table[45]), (rings.RING, rings.CHOSEN, 0))

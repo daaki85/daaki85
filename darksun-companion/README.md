@@ -1060,7 +1060,8 @@ chooses an enemy, the nearest first, then the next nearest (**Shift+Tab** goes
 back): its ring is drawn thicker and redder, the view scrolls to it if it is
 out of sight, and the log names it. **Enter** then attacks it, as clicking on
 it does (walking up to it first when it is out of reach), even where another
-figure stands in front of it. Both are switches on the Options tab.
+figure stands in front of it. On the Options tab, the rings can be switched to
+only the chosen enemy's (none until Tab is pressed), and Tab and Enter off.
 
 How: DSCLOG hooks the keyboard (`INT 16h`) and takes Tab, Shift+Tab and, with an
 enemy chosen, Enter from what the game reads, counting them for the Ledger

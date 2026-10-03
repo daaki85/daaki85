@@ -354,7 +354,8 @@ class Viewer:
         ttk.Checkbutton(rules, text="Dust raised behind the feet of anyone walking on sand or dirt",
                         variable=self.show_dust, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
         self.show_rings = tk.BooleanVar(value=bool(settings.get("rings", True)))
-        ttk.Checkbutton(rules, text="Red rings on the ground under the enemies in a fight",
+        ttk.Checkbutton(rules, text="Red rings on the ground under all the enemies in a fight (off: only "
+                        "under the one chosen with Tab)",
                         variable=self.show_rings, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
         self.use_targeting = tk.BooleanVar(value=bool(settings.get("targeting", True)))
         ttk.Checkbutton(rules, text="In a fight, Tab (Shift+Tab back) chooses an enemy, its ring brighter, and "
