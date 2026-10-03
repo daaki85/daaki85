@@ -348,6 +348,9 @@ class Viewer:
         ttk.Checkbutton(rules, text="Show what the party wears on their figures in the game (weapons, "
                         "armour, helms, cloaks, boots, belts)", variable=self.show_gear,
                         command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        self.show_shadows = tk.BooleanVar(value=bool(settings.get("shadows", True)))
+        ttk.Checkbutton(rules, text="Shadows under the figures in the game (see-through, on the floor)",
+                        variable=self.show_shadows, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
 
     def give_tools(self) -> None:
         """A set of thieving tools for each thief in the party without one, right away (they
@@ -640,6 +643,7 @@ class Viewer:
                 self.dice.arena_ring = self.arena_ring.get()
                 self.dice.pickpockets = self.pickpockets.get()
                 self.dice.show_gear = self.show_gear.get()
+                self.dice.show_shadows = self.show_shadows.get()
                 self.dice.load_picked(launch.pickpocketed())
                 self.dice.tools_given = launch.tools_given()
                 self.dice.rules = self._rules()
@@ -722,6 +726,7 @@ class Viewer:
         settings["arena_ring"] = self.arena_ring.get()
         settings["pickpockets"] = self.pickpockets.get()
         settings["show_gear"] = self.show_gear.get()
+        settings["shadows"] = self.show_shadows.get()
         for key, var in self.rule_vars.items():
             settings[key] = var.get()
         launch.save_settings(settings)
@@ -732,6 +737,7 @@ class Viewer:
             self.dice.arena_ring = self.arena_ring.get()
             self.dice.set_pickpockets(self.pickpockets.get())
             self.dice.show_gear = self.show_gear.get()
+            self.dice.show_shadows = self.show_shadows.get()
             self.dice.set_rules(self._rules())
 
     def _rules(self) -> int:

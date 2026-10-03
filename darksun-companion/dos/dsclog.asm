@@ -58,6 +58,10 @@ VEC_THIEF_SKILL equ 0xE4   ; PROBE_THIEF_SKILL
 VEC_TWO_HANDED equ 0xE3    ; PROBE_TWO_HANDED
 VEC_SPELL_TEXT equ 0xE2    ; PROBE_SPELL_TEXT
 VEC_CHUNK_ID equ 0xE1      ; PROBE_CHUNK_ID
+VEC_FLOOR_ALL equ 0xE0     ; PROBE_FLOOR (the whole view's floor)
+VEC_FLOOR_RECT equ 0xDF    ; PROBE_FLOOR (a rectangle's floor)
+VEC_REDRAW equ 0xDE        ; PROBE_REDRAW
+VEC_REDRAW_ALL equ 0xDD    ; PROBE_REDRAW_ALL
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -177,6 +181,12 @@ types_first dw 0                ; +212 the number the first of them gets (the ga
 types_ptr  dd 0                 ; +214 the game's item type table, as last loaded with them
 objects_on dw 0                 ; +218 1 once the game has opened the companion's copy of
                                 ;      SEGOBJEX.GFF (its icons: see PROBE_DOS_OPEN)
+shadows_on dw 0                 ; +220 the companion sets 1 to have figures cast shadows (SHADOWS)
+shadow_tab_off dw shadow_tab    ; +222 offset of SHADOW_TAB: a byte for each of the game's 520 things,
+                                ;      1 for those that cast a shadow (the companion keeps it)
+dark_build dw 0                 ; +224 the companion sets 1 to have DARK made again from the palette
+                                ;      (after the area, so the palette, changes); 0 once it is
+shadow_passes dw 0              ; +226 shadow passes drawn (counted)
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -2748,6 +2758,683 @@ kind    dw 0
 extra   dw 0
 SPELL_SEG equ 2 + 0x79BB7 - 0x79A85  ; return address - (DSUN.EXE offsets: patch, mov ax's operand)
 
+; SHADOWS (SHADOWS_ON): every figure the companion marks (SHADOW_TAB) casts a see-through shadow
+; on the floor, its outline laid down toward the lower left (the light on Athas's maps comes from
+; the upper right, as the walls' shadows show), drawn after the floor and before anything else, so
+; walls and figures, its own and everyone else's, stand on it.
+;
+; The game draws a view of the map into a page of its planar (mode X) video memory: first the floor
+; (DSUN.EXE 2700Eh: all of the view; 27162h: a rectangle of it), then, row by row, the walls and
+; things standing on it and the figures (1DBD:0002). The floor routines are hooked at their start
+; (PROBE_FLOOR): their way back is pointed at FLOOR_POST, which draws the shadows over the floor
+; they have just drawn, clipped to it, then goes back (not when the routine draws nothing: then
+; whatever is there was shadowed already). Each pixel of a shadow is darkened once, by DARK (each
+; colour's nearest darker one, at 3/4 strength, among the colours the game doesn't animate). A
+; figure's outline is its picture's: the runs of each row of the frame it is drawn with (no colours
+; needed), its picture loaded into the cache first if it isn't in memory (as drawing it is about to;
+; in a fight most aren't till then).
+;
+; A figure that moves is drawn again within a rectangle round where it was and where it is; its
+; shadow reaches beyond its picture, so the routines redrawing rectangles (PROBE_REDRAW: 2475Fh, a
+; rectangle; PROBE_REDRAW_ALL: 24B18h, the one round everything that moved) make theirs bigger by
+; as far as a shadow reaches (SHADOW_LEFT, SHADOW_DOWN), or the old shadow would be left behind.
+
+SHADOW_ROWS  equ 64             ; rows of a figure, up from its feet, that cast a shadow
+SHADOW_LEFT  equ 72             ; how far left a shadow reaches past its figure (SHADOW_ROWS * 1.05,
+                                ;   and a step of 4: rectangles are kept to whole bytes)
+SHADOW_DOWN  equ 44             ; and how far down (SHADOW_ROWS / 2, and a figure's height off the
+                                ;   ground)
+PAGES_SEG    equ 0x0980         ; (DSUN.EXE segments, less the load segment) the page routines',
+                                ;   whose code segment holds the pages' table
+CACHE_SEG    equ 0x3E60         ; the picture cache's table: 16 bytes a slot
+OBJ_LIST     equ 0x6690         ; DS: far pointer to the things on the map, 8 bytes each (x, y,
+OBJ_COUNT    equ 0x1F72         ;   height, flags, which thing), and how many
+MAP_THINGS   equ 0x6694         ; DS: each thing on the map, 32 bytes (sprites.py)
+MAP_COUNT    equ 520            ; how many things the game has
+CACHE_LAST   equ 0x1F84         ; DS: the last slot of the picture cache
+FLOOR_ON     equ 0x2F44         ; DS: 0 when the floor routines draw nothing
+LOADER_SEG   equ 0x1DF3         ; (DSUN.EXE 25D6Ah) the routine that loads a picture into the cache
+LOADER_OFF   equ 0x2A3A         ;   (slot, 0), as drawing one does when it isn't in memory
+FIGURE_MOST  equ 128            ; (the widest and tallest a figure's picture may be, for the test of
+                                ;   whether its shadow can be where the floor was drawn)
+
+; PROBE_REDRAW: INT VEC_REDRAW replaces "push bp / mov bp,sp / sub sp,8" (6 bytes: INT + 4 NOPs)
+; at the start of the routine that draws a rectangle of the view again (camera x, y, page, x0,
+; y0, x1, y1, ...): with shadows on, the rectangle reaches further left and down.
+probe_redraw:
+        push bp
+        mov bp, sp
+        cmp word [cs:shadows_on], 0
+        je .go
+        sub word [bp+18], SHADOW_LEFT   ; x0 (after BP, the interrupt's IP, CS and flags, and the
+        add word [bp+24], SHADOW_DOWN   ;   caller's way back); y1 (the routine keeps both on screen)
+.go:    pop bp
+        pop word [cs:resume]
+        pop word [cs:resume + 2]
+        popf
+        push bp
+        mov bp, sp
+        sub sp, 8
+        jmp far [cs:resume]
+
+; PROBE_REDRAW_ALL: INT VEC_REDRAW_ALL replaces "push word [bp+8] / push word [bp+6]" (6 bytes:
+; INT + 4 NOPs) where the routine drawing again what moved, having made the rectangle round it all
+; (x0 at [BP-8], y1 at [BP-0Eh]), starts to draw: with shadows on, it reaches further left and down.
+probe_redraw_all:
+        pop word [cs:resume]
+        pop word [cs:resume + 2]
+        pop word [cs:resume_fl]
+        cmp word [cs:shadows_on], 0
+        je .go
+        sub word [bp-8], SHADOW_LEFT
+        jge .x
+        mov word [bp-8], 0
+.x:     add word [bp-0x0E], SHADOW_DOWN
+        cmp word [bp-0x0E], 0xC7
+        jle .go
+        mov word [bp-0x0E], 0xC7
+.go:    push word [bp+8]
+        push word [bp+6]
+        push word [cs:resume_fl]
+        push word [cs:resume + 2]
+        push word [cs:resume]
+        iret
+
+; PROBE_FLOOR: INT VEC_FLOOR_ALL and INT VEC_FLOOR_RECT replace "push bp / mov bp,sp / sub sp,N"
+; (6 bytes: INT + 4 NOPs) at the start of the routines drawing the floor of the view (page, camera
+; x, y) and of a rectangle of it (page, x0, y0, x1 + 1, y1, camera x, y). With shadows on, their
+; way back is FLOOR_POST.
+probe_floor_all:
+        mov word [cs:floor_frame], 0x1C
+        mov byte [cs:floor_kind], 0
+        jmp floor_enter
+probe_floor_rect:
+        mov word [cs:floor_frame], 0x1E
+        mov byte [cs:floor_kind], 1
+floor_enter:
+        pop word [cs:resume]
+        pop word [cs:resume + 2]
+        popf
+        cmp word [cs:shadows_on], 0
+        je .plain
+        cmp byte [cs:floor_busy], 0
+        jne .plain
+        cmp word [FLOOR_ON], 0          ; (DS: the game's) the routine draws nothing without it
+        je .plain
+        mov byte [cs:floor_busy], 1
+        push bp
+        mov bp, sp
+        push ax
+        mov ax, [bp+2]                  ; the caller's way back, kept, and FLOOR_POST in its place
+        mov [cs:floor_ret], ax
+        mov ax, [bp+4]
+        mov [cs:floor_ret + 2], ax
+        mov word [bp+2], floor_post
+        mov [bp+4], cs
+        pop ax
+        pop bp
+.plain: push bp
+        mov bp, sp
+        sub sp, [cs:floor_frame]
+        jmp far [cs:resume]
+
+; the floor drawn: the shadows on it, then back to the caller (its arguments still on the stack)
+floor_post:
+        pushf
+        pushad
+        push ds
+        push es
+        mov bp, sp
+        call shadow_pass
+        pop es
+        pop ds
+        popad
+        popf
+        mov byte [cs:floor_busy], 0
+        jmp far [cs:floor_ret]
+
+F_ARGS equ 38                   ; (FLOOR_POST's frame: ES, DS, PUSHAD, flags, then the arguments)
+
+shadow_pass:
+        cld
+        inc word [cs:shadow_passes]
+        mov [cs:game_ds], ds
+        mov ax, ds
+        sub ax, DGROUP_SEG
+        mov [cs:load_seg], ax
+        ; the page: where it is (its bounds, the clip), and the page it is part of (its memory)
+        add ax, PAGES_SEG
+        mov es, ax
+        mov bx, [bp + F_ARGS]
+        shl bx, 1
+        mov ax, [es:bx + 0x404]
+        mov [cs:clip_x0], ax
+        mov ax, [es:bx + 0x604]
+        mov [cs:clip_y0], ax
+        mov ax, [es:bx + 0x804]
+        mov [cs:clip_x1], ax
+        mov ax, [es:bx + 0xA04]
+        mov [cs:clip_y1], ax
+.parent:
+        test word [es:bx + 0xC04], 0x40
+        jz .root
+        mov bx, [es:bx + 4]
+        jmp .parent
+.root:  mov ax, [es:bx + 4]
+        mov [cs:v_seg], ax
+        mov ax, [es:bx + 0x604]
+        mov [cs:v_y0], ax
+        mov ax, [es:bx + 0x404]
+        shr ax, 2
+        mov [cs:v_x0], ax
+        mov cx, [es:bx + 0x804]
+        shr cx, 2
+        sub cx, ax
+        inc cx
+        mov [cs:v_row], cx
+        ; the camera, and for a rectangle's floor the rectangle
+        cmp byte [cs:floor_kind], 0
+        jne .rect
+        mov ax, [bp + F_ARGS + 2]
+        mov [cs:cam_x], ax
+        mov ax, [bp + F_ARGS + 4]
+        mov [cs:cam_y], ax
+        jmp .clipped
+.rect:  mov ax, [bp + F_ARGS + 10]
+        mov [cs:cam_x], ax
+        mov ax, [bp + F_ARGS + 12]
+        mov [cs:cam_y], ax
+        mov ax, [bp + F_ARGS + 2]       ; x0
+        cmp ax, [cs:clip_x0]
+        jle .rx1
+        mov [cs:clip_x0], ax
+.rx1:   mov ax, [bp + F_ARGS + 6]       ; x1 + 1
+        dec ax
+        cmp ax, [cs:clip_x1]
+        jge .ry0
+        mov [cs:clip_x1], ax
+.ry0:   mov ax, [bp + F_ARGS + 4]       ; y0
+        cmp ax, [cs:clip_y0]
+        jle .ry1
+        mov [cs:clip_y0], ax
+.ry1:   mov ax, [bp + F_ARGS + 8]       ; y1
+        cmp ax, [cs:clip_y1]
+        jge .clipped
+        mov [cs:clip_y1], ax
+.clipped:
+        cmp word [cs:dark_build], 0
+        je .dark
+        call build_dark
+        jc .dark                        ; (not yet: the screen is fading)
+        mov word [cs:dark_build], 0
+.dark:  cmp byte [cs:dark_ready], 0
+        jne .vga
+        ret                             ; (no colours to darken with yet)
+.vga:   call vga_save
+        mov ds, [cs:game_ds]
+        les di, [OBJ_LIST]
+        mov cx, [OBJ_COUNT]
+        jcxz .done
+.thing: push cx
+        push di
+        push es
+        call shadow_of
+        pop es
+        pop di
+        pop cx
+        add di, 8
+        loop .thing
+.done:  call vga_restore
+        ret
+
+; the shadow of the thing at ES:DI (DS = the game's), if it casts one
+shadow_of:
+        mov bx, [es:di + 6]
+        cmp bx, MAP_COUNT - 1
+        ja .no                          ; (none)
+        cmp byte [cs:shadow_tab + bx], 0
+        je .no
+        shl bx, 5
+        add bx, MAP_THINGS
+        test byte [bx], 0x80
+        jnz .no                         ; (not drawn)
+        mov si, [bx + 0x0F]             ; its picture's place in the cache
+        cmp si, 0xFFFF
+        je .no
+        cmp si, [CACHE_LAST]
+        ja .no
+        ; where its picture is drawn (as the game works it out), on the ground
+        mov al, [es:di + 5]
+        mov [cs:mirror], al
+        xor dx, dx
+        test al, 0x20
+        jz .fixed
+        mov ax, [es:di]
+        mov dl, [bx + 7]
+        sub ax, dx
+        sub ax, [cs:cam_x]
+        mov [cs:fig_x], ax
+        mov ax, [es:di + 2]
+        mov dl, [bx + 8]
+        sub ax, dx                      ; (its height off the ground left out: the shadow is on it)
+        sub ax, [cs:cam_y]
+        mov [cs:fig_y], ax
+        jmp .frame
+.fixed: mov ax, [bx + 3]
+        sub ax, [cs:cam_x]
+        mov [cs:fig_x], ax
+        mov ax, [bx + 5]
+        sub ax, [cs:cam_y]
+        mov [cs:fig_y], ax
+.frame: mov al, [bx + 0x11]
+        xor ah, ah
+        mov [cs:frame], ax
+        ; (none of its shadow where the floor was drawn: nothing to do)
+        mov ax, [cs:fig_x]
+        sub ax, SHADOW_LEFT
+        cmp ax, [cs:clip_x1]
+        jg .no
+        mov ax, [cs:fig_x]
+        add ax, FIGURE_MOST
+        cmp ax, [cs:clip_x0]
+        jl .no
+        mov ax, [cs:fig_y]
+        cmp ax, [cs:clip_y1]
+        jg .no
+        add ax, FIGURE_MOST + SHADOW_DOWN
+        cmp ax, [cs:clip_y0]
+        jl .no
+        ; its picture, if in the cache
+        mov ax, [cs:load_seg]
+        add ax, CACHE_SEG
+        mov es, ax
+        shl si, 4
+        cmp dword [es:si + 6], 0
+        jl .no
+        test byte [es:si + 0x0E], 2
+        jnz .loaded
+        shr si, 4                       ; (not in memory: loaded, as drawing it is about to)
+        push si
+        mov ax, [cs:load_seg]
+        add ax, LOADER_SEG
+        mov [cs:loader + 2], ax
+        push word 0
+        push si
+        call far [cs:loader]
+        add sp, 4
+        pop si
+        or ax, ax
+        jz .no
+        mov ax, [cs:load_seg]
+        add ax, CACHE_SEG
+        mov es, ax
+        shl si, 4
+.loaded:
+        les si, [es:si + 0x0A]
+        mov bx, [cs:frame]
+        cmp bx, [es:si + 4]
+        jae .no
+        shl bx, 2
+        movzx eax, word [cs:zero]       ; (EAX: the frame's address, linear)
+        mov ax, es
+        shl eax, 4
+        movzx ecx, si
+        add eax, ecx
+        add eax, [es:si + bx + 6]
+        mov si, ax
+        and si, 0x0F
+        shr eax, 4
+        mov es, ax
+        ; the frame: width, height, then its rows
+        mov ax, [es:si]
+        mov [cs:f_w], ax
+        mov ax, [es:si + 2]
+        dec ax
+        mov [cs:f_bottom], ax
+        add si, 4
+.row:   mov al, [es:si]
+        inc si
+        cmp al, 0xFF
+        je .no
+        xor ah, ah
+        mov [cs:f_y], ax
+.run:   mov ax, [es:si]                 ; a run: x (8000h: the row's last), its pixels, its data
+        mov [cs:r_x], ax
+        mov cl, [es:si + 2]
+        mov [cs:r_n], cl
+        mov dl, [es:si + 3]
+        xor dh, dh
+        add si, 4
+        add si, dx
+        mov ax, [cs:f_bottom]
+        sub ax, [cs:f_y]                ; how far up from the feet
+        jl .next
+        cmp ax, SHADOW_ROWS
+        jg .next
+        test al, 1
+        jnz .next                       ; (every other row: the shadow is half as tall)
+        push es
+        push si
+        call cast_run
+        pop si
+        pop es
+.next:  test byte [cs:r_x + 1], 0x80
+        jz .run
+        jmp .row
+.no:    ret
+
+; the shadow of the current run, AX rows up from the feet
+cast_run:
+        mov bx, ax
+        shr bx, 1
+        add bx, [cs:f_bottom]
+        add bx, [cs:fig_y]              ; BX: the screen row it falls on
+        mov dx, [cs:r_x]
+        and dx, 0x7FFF
+        xor ch, ch
+        mov cl, [cs:r_n]
+        test byte [cs:mirror], 0x80
+        jz .lean
+        mov di, [cs:f_w]                ; (drawn mirrored: from the other side)
+        sub di, dx
+        sub di, cx
+        mov dx, di
+.lean:  add dx, [cs:fig_x]
+        mov di, ax                      ; leaning left by 1.05 times as far as it is up
+        add ax, 10
+        push dx
+        xor dx, dx
+        push bx
+        mov bx, 20
+        div bx
+        pop bx
+        pop dx
+        add di, ax
+        sub dx, di                      ; DX: its first x
+        mov di, dx
+        add di, cx
+        dec di                          ; DI: its last
+        call darken
+        ret
+
+; darken DX..DI on row BX (screen), within the clip
+darken: cmp bx, [cs:clip_y0]
+        jl .out
+        cmp bx, [cs:clip_y1]
+        jg .out
+        cmp dx, [cs:clip_x0]
+        jge .x1
+        mov dx, [cs:clip_x0]
+.x1:    cmp di, [cs:clip_x1]
+        jle .span
+        mov di, [cs:clip_x1]
+.span:  cmp dx, di
+        jg .out
+        mov [cs:s_first], dx            ; (before MUL, which takes DX)
+        mov [cs:s_last], di
+        ; darken DX..DI on row BX, a plane at a time
+        mov ax, bx
+        sub ax, [cs:v_y0]
+        mul word [cs:v_row]
+        sub ax, [cs:v_x0]
+        mov [cs:row_at], ax
+        mov es, [cs:v_seg]
+        xor cx, cx                      ; the plane
+.plane: mov ax, cx
+        sub ax, [cs:s_first]
+        and ax, 3
+        add ax, [cs:s_first]            ; the first x on this plane
+        cmp ax, [cs:s_last]
+        jg .nextp
+        push ax
+        mov dx, 0x3C4                   ; write to this plane, read from it
+        mov al, 2
+        mov ah, 1
+        shl ah, cl
+        out dx, ax
+        mov dx, 0x3CE
+        mov al, 4
+        mov ah, cl
+        out dx, ax
+        pop ax
+        mov si, [cs:s_last]
+        sub si, ax
+        shr si, 2
+        inc si                          ; SI: how many
+        shr ax, 2
+        add ax, [cs:row_at]
+        mov di, ax
+        xor bh, bh
+.pix:   mov bl, [es:di]
+        mov bl, [cs:dark + bx]
+        mov [es:di], bl
+        inc di
+        dec si
+        jnz .pix
+.nextp: inc cx
+        cmp cx, 4
+        jb .plane
+.out:   ret
+
+; the VGA's registers the shadows change, kept and put back
+vga_save:
+        mov dx, 0x3C4
+        in al, dx
+        mov [cs:sc_index], al
+        mov al, 2
+        out dx, al
+        inc dx
+        in al, dx
+        mov [cs:sc_mask], al
+        mov dx, 0x3CE
+        in al, dx
+        mov [cs:gc_index], al
+        xor bx, bx
+.save:  mov al, [cs:gc_regs + bx]
+        out dx, al
+        inc dx
+        in al, dx
+        dec dx
+        mov [cs:gc_saved + bx], al
+        inc bx
+        cmp bx, 5
+        jb .save
+        mov ax, 0x0001                  ; no set/reset, no rotation, all bits, write mode 0
+        out dx, ax
+        mov ax, 0x0003
+        out dx, ax
+        mov ah, [cs:gc_saved + 3]
+        and ah, 0xF4
+        mov al, 5
+        out dx, ax
+        mov ax, 0xFF08
+        out dx, ax
+        ret
+
+vga_restore:
+        mov dx, 0x3CE
+        xor bx, bx
+.put:   mov al, [cs:gc_regs + bx]
+        mov ah, [cs:gc_saved + bx]
+        out dx, ax
+        inc bx
+        cmp bx, 5
+        jb .put
+        mov al, [cs:gc_index]
+        out dx, al
+        mov dx, 0x3C4
+        mov al, 2
+        mov ah, [cs:sc_mask]
+        out dx, ax
+        mov al, [cs:sc_index]
+        out dx, al
+        ret
+
+; DARK: for each colour of the palette as it is now, the nearest to it at 3/4 strength among the
+; colours the game doesn't animate (DARK_FIRST-DARK_LAST: 11-15 and 224-255 cycle, for fire and
+; water); made again when the area, so the palette, changes
+DARK_FIRST equ 16
+DARK_LAST  equ 223
+DARK_PARTS equ 3                ; (a shadow's strength: 3/4, as the walls' own shadows on the floor)
+DARK_WHOLE equ 4
+DARK_HUE   equ 4                ; (how much a change of hue counts against a colour)
+DARK_LIT   equ 4000             ; (the palette's 768 values, out of 63 each, add up to less in a fade)
+build_dark:
+        push ds
+        push cs
+        pop ds
+        mov dx, 0x3C7
+        xor al, al
+        out dx, al
+        mov dx, 0x3C9
+        mov di, dac
+        mov cx, 768
+        xor bx, bx                      ; (BX: how bright it is in all)
+.read:  in al, dx
+        mov [di], al
+        xor ah, ah
+        add bx, ax
+        inc di
+        loop .read
+        cmp bx, DARK_LIT
+        jae .lit
+        pop ds                          ; (nearly black: a fade, not the area's colours)
+        stc
+        ret
+.lit:
+        xor bx, bx                      ; the colour
+.colour:
+        mov si, bx
+        imul si, si, 3
+        add si, dac
+        xor di, di                      ; its darker self
+.chan:  lodsb
+        mov ah, DARK_PARTS
+        mul ah
+        mov dl, DARK_WHOLE
+        div dl
+        mov [want + di], al
+        inc di
+        cmp di, 3
+        jb .chan
+        mov si, bx                      ; (only clearly darker ones: brightness under 7/8 of its own)
+        imul si, si, 3
+        add si, dac
+        xor ax, ax
+        xor dx, dx
+        mov di, 3
+.own:   lodsb
+        add dx, ax
+        dec di
+        jnz .own
+        imul dx, dx, 7
+        shr dx, 3
+        mov [lit_most], dx
+        mov dword [best_d], 0xFFFFFFFF
+        mov [best_c], bl
+        mov cx, DARK_FIRST
+.cand:  mov word [lit_sum], 0
+        mov si, cx                      ; how far a colour is from the one wanted: the differences
+        imul si, si, 3                  ;   squared, and those between them weighted (DARK_HUE),
+        add si, dac                     ;   so that it keeps its hue (sand stays sand, not pink)
+        xor di, di
+.diff:  lodsb
+        mov ah, 0
+        add [lit_sum], ax
+        sub al, [want + di]
+        cbw
+        mov [diffs + di], al
+        inc di
+        cmp di, 3
+        jb .diff
+        mov ax, [lit_sum]
+        cmp ax, [lit_most]
+        jae .worse                      ; (not darker enough)
+        xor edx, edx
+        xor di, di
+.sq:    movsx eax, byte [diffs + di]
+        imul eax, eax
+        add edx, eax
+        inc di
+        cmp di, 3
+        jb .sq
+        movsx eax, byte [diffs]
+        movsx edi, byte [diffs + 1]
+        sub eax, edi
+        imul eax, eax
+        imul eax, eax, DARK_HUE
+        add edx, eax
+        movsx eax, byte [diffs + 1]
+        movsx edi, byte [diffs + 2]
+        sub eax, edi
+        imul eax, eax
+        imul eax, eax, DARK_HUE
+        add edx, eax
+        cmp edx, [best_d]
+        jae .worse
+        mov [best_d], edx
+        mov [best_c], cl
+.worse: inc cx
+        cmp cx, DARK_LAST
+        jbe .cand
+        mov al, [best_c]
+        mov [dark + bx], al
+        inc bx
+        cmp bx, 256
+        jb .colour
+        mov byte [dark_ready], 1
+        pop ds
+        clc
+        ret
+
+loader     dw LOADER_OFF, 0
+resume     dd 0
+resume_fl  dw 0
+floor_ret  dd 0
+floor_frame dw 0
+floor_kind db 0
+floor_busy db 0
+dark_ready db 0
+mirror     db 0
+r_n        db 0
+sc_index   db 0
+sc_mask    db 0
+gc_index   db 0
+gc_regs    db 1, 3, 4, 5, 8
+gc_saved   times 5 db 0
+zero       dw 0
+game_ds    dw 0
+load_seg   dw 0
+clip_x0    dw 0
+clip_y0    dw 0
+clip_x1    dw 0
+clip_y1    dw 0
+v_seg      dw 0
+v_x0       dw 0
+v_y0       dw 0
+v_row      dw 0
+cam_x      dw 0
+cam_y      dw 0
+fig_x      dw 0
+fig_y      dw 0
+frame      dw 0
+f_w        dw 0
+f_bottom   dw 0
+f_y        dw 0
+r_x        dw 0
+row_at     dw 0
+s_first    dw 0
+s_last     dw 0
+best_d     dd 0
+diffs      times 3 db 0
+lit_sum    dw 0
+lit_most   dw 0
+best_c     db 0
+want       times 3 db 0
+shadow_tab times MAP_COUNT db 0
+dark       times 256 db 0
+dac        times 768 db 0
+
 align 16
 ring:   times NENT*ESIZE db 0
 tbuf:   times TSIZE db 0
@@ -2758,7 +3445,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 36
+        mov cx, 40
 .check:
         lodsb
         mov ah, 35h
@@ -2882,6 +3569,18 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_CHUNK_ID
         mov dx, probe_chunk_id
         int 21h
+        mov ax, 2500h + VEC_FLOOR_ALL
+        mov dx, probe_floor_all
+        int 21h
+        mov ax, 2500h + VEC_FLOOR_RECT
+        mov dx, probe_floor_rect
+        int 21h
+        mov ax, 2500h + VEC_REDRAW
+        mov dx, probe_redraw
+        int 21h
+        mov ax, 2500h + VEC_REDRAW_ALL
+        mov dx, probe_redraw_all
+        int 21h
         mov ax, 3521h           ; DOS itself last: opening the objects file (PROBE_DOS_OPEN)
         int 21h
         mov [old21], bx
@@ -2904,8 +3603,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or E5h-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED, VEC_SPELL_TEXT, VEC_CHUNK_ID
+busy    db 'DSCLOG: interrupts 60h-65h or DDh-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED, VEC_SPELL_TEXT, VEC_CHUNK_ID, VEC_FLOOR_ALL, VEC_FLOOR_RECT, VEC_REDRAW, VEC_REDRAW_ALL
 
         align 16, db 0
 image_len equ $ - $$

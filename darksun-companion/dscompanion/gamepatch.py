@@ -41,6 +41,7 @@ VEC_STEALTH = 0xEA
 VEC_TYPES_SIZE, VEC_TYPES_FILL = 0xE9, 0xE8
 VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED = 0xE7, 0xE6, 0xE5, 0xE4, 0xE3
 VEC_SPELL_TEXT, VEC_CHUNK_ID = 0xE2, 0xE1
+VEC_FLOOR_ALL, VEC_FLOOR_RECT, VEC_REDRAW, VEC_REDRAW_ALL = 0xE0, 0xDF, 0xDE, 0xDD
 
 
 class Patch(NamedTuple):
@@ -168,6 +169,15 @@ PATCHES = (
     Patch("chunk_load", 0x29EA7, bytes.fromhex("39269c00"), _interrupt(VEC_CHUNK_ID, 4)),
     Patch("chunk_find", 0x29E37, bytes.fromhex("39269c00"), _interrupt(VEC_CHUNK_ID, 4)),
     Patch("spell_text", 0x8C74F, bytes.fromhex("83c40c"), _interrupt(VEC_SPELL_TEXT, 3)),
+    # shadows (DSCLOG's SHADOWS): the start, "push bp / mov bp,sp / sub sp,N", of the routines
+    # drawing the floor of the map's view and of a rectangle of it (the shadows go on it after),
+    # and of the one drawing a rectangle of the view again (made to reach as far as shadows do)
+    Patch("floor_all", 0x2700E, bytes.fromhex("558bec83ec1c"), _interrupt(VEC_FLOOR_ALL, 6)),
+    Patch("floor_rect", 0x27162, bytes.fromhex("558bec83ec1e"), _interrupt(VEC_FLOOR_RECT, 6)),
+    Patch("redraw", 0x2475F, bytes.fromhex("558bec83ec08"), _interrupt(VEC_REDRAW, 6)),
+    # ... and where the routine drawing again what moved starts to, its rectangle made:
+    # "push word [bp+8] / push word [bp+6]"
+    Patch("redraw_all", 0x24B18, bytes.fromhex("ff7608ff7606"), _interrupt(VEC_REDRAW_ALL, 6)),
     Patch("thief_skill", 0x80307, bytes.fromhex("8bc6c1e00203d08bf2"),
           bytes((0xCD, VEC_THIEF_SKILL, 0x72, 0x80386 - 0x8030B)) + b"\x90" * 5),
     # (not changed: DSCLOG reads the segment this "mov dx,<segment>" loads, the pointer's items')

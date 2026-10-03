@@ -24,7 +24,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Callable, Dict, List, NamedTuple, Optional, Tuple
 
-from . import bonescale, game, icons, kalzith, monsters, names, npcitems, pickpocket, ring, sprites, stealth, tools, vulture
+from . import bonescale, game, icons, kalzith, monsters, names, npcitems, pickpocket, ring, shadows, sprites, stealth, tools, vulture
 from .game import (CONVENTIONAL_AND_UPPER, CREATURE_ABILITIES, CREATURE_SIDE, CREATURE_THAC0, EFFECT_NAMES,
                    EFFECT_RULES, MATERIAL_TO_HIT, MATERIALS, SAVE_NAMES, STR_DAMAGE, GameData)
 from .guestmem import GuestMemory
@@ -326,6 +326,8 @@ class DiceLog:
         self.arena_ring = True  # put the Ring +1 on the Tied-up Prisoner's body in the arena (ring.py)
         self.pickpockets = True  # P in a conversation picks a pocket (pickpocket.py)
         self.show_gear = True  # the party's map sprites dressed in what they wear (sprites.py)
+        self.show_shadows = True  # shadows under the figures on the map (shadows.py)
+        self._shadows = shadows.Shadows()
         self._dresser: Optional[sprites.Dresser] = None
         self._dresser_tried = False
         self.picked: set = set()  # the pockets tried already (each person gets one try)
@@ -582,6 +584,7 @@ class DiceLog:
         self.arena_ring = bool(settings.get("arena_ring", True))
         self.pickpockets = bool(settings.get("pickpockets", True))
         self.show_gear = bool(settings.get("show_gear", True))
+        self.show_shadows = bool(settings.get("shadows", True))
         self.load_picked(settings.get("pickpocketed", []))
         self.tools_given = set(settings.get("tools_given", []))
         self.rules = game.rules_from_settings(settings)
@@ -960,6 +963,8 @@ class DiceLog:
             out += self._ring_search()
             icons.repaint(self.game, icons.ready(self.game, self.tsr_hdr))  # the items' own icons
             self._dress(now)
+            if self.tsr_hdr is not None:
+                self._shadows.update(self.game, self.tsr_hdr, self.show_shadows, now)
         except (struct.error, IndexError, ValueError):
             return out
         return out
