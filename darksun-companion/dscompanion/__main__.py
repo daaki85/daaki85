@@ -407,6 +407,8 @@ def main(argv=None) -> int:
     s.set_defaults(func=cmd_next)
 
     args = p.parse_args(argv)
+    from . import unblock
+    unblock.unblock()  # (Windows: the other .bat files then start without its security warning)
     try:
         args.func(args)
     except Exception as e:  # report cleanly instead of with a traceback

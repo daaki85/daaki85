@@ -151,6 +151,14 @@ install anything into the game folder.
    there, install the 64-bit Python from <https://www.python.org/downloads/>
    and tick **"Add python.exe to PATH"** on the installer's first screen.)
 
+**"Open File - Security Warning"** ("The publisher could not be verified"): Windows
+asks this for any `.bat` file unzipped from a download, since a `.bat` file can't
+be signed. To skip it altogether, before unzipping right-click the zip, choose
+**Properties**, tick **Unblock** and press **OK**. Otherwise press **Run** the
+first time: the Ledger then takes the download mark off the files in its own
+folder (what that Unblock box does, and nothing outside the folder), so the other
+`.bat` files start without asking.
+
 Everything else is plain text you can read: the `.bat` files, the Python
 code in `dscompanion`, and the dice log helper's source (`dos\dsclog.asm`,
 which builds `dos\DSCLOG.EXE`, the small DOS program DOSBox loads). There is

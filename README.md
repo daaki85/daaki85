@@ -76,6 +76,10 @@ folder.
    as it stands: **Code → Download ZIP**.)
 2. In the `darksun-companion` folder, double-click **`Start Templar's Ledger.bat`**.
    The first time, it offers to install 64-bit Python if you don't have it.
+   If Windows shows "Open File - Security Warning" (it does for any `.bat`
+   from a download), press **Run**: the Ledger then unblocks its own files, so
+   it asks only that once. (Or, before unzipping, tick **Unblock** in the zip's
+   Properties.)
 3. On the Ledger's **Options** tab, pick the rule changes and additions you
    want (they're remembered).
 4. Press **Start the game** at the top left. The game starts with your options,
@@ -150,6 +154,9 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
   filled water jug).
 
 **Changed**
+- **Windows' security warning only once:** after the first `.bat` file is let
+  through ("Open File - Security Warning", Run), the Ledger takes the download
+  mark off the files in its own folder, so the others start without asking.
 - **Cat's Grace's icon** is a cat's paw print instead of a cat's face.
 - **Dinos's vulture lines** are his own words, without narration (the game's
   conversations are people speaking).
