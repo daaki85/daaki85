@@ -625,12 +625,42 @@ class SaveTests(unittest.TestCase):
         struct.pack_into("<h", m, stalker, 30)
         log.hp_changes(0.5)
         log._spell_cast(FIREBALL, 1.0)
-        log._hits[STALKER] = 12  # a weapon hit logged just before
+        log._hit(STALKER, 12, 1.0)  # a weapon hit logged just before
         struct.pack_into("<h", m, stalker, 12)
         self.assertEqual(log.hp_changes(1.5), ["  Mountain Stalker takes 6 from Fireball and 12 from the hit, now 12 HP"])
-        log._hits[STALKER] = 5
+        log._hit(STALKER, 5, 2.0)
         struct.pack_into("<h", m, stalker, 7)
         self.assertEqual(log.hp_changes(2.0), ["  Mountain Stalker now 7 HP (-5)"])
+
+    def test_a_hit_that_takes_no_hp(self):
+        """A weapon hit whose target loses no HP (HIT_WAIT on, or at the next round): said so;
+        one that takes less than was rolled: how much."""
+        log = make_game()
+        m = log.guest.mem
+        stalker = CREATURES + STALKER * game.CREATURE_SIZE
+        struct.pack_into("<h", m, stalker, 30)
+        log.hp_changes(0.5)
+        log._hit(STALKER, 9, 1.0)
+        self.assertEqual(log.hp_changes(2.0), [])  # (not yet: the game may not have taken it off)
+        self.assertEqual(log.hp_changes(1.0 + dicelog.HIT_WAIT),
+                         ["  Mountain Stalker takes none of the 9 damage: a protection or resistance took it"])
+        log._hit(STALKER, 10, 5.0)
+        struct.pack_into("<h", m, stalker, 25)
+        self.assertEqual(log.hp_changes(5.5), ["  Mountain Stalker now 25 HP (-5: 5 of the 10 rolled)"])
+        log._hit(STALKER, 9, 7.0)  # two hits before the HP is seen: taken one at a time
+        log._hit(STALKER, 10, 7.1)
+        struct.pack_into("<h", m, stalker, 16)
+        self.assertEqual(log.hp_changes(7.2), ["  Mountain Stalker now 16 HP (-9)"])
+        struct.pack_into("<h", m, stalker, 6)
+        self.assertEqual(log.hp_changes(7.3), ["  Mountain Stalker now 6 HP (-10)"])
+        struct.pack_into("<h", m, stalker, 0)
+        log._hit(STALKER, 9, 8.0)  # (more than its HP: not resisted)
+        self.assertEqual(log.hp_changes(8.1), ["  Mountain Stalker now 0 HP (-6)"])
+        struct.pack_into("<h", m, stalker, 30)
+        log.hp_changes(8.2)
+        log._hit(STALKER, 4, 9.0)
+        self.assertEqual(log.unhurt(6.1, force=True),
+                         ["  Mountain Stalker takes none of the 4 damage: a protection or resistance took it"])
 
     def test_doubled_roll(self):
         log = make_game()

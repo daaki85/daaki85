@@ -171,6 +171,7 @@ RING_INTERVAL = 3.0  # seconds between looks for the arena's Ring +1
 LOAD_SETTLE = 3.0  # seconds after the party changes (a game was loaded) when effects are not news
 PENDING_SECONDS = 1.0  # how long dice wait to learn which spell they belong to
 SPELL_WINDOW = 15.0  # seconds after a spell's roll in which HP changes are put down to the spell
+HIT_WAIT = 3.0  # seconds after a weapon hit's damage roll with no HP lost: the target took none
 FIGHT_GAP = 120  # game seconds without a new round after which the fight is over
 
 
@@ -358,7 +359,9 @@ class DiceLog:
         self._stats_written = b""
         self._own_text: set = set()  # summaries shown in the game's window, not to log as dialogue
         self._skip_choice = False
-        self._hits: Dict[int, int] = {}  # creature -> damage of weapon hits not yet seen in its HP
+        self._hits: Dict[int, dict] = {}  # creature -> weapon hits not yet seen in its HP: their
+        # damage, in order ("hits"), when the last landed ("at"), its HP then ("hp")
+        self._tables: Optional[monsters.MonsterTables] = None  # the monster kinds (read once)
         self._round, self._round_time = 0, None  # this fight's round, and the game time it began
         self._save_rolls: Dict[Tuple[int, int], int] = {}  # (SS, save frame BP) -> natural d20
         self._effects: Optional[Counter] = None
@@ -1070,7 +1073,7 @@ class DiceLog:
             sheet = g.sheet(index)
             most = struct.unpack_from("<h", sheet, game.SHEET_MAX_HP)[0] if len(sheet) >= game.SHEET_SIZE else None
             left = f"now {hp}/{most} HP" if most and most > 0 else f"now {hp} HP"
-            hit = min(self._hits.pop(index, 0), max(before - hp, 0))
+            hit, resisted = self._hits_seen(index, max(before - hp, 0), hp)
             if now <= self._spell_until and before - hp > hit:
                 # the game's damage code gives a creature that was Out Cold the most the dice can do
                 out_cold = " (Out Cold: the most the dice can do)" if was_out_cold else ""
@@ -1079,11 +1082,69 @@ class DiceLog:
             elif now <= self._spell_until and hp > before:
                 out.append(f"  {who} regains {hp - before} HP from {self._spell_name}, {left}")
             elif hp < before:
-                out.append(f"  {who} {left} (-{before - hp})")
+                out.append(f"  {who} {left} (-{before - hp}{resisted})")
             else:
                 out.append(f"  {who} {left} (+{hp - before})")
         self._hp = current
+        return out + self.unhurt(now)
+
+    def _hit(self, target: int, damage: int, now: float) -> None:
+        """A weapon hit's damage rolled against TARGET: to be seen in its HP."""
+        entry = self._hits.setdefault(target, {"hits": [], "at": now, "hp": self._hp.get(target)})
+        entry["hits"].append(damage)
+        entry["at"] = now
+
+    def _hits_seen(self, index: int, lost: int, hp: int) -> Tuple[int, str]:
+        """The weapon hits a fall of LOST HP (to HP) took in, in the order they landed: (their
+        damage, and a note when one did less than its roll: resisted)."""
+        entry = self._hits.get(index)
+        if not entry:
+            return 0, ""
+        hits, taken, note = entry["hits"], 0, ""
+        if hp <= 0:  # (down: whatever was rolled, its HP ran out)
+            del self._hits[index]
+            return min(sum(hits), lost), ""
+        while hits and lost - taken >= hits[0]:
+            taken += hits.pop(0)
+        if hits and not taken and lost:  # (less than the hit)
+            rolled = hits.pop(0)
+            taken = lost
+            reason = self._weapon_reason(index)
+            note = f": {lost} of the {rolled} rolled" + (f", {reason}" if reason else "")
+        if hits:
+            entry["hp"] = hp
+        else:
+            del self._hits[index]
+        return taken, note
+
+    def unhurt(self, now: float, force: bool = False) -> List[str]:
+        """Weapon hits that took no HP (HIT_WAIT seconds on, or FORCE: a new round): the target
+        immune to the weapon, or protected (Stoneskin...)."""
+        out = []
+        for index, entry in list(self._hits.items()):
+            if not force and now - entry["at"] < HIT_WAIT:
+                continue
+            del self._hits[index]
+            rec = self.game.creature(index)
+            hp = struct.unpack_from("<h", rec, 0)[0] if len(rec) >= 2 else None
+            if hp is None or hp <= 0 or (entry["hp"] is not None and entry["hp"] != hp):
+                continue  # (its HP did go down, or it's gone: not unhurt)
+            reason = self._weapon_reason(index) or "a protection or resistance took it"
+            rolled = sum(entry["hits"])
+            out.append(f"  {self.game.creature_name(index)} takes none of the {rolled} damage: {reason}")
         return out
+
+    def _weapon_reason(self, index: int) -> Optional[str]:
+        """What the creature's defences say about weapons, if anything."""
+        if index < game.PARTY_SIZE:
+            return None
+        try:
+            if self._tables is None:
+                self._tables = monsters.MonsterTables(self.guest.read, self.game.load_seg)
+            d = monsters.creature_defences(self.game, self._tables, index)
+        except (struct.error, IndexError, ValueError):
+            return None
+        return monsters.weapon_reason(d) if d is not None else None
 
     def _spell_cast(self, spell: Optional[int], now: float) -> None:
         """A spell is taking effect: HP changes for the next few seconds are its doing."""
@@ -1336,7 +1397,7 @@ class DiceLog:
         pairs, self._initiative = self._initiative, []
         if not pairs:
             return []
-        self._hits.clear()  # a new round: hits not seen in HP by now never will be (Stoneskin...)
+        unhurt = self.unhurt(0.0, force=True)  # a new round: hits not seen in HP by now never will be
         g = self.game
         combatants = g.combatants()
         table = g.initiative(max(combatants.values(), default=0) + 1)
@@ -1374,7 +1435,7 @@ class DiceLog:
         for score, tie, who, steps, _, _ in rows:
             tied = f", tie broken by {tie} (0-199 roll)" if scores[score] > 1 else ""
             out.append(f"    {who} = {INITIATIVE_BASE} + {steps}{tied}")
-        return out
+        return unhurt + out
 
     def _describe_entry(self, e: Entry, show_all: bool, now: float) -> List[str]:
         if e.kind == KIND_SAVE:
@@ -1634,7 +1695,7 @@ class DiceLog:
             steps = f"({steps}) x{times} backstab"
         target = g.combatant_creature(e.glob[0])
         if target is not None:  # so the HP it takes isn't put down to a spell being cast
-            self._hits[target] = self._hits.get(target, 0) + total
+            self._hit(target, total, now)
         last = next((a for a in reversed(self._turn_attacks.get(attacker, [])) if a["hit"] and a["damage"] is None),
                     None)
         line = f"{g.creature_name(attacker)} hits {g.combatant_name(e.glob[0])} for {total}: {steps}"

@@ -82,5 +82,20 @@ class TablesTests(unittest.TestCase):
         self.assertEqual(tables.defences(99, False).weapon_plus, 0)
 
 
+class ReasonTests(unittest.TestCase):
+    def test_weapon_reason(self):
+        """What a monster's defences say about a weapon hit that did less than its dice."""
+        def d(**kw):
+            base = dict(weapon_plus=0, weapons_immune=[], weapons_half=False, immune=[], half=[], notes=[],
+                        special=[], undead=False)
+            base.update(kw)
+            return M.Defences(**base)
+        self.assertEqual(M.weapon_reason(d(weapon_plus=1)), "only +1 or better weapons hurt it")
+        self.assertEqual(M.weapon_reason(d(weapon_plus=4)), "weapons can't hurt it")
+        self.assertEqual(M.weapon_reason(d(weapons_immune=["crushing"])), "crushing weapons can't hurt it")
+        self.assertEqual(M.weapon_reason(d(weapons_half=True)), "non-magical weapons do half")
+        self.assertIsNone(M.weapon_reason(d()))
+
+
 if __name__ == "__main__":
     unittest.main()

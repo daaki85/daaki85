@@ -141,6 +141,27 @@ def describe(d: Defences) -> List[str]:
     return out
 
 
+def weapon_reason(d: Defences) -> Optional[str]:
+    """Why a weapon's hit may do less than its dice, if the monster's defences say (else None)."""
+    if d.weapon_plus == 4:
+        return "weapons can't hurt it"
+    if d.weapon_plus:
+        return f"only +{d.weapon_plus} or better weapons hurt it"
+    if d.weapons_immune:
+        return f"{' and '.join(d.weapons_immune)} weapons can't hurt it"
+    if d.weapons_half:
+        return "non-magical weapons do half"
+    return None
+
+
+def creature_defences(gd, tables: "MonsterTables", creature: int) -> Optional[Defences]:
+    """A creature's defences, from its record's kind and its sheet's race (None: unreadable)."""
+    rec, sheet = gd.creature(creature), gd.sheet(creature)
+    if len(rec) < 0x3A or len(sheet) < 0x47:
+        return None
+    return tables.defences(struct.unpack_from("<H", rec, CREATURE_KIND)[0], sheet[0x18] == UNDEAD_RACE)
+
+
 def short_line(d: Defences, width: int = 15) -> str:
     """The most important defence in a few capitals, for the game's Look box."""
     if d.weapon_plus == 4:
