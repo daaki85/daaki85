@@ -79,18 +79,22 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
 - **What the party wears, on the map:** their weapons and shields, bows and
   quivers, armour, helms, cloaks, boots and belts show on their figures, and
   change when their gear does (see [What the party wears](#what-the-party-wears)).
+- **Shadows** under every figure on the map, see-through and in the floor's own
+  colours (see [Shadows](#shadows)).
 
 Nothing in the game folder or your save files is changed, except that a game
 you save keeps what the Ledger has handed out or changed in play: the Ring +1,
 a thief's Thieves' Tools, whatever a thief has lifted, the slave pens' gear,
-Kalzith and his scrolls, and the XP and rest from Dinos's meal (untick the ring's and the pockets'
+Kalzith and his scrolls, Semyon in his pen, and the XP and rest from Dinos's meal (untick the ring's and the pockets'
 boxes to go without those). The Short Sword and the Cloak of Protection are
 item types the original game doesn't have, so a save with them should be
 loaded with the dice log.
-Apart from those and what it hands the dice log's helper, the Ledger only
-reads the game's memory. For the dice log, the launcher
-runs a patched copy of the game, and a copy of its objects file with the new
-icons, that it keeps in its own folder (see
+Apart from those, what it hands the dice log's helper and the marks that have
+the game draw a figure again, the Ledger only reads the game's memory. For the
+dice log, the launcher runs a patched copy of the game, and copies of four of
+its files (the objects with the new icons and Kalzith, the scripts and the
+slave pens with Kalzith and Semyon, the screens' pictures with Cat's Grace's
+icon), that it keeps in its own folder (see
 [How the dice log works](#how-the-dice-log-works)).
 
 The window is dressed in the game's own colours: its grey stone panels, the
@@ -1000,6 +1004,29 @@ picture it is drawn with and the slot in the game's picture cache it is drawn
 from; for a second member of the same figure the Ledger names their spare
 there and empties the slot, and the game loads the picture and fills it.
 
+### Shadows
+
+Every living figure on the map (the party, the people, the monsters; not the
+dead, nor items) casts a soft see-through shadow on the floor, its outline laid
+long toward the lower left, the way the walls' own shadows fall (the light on
+the game's maps comes from the upper right). The shadows are drawn on the floor
+before anything else, so every figure and wall stands on top of them: a shadow
+never covers another figure. Switch them off on the Options tab.
+
+![The slave pens and the arena, without shadows (left) and with them (right): each figure's outline darkened on the floor behind it, the floor's colours kept](docs/shadows.png)
+
+How: the launcher's copy of `DSUN.EXE` (see [How the dice log
+works](#how-the-dice-log-works)) calls DSCLOG when the game draws the floor of
+the view or of a rectangle of it. DSCLOG then lays each casting figure's
+current picture, flattened and stretched, onto the floor just drawn, darkening
+each pixel to the closest clearly darker colour of the area's palette (a table
+it makes from the palette when the Ledger asks: after each area change, once
+its fade-in is over, and now and then; the colours the game cycles, for water
+and fire, are never picked as darker ones). The rectangles the game draws again when a figure
+moves are widened by the length of a shadow, so none is left behind. The
+Ledger keeps DSCLOG's list of who casts one (`dscompanion/shadows.py`) and has
+those figures drawn again when it changes.
+
 ### The bone scale set
 
 The game has Bone Scale Chest Armor, Arm Armor and Leg Armor (objects 1033 to
@@ -1674,10 +1701,14 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
    where the game makes room for its name table and reads it in `INT ECh` and
    `INT EBh` (for [new item names](#new-item-names)), and its item type table
    `INT E9h` and `INT E8h` (for [the slave pens' gear](#the-slave-pens-gear)), and
+   the start of the routines drawing the map's floor `INT E0h` and `INT DFh`
+   and of two that draw a rectangle of it again `INT DEh` and `INT DDh` (for
+   [shadows](#shadows)), and
    the copy looks for its data files in the current
    folder rather than next to itself. The helper also hooks DOS's `INT 21h`, to
-   open the launcher's copies of `SEGOBJEX.GFF` and `RESOURCE.GFF` (see
-   [Item icons](#item-icons)). DOSBox runs it from the game folder, so
+   open the launcher's copies of `SEGOBJEX.GFF`, `RESOURCE.GFF` (see
+   [Item icons](#item-icons)), `GPLDATA.GFF` and `RGN29.GFF` (see
+   [Kalzith](#kalzith) and [Semyon](#semyon)). DOSBox runs it from the game folder, so
    it uses your saves as usual.
 2. `dos\DSCLOG.EXE` (source in `dos\dsclog.asm`) is a tiny DOS program loaded
    into upper memory before the game, so the game loses no memory. It answers
@@ -1697,7 +1728,8 @@ Every roll in the game goes through one function, Borland C++'s `rand()`.
 Because the replacement produces identical numbers, the game plays exactly as
 it would without it, apart from what you choose on the Options tab (the
 Ring +1, picking pockets, the [rule changes](#rule-changes)), the Ledger's
-other additions (the slave pens' gear, the cooked vulture) and one fix that is
+other additions (the slave pens' gear, the cooked vulture, Kalzith, Semyon,
+shadows) and one fix that is
 always in the patched copy: no equipment penalty on thief skills (see
 [Thief skills](#thief-skills)).
 

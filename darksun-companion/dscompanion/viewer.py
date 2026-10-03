@@ -343,7 +343,6 @@ class Viewer:
         ttk.Checkbutton(rules, text="P in a conversation: the leader, a thief, tries the other's pockets "
                         "(until caught)", variable=self.pickpockets,
                         command=self._popups_changed).pack(anchor="w", pady=(4, 0))
-        ttk.Button(rules, text="Give thieving tools now", command=self.give_tools).pack(anchor="w", pady=(4, 0))
         self.show_gear = tk.BooleanVar(value=bool(settings.get("show_gear", True)))
         ttk.Checkbutton(rules, text="Show what the party wears on their figures in the game (weapons, "
                         "armour, helms, cloaks, boots, belts)", variable=self.show_gear,
@@ -351,6 +350,7 @@ class Viewer:
         self.show_shadows = tk.BooleanVar(value=bool(settings.get("shadows", True)))
         ttk.Checkbutton(rules, text="Shadows under the figures in the game (see-through, on the floor)",
                         variable=self.show_shadows, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        ttk.Button(rules, text="Give thieving tools now", command=self.give_tools).pack(anchor="w", pady=(8, 0))
 
     def give_tools(self) -> None:
         """A set of thieving tools for each thief in the party without one, right away (they

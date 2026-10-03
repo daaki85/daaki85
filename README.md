@@ -39,7 +39,7 @@ game itself, in the game's own lettering and windows:
   picking anyone's pockets; and no more thief skill penalty for what a thief
   holds.
 - **A mini-quest:** the cooked vulture, at last good for something (Dinos
-  cooks it for the party).
+  cooks it for the party, to the game's own quest-done sound).
 - **A new person in the slave pens:** Kalzith, a defiler slave who, treated
   with respect, sells arcane spell scrolls that a preserver can learn from.
 - **Semyon kept his word:** after he leaves the arena ("I'll see you in the
@@ -47,6 +47,9 @@ game itself, in the game's own lettering and windows:
 - **What the party wears, on the map:** weapons, shields, bows, armour, helms,
   cloaks, boots and belts on their figures, walking and fighting, changing as
   their gear does.
+- **Shadows under every figure:** see-through, cast toward the lower left as
+  the walls' are, in the floor's own colours, with the walls and figures in
+  front standing on them.
 
 The game folder is never modified, and your save files only keep what you'd
 expect from play: the items the Ledger hands out, the XP it gives. For the dice
@@ -104,6 +107,12 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
   see you in the holding pens"): in the empty pen above Kalzith's, with his own
   conversation (how he got back in, who carries keys, where his gem is hidden,
   the Alliance's plans). The game itself never puts him there.
+- **Shadows under every figure on the map:** each living creature's outline,
+  laid down toward the lower left (the light on the maps comes from the upper
+  right, as the walls' shadows show), see-through and in the floor's own
+  colours, drawn on the floor before the walls and figures, so everything in
+  front stands on them. They follow figures as they move, in fights too. A
+  switch on the Options tab, on by default.
 - **The quest sound for the vulture:** giving Dinos the cooked vulture plays
   the sound the game plays when a quest is done (the Trustee's key, the
   filled water jug).
