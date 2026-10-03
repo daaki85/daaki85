@@ -449,16 +449,18 @@ END = 0x31
 
 
 def with_talk(master: bytes, field_types: bytes = b"") -> bytes:
-    """The pens' master script with Kalzith's talk command after the others' (once), as the game
-    sets its own: all of them first, before its other commands."""
+    """The pens' master script with Kalzith's talk command (once), last, just before its end: the
+    script's "if" at 302 skips on to an offset in it, so nothing of the game's may move (his
+    command put in after the other talk commands sent that skip into the middle of a command,
+    and Merzol, the doors, the gate and the water were lost to whatever it read there)."""
     ops = gpl.decode(master, field_types)
     talk = gpl.encode_op((TALK, [("n", START), ("n", SCRIPT), ("n", -OBJECT)]))
     if talk in master:
         return master
     if ops[-1].code != END:
         raise gpl.ScriptError("the master script doesn't end as expected")
-    after = next(o for o in ops if o.code != TALK)  # (the end, at the latest)
-    return master[:after.at] + talk + master[after.at:]
+    end = ops[-1].at
+    return master[:end] + talk + master[end:]
 
 
 ENTRY = struct.Struct("<HHH")  # GPLI: (entry number, place in the script, script), numbered from 0
