@@ -46,7 +46,7 @@ VEC_FLOOR_ALL, VEC_FLOOR_RECT, VEC_REDRAW, VEC_REDRAW_ALL = 0xE0, 0xDF, 0xDE, 0x
 VEC_SCROLL, VEC_HIT = 0xDC, 0xDB
 
 
-SCRIPT_BUFFER = 0x2C00  # the scripts' buffer, made bigger (the game's: 10000 bytes)
+SCRIPT_BUFFER = 0x2E00  # the scripts' buffer, made bigger (the game's: 10000 bytes)
 
 
 class Patch(NamedTuple):
@@ -195,7 +195,7 @@ PATCHES = (
     # the scripts' buffer (one: a script called from another is read in over it): "push dword
     # 10000", its size, as it is allocated. A script of 9800 bytes ran, one of 10000 ended with
     # "BAD GPL EXIT" (the game's largest is 9792); the Trustee's, with the questions about
-    # Kalzith and Semyon (pensasks.py), is 10540
+    # Kalzith and Semyon, alive and dead (pensasks.py), is 11000 and some
     Patch("script_buffer", 0x6A692, bytes.fromhex("666810270000"),
           bytes.fromhex("6668") + struct.pack("<I", SCRIPT_BUFFER)),
     # (not changed: DSCLOG reads the segment this "mov dx,<segment>" loads, the pointer's items')

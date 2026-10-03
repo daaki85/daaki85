@@ -117,8 +117,24 @@ class SemyonTests(unittest.TestCase):
         self.assertIn(semyon.DIED, dead.flags)
         self.assertFalse(semyon.watch(dead))  # (once)
 
+    def test_after_escape(self):
+        """After the party's escape (the game's flag 503): never put in his pen; Kalzith and he
+        taken off the map once, as the game takes the pens' people, Kalzith only if there."""
+        ops = gpl.decode(semyon.with_semyon(self.MASTER), b"")
+        tests = [o for o in ops if o.code == 0x18]
+        self.assertIn(["(", ("var", 0x8D, semyon.ESCAPED), "==", ("n", 0), ")"],
+                      [tests[1].args[0][1][i:i + 5] for i in range(len(tests[1].args[0][1]) - 4)])
+        removed = [o.args[0] for o in ops if o.code == semyon.REMOVE]
+        self.assertEqual(removed, [("n", -kalzith.OBJECT), ("n", -semyon.SEMYON)])
+        self.assertTrue(all(o.args[1:] == [("n", v) for v in semyon.GONE_AT] for o in ops if o.code == semyon.REMOVE))
+        sets = [(o.args[1][2], o.args[0][1]) for o in ops if o.code == 0x16]
+        self.assertIn((semyon.CLEARED, 1), sets)
+        self.assertTrue(_ifs_closed(ops))
+
     def test_flags(self):
-        self.assertTrue(all(765 < f < 808 for f in (semyon.LEFT, semyon.DIED)))
+        flags = (semyon.LEFT, semyon.DIED, semyon.CLEARED, kalzith.DIED)
+        self.assertTrue(all(765 < f < 808 for f in flags))
+        self.assertEqual(len(set(flags)), len(flags))
 
 
 if __name__ == "__main__":

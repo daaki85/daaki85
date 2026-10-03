@@ -52,6 +52,7 @@ DEFILER_CLASS, LEVEL = 18, 5
 # him, friendly, cold; his scrolls given
 MET, FRIENDLY, COLD = 760, 761, 762
 STOCKED = 763  # (set by the Ledger: his scrolls given)
+DIED = 772  # (set by the Ledger: seen dead; Dinos and the Trustee speak of him so, pensasks.py)
 
 # The scrolls: (spell, its name, price in ceramic pieces). Cat's Grace is the game's Flaming Sphere
 # (14) under the companion's rule, so it is sold only while the rule is on.
@@ -528,6 +529,32 @@ def region_chunks(rgn: bytes) -> Dict[Tuple[str, int], bytes]:
 # His stock, given once a game
 
 CREATURES_SEEN = 128  # creature records searched for him (the pens have 34)
+
+
+DEAD_STATUS = (4, 5)  # a creature's status: dying, dead (as stealth.py)
+
+
+def dead(gd, name: str, seen: int = CREATURES_SEEN) -> bool:
+    """Whether a creature named NAME is among the first SEEN, dead (no hit points, or dying or
+    dead)."""
+    table = gd.creatures(seen)
+    want = name.encode("ascii") + b"\0"
+    size = game.CREATURE_SIZE
+    for at in range(0, len(table) - size + 1, size):
+        rec = table[at:at + size]
+        if rec[game.CREATURE_NAME:game.CREATURE_NAME + len(want)] != want:
+            continue
+        if struct.unpack_from("<h", rec, 0)[0] <= 0 or rec[game.CREATURE_STATUS] in DEAD_STATUS:
+            return True
+    return False
+
+
+def watch(gd) -> bool:
+    """DIED set once Kalzith is seen dead. True when it was set now."""
+    if gd.flag(DIED) or not dead(gd, NAME):
+        return False
+    gd.set_flag(DIED)
+    return True
 
 
 def stock(gd, cats_grace: bool) -> List[str]:

@@ -980,6 +980,7 @@ class DiceLog:
                 self._tools_new += sorted(self.tools_given - before)
             kalzith.stock(self.game, bool(self.rules & game.RULE_CATS_GRACE))  # (once a game, by its flag)
             semyon.watch(self.game)  # (killed: never put in the pens)
+            kalzith.watch(self.game)  # (killed: Dinos and the Trustee speak of him so)
             region = self.game.region()
             if region != self._mended_in:  # (his scrolls of before the fix, once in each area)
                 kalzith.mend(self.game)

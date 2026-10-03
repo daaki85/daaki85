@@ -33,33 +33,72 @@ LOCAL, SET_LOCAL, FLAG = 0x8E, 14, 0x8D
 LONGEST = gamepatch.SCRIPT_BUFFER - 400
 
 
+def _is(flag: int, value: int = 1) -> list:
+    return ["(", ("var", FLAG, flag), "==", ("n", value), ")"]
+
+
+def _here(obj: int) -> list:
+    return ["(", "(", ("op", (WHERE, [kalzith.ACTOR, ("n", -obj)])), ")", "<", ("n", GONE), ")"]
+
+
+def _all(*parts: list) -> tuple:
+    out = list(parts[0])
+    for part in parts[1:]:
+        out += ["and"] + part
+    return ("expr", out)
+
+
+# Who is known, alive or dead. Kalzith: once the Ledger has found him in the pens (STOCKED),
+# dead by its flag (kalzith.DIED: the game's 80h can't see him). Semyon: once he has been in his
+# pen (PLACED), alive while there and not marked dead, dead by the Ledger's flag (semyon.DIED).
+KALZITH_ALIVE = _all(_is(kalzith.STOCKED), _is(kalzith.DIED, 0))
+KALZITH_DEAD = _all(_is(kalzith.STOCKED), _is(kalzith.DIED))
+SEMYON_ALIVE = _all(_is(semyon.PLACED), _is(semyon.DIED, 0), _here(semyon.SEMYON))
+SEMYON_DEAD = _all(_is(semyon.PLACED), _is(semyon.DIED))
+
+
 class Ask(NamedTuple):
     text: str  # the question (as the game's: two spaces first)
     flag: int  # the companion's flag showing it (set as the menu's part starts)
-    who: Optional[int]  # whose object must be on the map (None: no such test)
-    after: Optional[int]  # a flag that must be set too (None: none)
+    shown: tuple  # (values) shown when any of them is true
     answer: str
+    dead: Optional[tuple] = None  # (a value) when true, DEAD_ANSWER instead (as Dinos does)
+    dead_answer: str = ""
 
 
+# As the game's people do for the dead: the Trustee asks "What was X like?" instead, Dinos keeps
+# the question and answers otherwise.
 DINOS_SCRIPT, TRUSTEE_SCRIPT = 139, 146
 DINOS_ASKS = (
-    Ask("  What do you know about Kalzith?", 766, None, kalzith.STOCKED,
+    Ask("  What do you know about Kalzith?", 766, (KALZITH_ALIVE, KALZITH_DEAD),
         "The defiler in the middle pens. The templars bring him out when the crowd wants to watch "
         "magic burn. He's polite enough to me, and grateful for the scraps I save him. Don't let "
-        "the guards hear you asking about him."),
-    Ask("  What do you know about Semyon?", 767, semyon.SEMYON, semyon.PLACED,
+        "the guards hear you asking about him.",
+        KALZITH_DEAD,
+        "You know what happened to him better than I do. He was polite enough to me, defiler or "
+        "not."),
+    Ask("  What do you know about Semyon?", 767, (SEMYON_ALIVE, SEMYON_DEAD),
         "Semyon? The templars had him tied out in the arena for a while. Word is he was asking too "
         "many questions about the Veiled Alliance. He's back in his pen now and keeps his head "
-        "down. Smart man."),
+        "down. Smart man.",
+        SEMYON_DEAD,
+        "Semyon? Dead, from what I hear. Asking too many questions about the Veiled Alliance will "
+        "do that."),
 )
 TRUSTEE_ASKS = (
-    Ask("  What can you tell me about Kalzith?", 768, None, kalzith.STOCKED,
+    Ask("  What can you tell me about Kalzith?", 768, (KALZITH_ALIVE,),
         "Keep clear of that one. A defiler. The templars put him in here until the arena wants "
         "him. Mind you, he never gave me any trouble."),
-    Ask("  What can you tell me about Semyon?", 769, semyon.SEMYON, semyon.PLACED,
+    Ask("  What was Kalzith like?", 773, (KALZITH_DEAD,),
+        "Quiet, for a defiler. Never gave me any trouble. The templars won't miss him; the crowd "
+        "might."),
+    Ask("  What can you tell me about Semyon?", 769, (SEMYON_ALIVE,),
         "Semyon? The templars tied him out in the arena for asking after the Veiled Alliance. "
         "He's back in his pen now. Mouthy. If he talks to you about rebels, you didn't hear it "
         "from me."),
+    Ask("  What was Semyon like?", 774, (SEMYON_DEAD,),
+        "Mouthy. Always asking after the Veiled Alliance. That kind of talk gets a man killed in "
+        "here."),
 )
 QUESTION = "  What"  # (the new questions go after the menu's last asking about someone: before
 # Dinos's "Let's change the subject.", the Trustee's "How can I get to Dinos?", and "Goodbye.")
@@ -68,21 +107,11 @@ MENUS = ((DINOS_SCRIPT, "  What do you know about Gilal?", DINOS_ASKS),
          (TRUSTEE_SCRIPT, "  What can you tell me about Dinos?", TRUSTEE_ASKS))
 
 
-def _here(obj: int) -> list:
-    return ["(", ("op", (WHERE, [kalzith.ACTOR, ("n", -obj)])), ")", "<", ("n", GONE)]
-
-
-def _shown(ask: Ask) -> tuple:
-    """Whether ASK is shown: ASK.after is set and the one asked about is on the map."""
-    parts = []
-    if ask.after is not None:
-        parts.append(["(", ("var", FLAG, ask.after), "==", ("n", 1), ")"])
-    if ask.who is not None:
-        parts.append(["("] + _here(ask.who) + [")"])
-    out = parts[0]
-    for part in parts[1:]:
-        out = out + ["and"] + part
-    return ("expr", out)
+def _answer(s: _Script, ask: Ask) -> None:
+    if ask.dead is None:
+        s.say(ask.answer)
+    else:
+        s.when(ask.dead, lambda: s.say(ask.dead_answer), lambda: s.say(ask.answer))
 
 
 def with_asks(script: bytes, field_types: bytes, first: str, asks: Sequence[Ask]) -> bytes:
@@ -112,14 +141,15 @@ def with_asks(script: bytes, field_types: bytes, first: str, asks: Sequence[Ask]
     s.op(SET, *start_op.args)
     for ask in asks:
         s.flag(ask.flag, 0)
-        s.when(_shown(ask), lambda ask=ask: s.flag(ask.flag, 1))
+        for shown in ask.shown:
+            s.when(shown, lambda ask=ask: s.flag(ask.flag, 1))
     s.op(GOTO, ("n", ops[start + 1].at))
     replies = list(menu["replies"])
     at = 1 + max(i for i, r in enumerate(replies)
                  if r["text"][0] == "str" and str(r["text"][1]).startswith(QUESTION))
     for ask in asks:
         name = s._new("reply")
-        s.sub(name, lambda ask=ask: (s.say(ask.answer), s.flag(ask.flag, 0)))
+        s.sub(name, lambda ask=ask: (_answer(s, ask), s.flag(ask.flag, 0)))
         replies.insert(at, {"text": ("str", ask.text), "goto": ("label", name),
                             "if": ("var", FLAG, ask.flag), "before": [], "after": []})
         at += 1

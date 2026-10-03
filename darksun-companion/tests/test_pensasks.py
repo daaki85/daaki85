@@ -113,7 +113,7 @@ class PensAsksTests(unittest.TestCase):
             body = self._ops_from(reply["goto"][1])
             body = body[:next(i for i, o in enumerate(body) if o.code == 0x15) + 1]
             said = "".join(t for t in gpl.strings(body)).replace("  ", " ")
-            self.assertEqual(said.split(), ask.answer.split())
+            self.assertEqual(said.split(), (ask.dead_answer + " " + ask.answer).split())  # (dead, else alive)
             self.assertIn((0x16, [("n", 0), ("var", 13, ask.flag)]), [(o.code, o.args) for o in body])
 
     def test_once(self):
@@ -121,6 +121,21 @@ class PensAsksTests(unittest.TestCase):
 
     def test_other_menus_untouched(self):
         self.assertEqual(pensasks.with_asks(self.script, b"", "  Something else?", pensasks.DINOS_ASKS), self.script)
+
+    def test_dead(self):
+        """As the game's people do for the dead: the Trustee asks "What was X like?" instead (each
+        question shown only alive, or only dead), Dinos keeps the question with another answer."""
+        trustee = {a.text.strip(): a for a in pensasks.TRUSTEE_ASKS}
+        self.assertEqual(trustee["What can you tell me about Kalzith?"].shown, (pensasks.KALZITH_ALIVE,))
+        self.assertEqual(trustee["What was Kalzith like?"].shown, (pensasks.KALZITH_DEAD,))
+        self.assertEqual(trustee["What can you tell me about Semyon?"].shown, (pensasks.SEMYON_ALIVE,))
+        self.assertEqual(trustee["What was Semyon like?"].shown, (pensasks.SEMYON_DEAD,))
+        for ask in pensasks.DINOS_ASKS:
+            self.assertEqual(len(ask.shown), 2)
+            self.assertIs(ask.dead, ask.shown[1])
+            self.assertTrue(ask.dead_answer)
+        self.assertIn(("var", 0x8D, kalzith.DIED), pensasks.KALZITH_DEAD[1])
+        self.assertIn(("var", 0x8D, semyon.DIED), pensasks.SEMYON_DEAD[1])
 
     def test_text_sizes(self):
         """Questions fit the reply window; no narration (the speakers' own words)."""

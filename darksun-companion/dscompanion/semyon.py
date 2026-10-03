@@ -22,10 +22,9 @@ His words are his own voice from the arena (a cheerful scout of the Veiled Allia
 gem in one of the pens' grain pots), with no narration, as the game's talks.
 """
 
-import struct
 from typing import Dict, Tuple
 
-from . import game, gpl, kalzith
+from . import gpl, kalzith
 from .kalzith import START, _Script, ALWAYS, _is
 
 SEMYON = 280  # his object (RDFF 280, "Semyon"; the Tied-up Prisoner is 319)
@@ -41,16 +40,33 @@ CELL = (99, 45)  # (tiles) a free pen above Kalzith's, by its straw
 MADE_AS = 6  # 25h's fifth number when the game makes him (script 5)
 
 
+ESCAPED = 503  # the game's flag: the party escaped the pens (through the sewers' grate)
+CLEARED = 775  # (the companion's) Kalzith and he taken off the map after the escape
+GONE_AT = (255, 20, 20, 1)  # where the game puts the pens' people then (region 255: none)
+
+
+def _flag(flag: int, value: int = 1) -> list:
+    return ["(", ("var", 0x8D, flag), "==", ("n", value), ")"]
+
+
 def placement(base: int) -> bytes:
-    """For the end of the pens' master script, at offset BASE: him in his pen once he has gone
-    there (once: PLACED), and his talk command."""
+    """For the end of the pens' master script, at offset BASE: him in his pen once he has left
+    the arena after the fight (once: PLACED), and his talk command. After the party's escape,
+    when the game takes the pens' people off the map (script 137 at 1176: "They killed everybody
+    except for myself", the Trustee says), Kalzith and he go too (once: CLEARED), and he is never
+    put in his pen."""
     s = _Script()
-    gone_not_placed = ("expr", ["(", ("var", 0x8D, LEFT), "==", ("n", 1), ")", "and",
-                                "(", ("var", 0x8D, DIED), "==", ("n", 0), ")", "and",
-                                "(", ("var", 0x8D, PLACED), "==", ("n", 0), ")"])
+    gone_not_placed = ("expr", _flag(LEFT) + ["and"] + _flag(DIED, 0) + ["and"] + _flag(PLACED, 0)
+                       + ["and"] + _flag(ESCAPED, 0))
     s.when(gone_not_placed, lambda: (
         s.op(0x25, ("n", -SEMYON), ("n", 1), ("n", CELL[0]), ("n", CELL[1]), ("n", MADE_AS), ("n", 0)),
         s.flag(PLACED, 1)))
+    here = ("expr", ["(", ("op", (0x80, [kalzith.ACTOR, ("n", -SEMYON)])), ")", "<", ("n", 999)])
+    s.when(("expr", _flag(ESCAPED) + ["and"] + _flag(CLEARED, 0)), lambda: (
+        s.when(("expr", _flag(kalzith.STOCKED) + ["and"] + _flag(kalzith.DIED, 0)),
+               lambda: s.op(REMOVE, ("n", -kalzith.OBJECT), *(("n", v) for v in GONE_AT))),
+        s.when(here, lambda: s.op(REMOVE, ("n", -SEMYON), *(("n", v) for v in GONE_AT))),
+        s.flag(CLEARED, 1)))
     s.op(kalzith.TALK, ("n", START), ("n", SCRIPT), ("n", -SEMYON))
     return s.bytes(base=base, end=False)
 
@@ -92,26 +108,14 @@ def with_exit(script: bytes, field_types: bytes = b"") -> bytes:
     return bytes(out)
 
 
-DEAD_STATUS = (4, 5)  # a creature's status: dying, dead (as stealth.py)
-CREATURES_SEEN = 128
-
-
 def watch(gd) -> bool:
     """DIED set once a creature named Semyon is dead (in the arena's fight, or anywhere): he
-    isn't put in the pens then. True when it was set now."""
-    if gd.flag(DIED):
+    isn't put in the pens then, and Dinos and the Trustee speak of him as dead. True when it was
+    set now."""
+    if gd.flag(DIED) or not kalzith.dead(gd, "Semyon"):
         return False
-    table = gd.creatures(CREATURES_SEEN)
-    name = b"Semyon\0"
-    size = game.CREATURE_SIZE
-    for at in range(0, len(table) - size + 1, size):
-        rec = table[at:at + size]
-        if rec[game.CREATURE_NAME:game.CREATURE_NAME + len(name)] != name:
-            continue
-        if struct.unpack_from("<h", rec, 0)[0] <= 0 or rec[game.CREATURE_STATUS] in DEAD_STATUS:
-            gd.set_flag(DIED)
-            return True
-    return False
+    gd.set_flag(DIED)
+    return True
 
 
 def conversation() -> bytes:

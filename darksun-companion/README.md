@@ -954,8 +954,19 @@ Ledger their menus also ask about Kalzith, and about Semyon once he is in his
 pen ("What do you know about Kalzith?", "What can you tell me about
 Semyon?"). Kalzith's question waits until the Ledger has found him in the pens
 (the game's test for whether someone is there only knows the game's own
-people); Semyon's is shown while he is in his pen. As with the game's own
+people); Semyon's once he has been in his pen. As with the game's own
 questions, each is shown only until it's answered in that talk.
+
+If either has been killed, they speak of him as they do of the game's dead:
+the Trustee asks "What was Kalzith like?" (or Semyon) instead, with an answer
+of its own, and Dinos keeps the question and answers it differently. The
+Ledger marks each death with a flag (772 Kalzith, 771 Semyon) when it sees his
+record dead.
+
+After the party's escape, when the game empties the pens ("They killed
+everybody except for myself", the Trustee says on the torture rack), Kalzith
+and Semyon are taken off the map too, the way the game takes the others (flag
+775), and Semyon is never put in his pen after it.
 
 ![The Trustee's menu (left) and Dinos's (right), scrolled to the end: after the game's own questions about people, the new ones about Kalzith and Semyon, then "Let's change the subject." and "Goodbye."](docs/pens-asks.png)
 
@@ -963,16 +974,16 @@ How: in the Ledger's copy of `GPLDATA.GFF`, their scripts (139 and 146) keep
 every byte where it was, since the game's jumps go to fixed places. Two
 commands become jumps to code after the script's end: the one starting the
 menu's part goes to the same command followed by the new questions' flags
-(766-769), and the menu goes to a copy of it (the game's own bytes) with the
+(766-769, 773, 774), and the menu goes to a copy of it (the game's own bytes) with the
 new questions after its last about someone. Each then jumps back to where the
 game's script carries on.
 
-That makes the Trustee's script 10,540 bytes, and the game reads every script
+That makes the Trustee's script 10,898 bytes, and the game reads every script
 into one buffer of 10,000 bytes (a script that calls into another reads it in
 over its own). One of 9,800 bytes ran; one of 10,000 ended with "BAD GPL
 EXIT" (the game's own largest is 9,792). So the Ledger's copy of the game
-makes the buffer 11,264 bytes where it is allocated (`push dword 10000` at
-6A692h becomes 2C00h), about 1 KB more of the game's memory.
+makes the buffer 11,776 bytes where it is allocated (`push dword 10000` at
+6A692h becomes 2E00h), about 1.7 KB more of the game's memory.
 
 ### Item icons
 

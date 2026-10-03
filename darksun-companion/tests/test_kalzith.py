@@ -232,5 +232,39 @@ class KalzithTests(unittest.TestCase):
         self.assertIn(game.FLAMING_SPHERE, [s for s, _, _ in kalzith.SCROLLS])
 
 
+class DeathTests(unittest.TestCase):
+    def _gd(self, name, hp, status=0):
+        size = game.CREATURE_SIZE
+        rec = bytearray(size)
+        struct.pack_into("<h", rec, 0, hp)
+        rec[game.CREATURE_STATUS] = status
+        rec[game.CREATURE_NAME:game.CREATURE_NAME + len(name) + 1] = name.encode() + b"\0"
+
+        class GD:
+            table, flags = bytes(size * 2) + bytes(rec), set()
+
+            def creatures(self, count):
+                return self.table
+
+            def flag(self, n):
+                return n in self.flags
+
+            def set_flag(self, n, on=True):
+                self.flags.add(n)
+        return GD()
+
+    def test_dead(self):
+        self.assertFalse(kalzith.dead(self._gd("Kalzith", 16), "Kalzith"))
+        self.assertTrue(kalzith.dead(self._gd("Kalzith", 0), "Kalzith"))
+        self.assertTrue(kalzith.dead(self._gd("Kalzith", 3, status=5), "Kalzith"))
+        self.assertFalse(kalzith.dead(self._gd("Kalzithx", 0), "Kalzith"))
+
+    def test_watch(self):
+        gd = self._gd("Kalzith", -2)
+        self.assertTrue(kalzith.watch(gd))
+        self.assertIn(kalzith.DIED, gd.flags)
+        self.assertFalse(kalzith.watch(gd))
+
+
 if __name__ == "__main__":
     unittest.main()
