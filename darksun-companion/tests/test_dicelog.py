@@ -896,6 +896,16 @@ class NewLinesTests(unittest.TestCase):
         self.assertEqual(log.take_picked(), ["Dag|41|7|Trader@500"])
         self.assertEqual(log.picked, {"Dag|41|7|Trader"})
 
+    def test_pockets_of_another_game_forgotten_in_a_new_one(self):
+        """The Ledger started with a new game under way (same party names): the tries of the
+        last game, later than this game's clock, are forgotten at once; earlier ones stay."""
+        log = make_game()
+        log.load_picked(["Dag|41|7|Kurzak@5000", "Dag|41|8|Guard@100"])
+        set_clock(log, 300)  # a new game, 300 seconds in
+        log.lines(now=1.0)
+        self.assertEqual(log.picked, {"Dag|41|8|Guard"})
+        self.assertEqual(log.take_picked(), ["Dag|41|8|Guard@100"])
+
     def test_xp_taken_and_given_back(self):
         """Going between areas the game takes the XP away and gives it back: nothing logged. A
         loss that stays is logged once LOSS_WAIT has passed; a gain after a loss, as the net."""

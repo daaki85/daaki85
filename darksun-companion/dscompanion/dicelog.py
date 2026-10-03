@@ -458,20 +458,25 @@ class DiceLog:
         self._picked_changed = True
 
     def _forget_undone_picks(self) -> None:
-        """When the game's clock goes back (a game saved earlier was loaded), the pockets tried
-        since that save are forgotten: the person can be tried again."""
+        """Pockets tried later than the game's clock are forgotten (the person can be tried
+        again): those since a save, when the save is loaded; another game's, in a new game."""
         try:
             now = self.game.game_time()
         except (struct.error, IndexError, ValueError):
             return
         if not now or now <= 0:  # (no game, or the menus)
             return
-        if self._clock is not None and now < self._clock:
-            undone = [k for k in self.picked if self.picked_at.get(k) is None or self.picked_at[k] > now]
-            for key in undone:
-                self.picked.discard(key)
-                self.picked_at.pop(key, None)
-            self._picked_changed = self._picked_changed or bool(undone)
+        went_back = self._clock is not None and now < self._clock
+        # A try later than the game's clock is not this game's: one undone by loading an earlier
+        # save, or another game's (a new game started with the same party, the Ledger started
+        # after it: seen the first time the clock is read)
+        undone = [k for k in self.picked
+                  if (self.picked_at.get(k) is None and went_back)
+                  or (self.picked_at.get(k) is not None and self.picked_at[k] > now)]
+        for key in undone:
+            self.picked.discard(key)
+            self.picked_at.pop(key, None)
+        self._picked_changed = self._picked_changed or bool(undone)
         self._clock = now
 
     def give_tools_now(self) -> List[str]:
