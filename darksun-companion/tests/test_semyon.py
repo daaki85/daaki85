@@ -1,7 +1,7 @@
 import struct
 import unittest
 
-from dscompanion import gpl, kalzith, semyon
+from dscompanion import game, gpl, kalzith, semyon
 
 
 def _ifs_closed(ops) -> bool:
@@ -30,7 +30,9 @@ class SemyonTests(unittest.TestCase):
         made = [o for o in ops if o.code == 0x25]
         self.assertEqual(made[0].args[:4], [("n", -semyon.SEMYON), ("n", 1), ("n", semyon.CELL[0]), ("n", semyon.CELL[1])])
         test = next(o for o in ops if o.code == 0x18 and o.at >= len(self.MASTER) - 1)
-        self.assertIn(("var", 0x8D, semyon.GONE), test.args[0][1])
+        self.assertIn(("var", 0x8D, semyon.LEFT), test.args[0][1])  # (left after the fight only)
+        self.assertNotIn(("var", 0x8D, semyon.GONE), test.args[0][1])
+        self.assertIn(("var", 0x8D, semyon.DIED), test.args[0][1])
         self.assertIn(("var", 0x8D, semyon.PLACED), test.args[0][1])
         skip = next(o for o in ops if o.code == 0x3E and o.at > test.at)
         end_if = next(o for o in ops if o.code == 0x67 and o.at > skip.at)
@@ -60,6 +62,63 @@ class SemyonTests(unittest.TestCase):
         table = kalzith.with_entry(kalzith.with_entry(e.pack(0, 0, 0)), semyon.SCRIPT)
         rows = [e.unpack_from(table, i) for i in range(0, len(table), e.size)]
         self.assertEqual(rows[-1], (2, kalzith.START, semyon.SCRIPT))
+
+    def _arena(self) -> bytes:
+        """A script laid out as his arena talk: the command taking him off the map at EXIT."""
+        sets, ends = divmod(semyon.EXIT - 1, 5)  # (5-byte commands, then 1-byte ones)
+        pad = gpl.encode([(kalzith.BEGIN, [])] + [(0x16, [("n", 0), ("var", 14, 1)])] * sets + [(0x31, [])] * ends)
+        self.assertEqual(len(pad), semyon.EXIT)
+        return pad + gpl.encode([(semyon.REMOVE, [("n", -semyon.SEMYON), ("n", 255), ("n", 30), ("n", 30), ("n", 0)]),
+                                 (0x31, [])])
+
+    def test_exit(self):
+        """Where he is taken off the map after the fight: a jump to LEFT set, the same command,
+        and back; nothing of the game's moves; once only; other scripts unchanged."""
+        arena = self._arena()
+        out = semyon.with_exit(arena)
+        self.assertEqual(out[:semyon.EXIT], arena[:semyon.EXIT])
+        self.assertEqual(out[semyon.EXIT + 3:len(arena)], arena[semyon.EXIT + 3:])
+        r = gpl._Reader(out, b"")
+        r.i = semyon.EXIT
+        jump = gpl._op(r)
+        self.assertEqual((jump.code, jump.args), (semyon.GOTO, [("n", len(arena))]))
+        added = gpl.decode(out[len(arena):], b"")
+        self.assertEqual((added[0].code, added[0].args), (0x16, [("n", 1), ("var", 13, semyon.LEFT)]))
+        self.assertEqual(added[1].code, semyon.REMOVE)
+        self.assertEqual((added[2].code, added[2].args), (semyon.GOTO, [("n", semyon.EXIT + 12)]))
+        self.assertEqual(semyon.with_exit(out), out)
+        other = arena[:semyon.EXIT] + gpl.encode([(0x31, [])] * 13)
+        self.assertEqual(semyon.with_exit(other), other)
+
+    def test_watch(self):
+        """DIED once a creature named Semyon is dead; not for a living one."""
+        size = game.CREATURE_SIZE
+
+        class GD:
+            def __init__(self, hp):
+                rec = bytearray(size)
+                struct.pack_into("<h", rec, 0, hp)
+                rec[game.CREATURE_NAME:game.CREATURE_NAME + 7] = b"Semyon\0"
+                self.table, self.flags = bytes(size * 3) + bytes(rec), set()
+
+            def creatures(self, count):
+                return self.table
+
+            def flag(self, n):
+                return n in self.flags
+
+            def set_flag(self, n, on=True):
+                self.flags.add(n)
+
+        alive, dead = GD(20), GD(0)
+        self.assertFalse(semyon.watch(alive))
+        self.assertNotIn(semyon.DIED, alive.flags)
+        self.assertTrue(semyon.watch(dead))
+        self.assertIn(semyon.DIED, dead.flags)
+        self.assertFalse(semyon.watch(dead))  # (once)
+
+    def test_flags(self):
+        self.assertTrue(all(765 < f < 808 for f in (semyon.LEFT, semyon.DIED)))
 
 
 if __name__ == "__main__":

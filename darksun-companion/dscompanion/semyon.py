@@ -1,31 +1,42 @@
-"""Semyon in the slave pens, as he promises.
+"""Semyon in the slave pens, after he has fought beside the party and left the arena.
 
 Semyon (the arena's Tied-up Prisoner, untied: object SEMYON) meets the party again in the
 arena's bone area; recruited to the Alliance (the game's flag 6), he fights beside them in the
 next fight and, if he survives, leaves: "That's enough for me. I'm leaving. I'll go find more
 members for the Alliance." (script 2). Some of his replies in the bone area send him off before
-that ("I'll see you in the holding pens", script 5). Every way he goes sets the game's flag GONE
-and walks him out through the arena's entrance to the pens, where a script takes him off the map
-(5Eh to region 255). Nothing in the pens ever brings him back: no script of theirs
-names him or the flag. With the Ledger, the pens' master script (MAS 41) does, the way the
-arena's script first put him on the map (25h: an object made at a place, as script 5 does when he
-is untied): once the flag is set, the first time the party is in the pens after it he is in the
-free pen above Kalzith's (CELL), and talking to him runs his conversation (script SCRIPT).
+that ("I'll see you in the holding pens", script 5). Each way he walks out through the arena's
+entrance to the pens and a script takes him off the map, and nothing in the pens ever brings him
+back.
+
+The Ledger changes only the way after the fight: script 2 sends him walking out and, when he gets
+there, runs script 5 at EXIT, which takes him off the map (5Eh to region 255); nothing else runs
+that command. There, the Ledger's copy first sets its flag LEFT. A Semyon killed (in that fight,
+or anywhere) the Ledger marks with its flag DIED (watch), and he is never put in the pens then.
+The pens' master script (MAS 41) then puts him in his pen the way the
+arena's script first put him on the map (25h: an object made at a place, as script 5 does when
+he is untied): once LEFT is set, the first time the party is in the pens after it he is in the
+free pen above Kalzith's (CELL), and talking to him runs his conversation (script SCRIPT). The
+other ways he leaves, and a Semyon killed in the fight, stay as in the game: he isn't there.
 
 His words are his own voice from the arena (a cheerful scout of the Veiled Alliance, who hid a
 gem in one of the pens' grain pots), with no narration, as the game's talks.
 """
 
+import struct
 from typing import Dict, Tuple
 
-from . import gpl, kalzith
+from . import game, gpl, kalzith
 from .kalzith import START, _Script, ALWAYS, _is
 
 SEMYON = 280  # his object (RDFF 280, "Semyon"; the Tied-up Prisoner is 319)
 SCRIPT = 219  # his conversation in the pens (Kalzith's is 218; the game's run to 217)
 PORTRAIT = 118  # the game's portrait for him
-GONE = 7  # the game's flag: he has gone to the holding pens
+GONE = 7  # the game's flag: he has gone to the holding pens (any way he left)
 PLACED, MET = 764, 765  # (the companion's flags: Kalzith's are 760-763; the game's run to 755)
+LEFT, DIED = 770, 771  # (the companion's) he left the arena after the fight he helped in; he died
+ARENA_TALK, EXIT = 5, 2400  # his arena script, and where in it he is taken off the map then
+REMOVE = 0x5E  # (object, region, x, y, ...): an object moved to a region (255: none)
+GOTO = 0x64
 CELL = (99, 45)  # (tiles) a free pen above Kalzith's, by its straw
 MADE_AS = 6  # 25h's fifth number when the game makes him (script 5)
 
@@ -34,7 +45,8 @@ def placement(base: int) -> bytes:
     """For the end of the pens' master script, at offset BASE: him in his pen once he has gone
     there (once: PLACED), and his talk command."""
     s = _Script()
-    gone_not_placed = ("expr", ["(", ("var", 0x8D, GONE), "==", ("n", 1), ")", "and",
+    gone_not_placed = ("expr", ["(", ("var", 0x8D, LEFT), "==", ("n", 1), ")", "and",
+                                "(", ("var", 0x8D, DIED), "==", ("n", 0), ")", "and",
                                 "(", ("var", 0x8D, PLACED), "==", ("n", 0), ")"])
     s.when(gone_not_placed, lambda: (
         s.op(0x25, ("n", -SEMYON), ("n", 1), ("n", CELL[0]), ("n", CELL[1]), ("n", MADE_AS), ("n", 0)),
@@ -54,6 +66,52 @@ def with_semyon(master: bytes, field_types: bytes = b"") -> bytes:
         raise gpl.ScriptError("the master script doesn't end as expected")
     end = ops[-1].at
     return master[:end] + placement(end) + master[end:]
+
+
+def with_exit(script: bytes, field_types: bytes = b"") -> bytes:
+    """His arena script (ARENA_TALK) with LEFT set where he is taken off the map after the fight:
+    the command at EXIT becomes a jump to the same after the script's end, LEFT set first, then a
+    jump back to what follows it. Nothing of the game's moves. Unchanged if EXIT isn't that
+    command (or is already the jump)."""
+    try:
+        ops = gpl.decode(script, field_types)
+    except gpl.ScriptError:
+        return script
+    at = next((i for i, o in enumerate(ops) if o.at == EXIT), None)
+    if at is None or at + 1 >= len(ops):
+        return script
+    op = ops[at]
+    if op.code != REMOVE or op.args[0] != ("n", -SEMYON):
+        return script
+    s = _Script()
+    s.flag(LEFT, 1)
+    s.op(op.code, *op.args)
+    s.op(GOTO, ("n", ops[at + 1].at))
+    out = bytearray(script) + s.bytes(base=len(script), end=False)
+    out[EXIT:EXIT + 3] = gpl.encode_op((GOTO, [("n", len(script))]))
+    return bytes(out)
+
+
+DEAD_STATUS = (4, 5)  # a creature's status: dying, dead (as stealth.py)
+CREATURES_SEEN = 128
+
+
+def watch(gd) -> bool:
+    """DIED set once a creature named Semyon is dead (in the arena's fight, or anywhere): he
+    isn't put in the pens then. True when it was set now."""
+    if gd.flag(DIED):
+        return False
+    table = gd.creatures(CREATURES_SEEN)
+    name = b"Semyon\0"
+    size = game.CREATURE_SIZE
+    for at in range(0, len(table) - size + 1, size):
+        rec = table[at:at + size]
+        if rec[game.CREATURE_NAME:game.CREATURE_NAME + len(name)] != name:
+            continue
+        if struct.unpack_from("<h", rec, 0)[0] <= 0 or rec[game.CREATURE_STATUS] in DEAD_STATUS:
+            gd.set_flag(DIED)
+            return True
+    return False
 
 
 def conversation() -> bytes:

@@ -926,22 +926,25 @@ see you there!", or, still weak, "Why don't I meet you in the holding pen?")
 Each way, he walks out through the arena's entrance to the pens, where a
 script takes him off the map, and nothing in the pens brings him back.
 
-With the Ledger he is there, in a pen of his own above Kalzith's, the first
-time the party is in the pens after he has left. Talk to him (Look, then
-Talk): he says why the templars tied him up in the arena (he was asking about
-the Veiled Alliance), passes on what he has heard (who carries keys),
-reminds the party where he hid his gem (the grain pots), and talks about the
-Alliance's plans, in his own voice from the arena. If he died or never left
-the party, he isn't there.
+With the Ledger, if he left after the fight he helped in, he is there, in a pen
+of his own above Kalzith's, the first time the party is in the pens after it.
+His other ways out stay as in the game, and so does a Semyon who was killed: he
+isn't in the pens. Talk to him (Look, then Talk): he says why the templars tied
+him up in the arena (he was asking about the Veiled Alliance), passes on what he
+has heard (who carries keys), reminds the party where he hid his gem (the grain
+pots), and talks about the Alliance's plans, in his own voice from the arena.
 
-How: in the Ledger's copy of `GPLDATA.GFF`, the pens' script ends with, "if
-he has gone to the pens (the game's own flag 7) and isn't in his pen yet,
-make him there", the command the arena's script uses when he is untied (25h,
-his object 280), and the command that runs his conversation (script 219) when
-he's talked to, with its entry in the game's table of entry points. Flags 764
-and 765 (his own: placed, met) keep the rest, so a save keeps him. Like
-Kalzith's, his commands come after everything of the game's, which keeps its
-place.
+How: in the Ledger's copy of `GPLDATA.GFF`, the command that takes him off the
+map when he walks out after the fight (script 5 at 2400, run only from there)
+first sets the Ledger's flag 770; the game's other exits don't reach it. The
+Ledger sets flag 771 if it ever sees him dead (his record's hit points or
+status). The pens' script ends with, "if flag 770 is set, 771 isn't, and he
+isn't in his pen yet, make him there", the command the arena's script uses
+when he is untied (25h, his object 280), and the command that runs his
+conversation (script 219) when he's talked to, with its entry in the game's
+table of entry points. Flags 764 and 765 (his own: placed, met) keep the rest,
+so a save keeps him. Like Kalzith's, his commands come after everything of the
+game's, which keeps its place.
 
 ### Dinos and the Trustee on Kalzith and Semyon
 

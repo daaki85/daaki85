@@ -113,7 +113,7 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
   helps in, if the party recruits him): in a pen of his own above Kalzith's, with his
   own conversation (why he was tied up in the arena, who carries keys, where
   his gem is hidden, the Alliance's plans). The game itself never puts him
-  there.
+  there; if he was killed, or left the arena another way, he isn't there.
 - **Dinos and the Trustee know about them:** their "who else is in here"
   questions also ask about Kalzith, and about Semyon once he is in the pens.
 - **Shadows under every figure on the map:** each living creature's outline,

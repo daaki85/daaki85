@@ -507,6 +507,9 @@ def script_chunks(gpldata: bytes) -> Dict[Tuple[str, int], bytes]:
     out[("MAS ", MASTER)] = semyon.with_semyon(out[("MAS ", MASTER)], field_types)
     if ENTRIES in out:
         out[ENTRIES] = with_entry(out[ENTRIES], semyon.SCRIPT)
+    arena = ("GPL ", semyon.ARENA_TALK)
+    if arena in chunks:  # (his leaving after the fight marked)
+        out[arena] = semyon.with_exit(chunks[arena], field_types)
     # Dinos and the Trustee asked about him and Semyon (pensasks.py)
     from . import pensasks
     out.update(pensasks.script_chunks(chunks, field_types))
