@@ -917,6 +917,17 @@ speak of him as dead (see
 [Dinos and the Trustee](#dinos-and-the-trustee-on-kalzith-and-semyon)); after
 the party's escape he is gone from the pens with everyone else.
 
+Killed, he leaves one of the scrolls he still had, chosen at random, a Cloak
+and a Quarterstaff (the game's own), in his body where he fell, and the Ledger
+logs it ("Kalzith leaves: Scroll of Blur, Quarterstaff, Cloak"). The game puts
+everything a dead person carried in the body; the Ledger takes the other
+scrolls out of it and puts the two in (flag 777, once). He can't carry the two
+while alive, since his shop offers everything he has. If the party bought all
+six scrolls, he has nothing on him, the game leaves no body to search, and he
+leaves nothing.
+
+![Kalzith's body opened in the game: a Scroll, the Cloak and the Quarterstaff](docs/kalzith-body.png)
+
 ### Semyon
 
 Untie the arena's prisoner and he is **Semyon**, of the Veiled Alliance. He

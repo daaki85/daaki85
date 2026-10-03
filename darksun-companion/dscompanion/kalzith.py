@@ -4,7 +4,8 @@ He is a slave the templars put in the arena now and then (the crowd loves to wat
 kept in a pen of his own the rest of the time; he has the look of the arena's Defiler, but the
 party has never fought him. He secretly scribes spells on scraps of hide, to buy a guard's blind eye; a preserver can learn from them (the game's own scrolls: right-click one, click
 its spell). Insult him or threaten to report him and he won't trade until the party makes amends:
-50 ceramic pieces, or a Charisma check.
+50 ceramic pieces, or a Charisma check. Killed, he leaves one of his scrolls at random, a Cloak and
+a Quarterstaff (loot).
 
 He is the game's own kind of person, added to the Ledger's copies of three of its files (the game
 folder is never changed; DSCLOG has the game open the copies):
@@ -555,6 +556,98 @@ def watch(gd) -> bool:
         return False
     gd.set_flag(DIED)
     return True
+
+
+# What he leaves when killed: one of the scrolls he still has, at random, a plain Cloak and a
+# Quarterstaff (the game's own records, from SEGOBJEX). He can't carry the two while alive: his
+# shop offers all he has, worn or not, in any of his lists. The game puts all a dead person's
+# things in a pile where he fell (none if he has nothing); the Ledger takes the other scrolls out
+# of it and puts the two in, after the scroll it leaves (once: LOOTED). If the party bought all
+# six, he has nothing and leaves no pile: nothing then.
+LOOTED = 777
+CLOAK_TEMPLATE = "e3fb000000001400000041003500000003ff0e0000"  # the game's Cloak (as npcitems')
+QUARTERSTAFF_TEMPLATE = "05fc0000000001000000030000000000" "04ff040000"  # the game's Quarterstaff
+
+
+def _held_by_party(gd, it) -> set:
+    held = set()
+    for member in range(game.PARTY_SIZE):
+        rec = gd.creature(member)
+        for offset in game.CREATURE_ITEM_LISTS:
+            thing = struct.unpack_from("<h", rec, offset)[0]
+            held.update(index for index, _ in it.chain(thing))
+    return held
+
+
+def _unlink(gd, it, item: int) -> bool:
+    """ITEM taken out of whatever list holds it (never the only one in it) and given back to the
+    game's free list of item records."""
+    from . import ring
+    for thing in range(ring.THING_COUNT):
+        kind, first = it.thing(thing)
+        if kind != game.THING_ITEM:
+            continue
+        before, index = None, first
+        for _ in range(ring.MAX_ITEMS):
+            if not 0 <= index < game.NO_ITEM:
+                break
+            rec = it.item(index)
+            after = struct.unpack_from("<h", rec, game.ITEM_NEXT)[0]
+            if index == item:
+                if before is None:
+                    if not 0 <= after < game.NO_ITEM:
+                        return False  # (the only one: left)
+                    gd.guest.write(it.things + thing * 3 + 1, struct.pack("<h", after))
+                else:
+                    gd.guest.write(it.items + before * game.ITEM_SIZE + game.ITEM_NEXT, struct.pack("<h", after))
+                gd.guest.write(it.items + item * game.ITEM_SIZE + game.ITEM_NEXT,
+                               struct.pack("<H", it.word(ring.FREE_ITEMS)))
+                gd.guest.write(gd.ds * 16 + ring.FREE_ITEMS, struct.pack("<H", item))
+                return True
+            before, index = index, after
+    return False
+
+
+def _after(gd, it, item: int, rec: bytes) -> bool:
+    """A new item REC (from the game's free list) put next after ITEM, in its list."""
+    from . import ring
+    new = it.word(ring.FREE_ITEMS)
+    if new >= game.NO_ITEM:
+        return False
+    gd.guest.write(gd.ds * 16 + ring.FREE_ITEMS, it.item(new)[game.ITEM_NEXT:game.ITEM_NEXT + 2])
+    rec = bytearray(rec)
+    rec[game.ITEM_NEXT:game.ITEM_NEXT + 2] = it.item(item)[game.ITEM_NEXT:game.ITEM_NEXT + 2]
+    gd.guest.write(it.items + new * game.ITEM_SIZE, bytes(rec))
+    gd.guest.write(it.items + item * game.ITEM_SIZE + game.ITEM_NEXT, struct.pack("<H", new))
+    return True
+
+
+def loot(gd, choose: Callable = None) -> List[str]:
+    """Once he is dead (DIED): of his scrolls the party doesn't hold, one kept (CHOOSE, random by
+    default) and the others taken away, and his Cloak and Quarterstaff put with it; once
+    (LOOTED). What he leaves, by name."""
+    import random
+    from . import npcitems, ring
+    if not gd.flag(DIED) or gd.flag(LOOTED):
+        return []
+    it = ring.Items(gd)
+    held = _held_by_party(gd, it)
+    mine = {-(SCROLL_OBJECT + k): name for k, (_, name, _) in enumerate(SCROLLS)}
+    left = {index: mine[struct.unpack_from("<h", rec, ITEM_OBJECT)[0]]
+            for thing in range(ring.THING_COUNT) for index, rec in it.chain(thing)
+            if struct.unpack_from("<h", rec, ITEM_OBJECT)[0] in mine and index not in held}
+    gd.set_flag(LOOTED)
+    if not left:
+        return []
+    keep = (choose or random.choice)(sorted(left))
+    for index in sorted(left):
+        if index != keep:
+            _unlink(gd, ring.Items(gd), index)
+    out = [f"Scroll of {left[keep]}"]
+    for rec, name in ((npcitems._item(QUARTERSTAFF_TEMPLATE), "Quarterstaff"), (npcitems._item(CLOAK_TEMPLATE), "Cloak")):
+        if _after(gd, ring.Items(gd), keep, rec):
+            out.append(name)
+    return out
 
 
 def stock(gd, cats_grace: bool) -> List[str]:

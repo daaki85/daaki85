@@ -108,7 +108,8 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
   500; Cat's Grace only with its rule on), in the game's own shop screen. A
   preserver learns them as from any scroll. Accuse him and threaten to tell
   the templars, and he won't trade until the party pays 50 ceramic or wins
-  him over (a Charisma check). New games only.
+  him over (a Charisma check). Killed, he leaves one random scroll of those
+  he still had, a Cloak and a Quarterstaff. New games only.
 - **Semyon in the slave pens,** once he has left the arena (after the fight he
   helps in, if the party recruits him): in a pen of his own above Kalzith's,
   with his own conversation (why he was tied up in the arena, who carries keys, where
