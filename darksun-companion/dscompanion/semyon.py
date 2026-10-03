@@ -43,6 +43,13 @@ MADE_AS = 6  # 25h's fifth number when the game makes him (script 5)
 ESCAPED = 503  # the game's flag: the party escaped the pens (through the sewers' grate)
 CLEARED = 775  # (the companion's) Kalzith and he taken off the map after the escape
 GONE_AT = (255, 20, 20, 1)  # where the game puts the pens' people then (region 255: none)
+# His object is the arena's: on the party's side (as when he fights beside them), and with 0 where
+# every slave of the pens has 12 (the creature's byte 1Bh; the arena's Tied-up Prisoner has 0 too).
+# In the pens he is as the slaves are (as the game's scripts set anyone's, 40h: an object's field),
+# on their side (SIDE: 1 the party's, 2 against it, 4 neither) and with their 12 (STEADY), once
+# (SETTLED; also for one put in his pen before). Attacked, he is then as any of them is.
+SET_FIELD, SIDE, NEUTRAL, STEADY, SLAVES_STEADY = 0x40, 74, 4, 70, 12
+SETTLED = 779
 
 
 def _flag(flag: int, value: int = 1) -> list:
@@ -54,14 +61,18 @@ def placement(base: int) -> bytes:
     the arena after the fight (once: PLACED), and his talk command. After the party's escape,
     when the game takes the pens' people off the map (script 137 at 1176: "They killed everybody
     except for myself", the Trustee says), Kalzith and he go too (once: CLEARED), and he is never
-    put in his pen."""
+    put in his pen. In his pen he is on the slaves' side (SETTLED)."""
     s = _Script()
     gone_not_placed = ("expr", _flag(LEFT) + ["and"] + _flag(DIED, 0) + ["and"] + _flag(PLACED, 0)
                        + ["and"] + _flag(ESCAPED, 0))
     s.when(gone_not_placed, lambda: (
         s.op(0x25, ("n", -SEMYON), ("n", 1), ("n", CELL[0]), ("n", CELL[1]), ("n", MADE_AS), ("n", 0)),
         s.flag(PLACED, 1)))
-    here = ("expr", ["(", ("op", (0x80, [kalzith.ACTOR, ("n", -SEMYON)])), ")", "<", ("n", 999)])
+    present = ["(", ("op", (0x80, [kalzith.ACTOR, ("n", -SEMYON)])), ")", "<", ("n", 999)]
+    here = ("expr", present)
+    s.when(("expr", _flag(SETTLED, 0) + ["and"] + _flag(ESCAPED, 0) + ["and", "("] + present + [")"]),
+           lambda: (s.op(SET_FIELD, ("field", SEMYON, [SIDE]), ("n", NEUTRAL)),
+                    s.op(SET_FIELD, ("field", SEMYON, [STEADY]), ("n", SLAVES_STEADY)), s.flag(SETTLED, 1)))
     s.when(("expr", _flag(ESCAPED) + ["and"] + _flag(CLEARED, 0)), lambda: (
         s.when(("expr", _flag(kalzith.STOCKED) + ["and"] + _flag(kalzith.DIED, 0)),
                lambda: s.op(REMOVE, ("n", -kalzith.OBJECT), *(("n", v) for v in GONE_AT))),

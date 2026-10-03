@@ -922,9 +922,17 @@ and a Quarterstaff (the game's own), in his body where he fell, and the Ledger
 logs it ("Kalzith leaves: Scroll of Blur, Quarterstaff, Cloak"). The game puts
 everything a dead person carried in the body; the Ledger takes the other
 scrolls out of it and puts the two in (flag 777, once). He can't carry the two
-while alive, since his shop offers everything he has. If the party bought all
-six scrolls, he has nothing on him, the game leaves no body to search, and he
-leaves nothing.
+while he still has scrolls to sell, since his shop offers everything he has.
+Once the party has bought all six, his shop isn't offered any more ("Anything
+left to sell?" "Nothing. You've bought every scrap of hide I had, and more
+takes time I don't have.", flag 778), and the Ledger gives him the two, worn
+(flag 776): only while the map is running, so never into an open talk or shop.
+(The dice log's helper counts the game's map loop; it doesn't run while a talk,
+menu or shop is open.) Killed then, he leaves the Cloak and the Quarterstaff in
+his body, as the game does with anything a dead person carried.
+
+He is a slave of the pens like the game's own (his record is Dinos's): attacked,
+he turns on the party as they do, and only the guards near him join the fight.
 
 ![Kalzith's body opened in the game: a Scroll, the Cloak and the Quarterstaff](docs/kalzith-body.png)
 
@@ -957,7 +965,15 @@ isn't in his pen yet, make him there", the command the arena's script uses
 when he is untied (25h, his object 280), and the command that runs his
 conversation (script 219) when he's talked to, with its entry in the game's
 table of entry points. Flags 764 and 765 (his own: placed, met) keep the rest,
-so a save keeps him. Like Kalzith's, his commands come after everything of the
+so a save keeps him.
+
+His object is the arena's, made for a man who fights beside the party: on the
+party's side, and with 0 in a byte where every slave of the pens has 12. In his
+pen the pens' script makes him as they are, with the command the game's scripts
+use to change someone (40h: his fields 74, the side, to 4, theirs, and 70 to
+12), once (flag 779). Attacked, he is then like any of them: he turns on the
+party, and only guards near him join the fight; in a fight in the pens he isn't
+on the party's side. Like Kalzith's, his commands come after everything of the
 game's, which keeps its place.
 
 ### Dinos and the Trustee on Kalzith and Semyon
@@ -2161,6 +2177,6 @@ After changing `dos/dsclog.asm`, rebuild the helper with
 nasm -f bin -o dos/DSCLOG.EXE dos/dsclog.asm
 ```
 
-The header's signature (`DSCLOGvS` now) goes up whenever the helper and the
+The header's signature (`DSCLOGvT` now) goes up whenever the helper and the
 Ledger must change together (`HDR_SIG` in `dscompanion/dicelog.py`), so a
 Ledger never talks to an older helper.

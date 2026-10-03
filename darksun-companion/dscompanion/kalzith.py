@@ -334,7 +334,7 @@ def _is(var, value) -> tuple:
 def conversation() -> bytes:
     """Kalzith's conversation (script SCRIPT)."""
     s = _Script()
-    friendly, cold_, met = (("var", 0x8D, f) for f in (FRIENDLY, COLD, MET))
+    friendly, cold_, met, sold_out = (("var", 0x8D, f) for f in (FRIENDLY, COLD, MET, SOLD_OUT))
 
     def then_leave(*parts):
         def body():
@@ -374,7 +374,8 @@ def conversation() -> bytes:
 
     # -- a friend: the shop
     def friend():
-        s.menu([("Show us what you have.", shop, ALWAYS),
+        s.menu([("Show us what you have.", shop, _is(sold_out, 0)),
+                ("Anything left to sell?", nothing_left, _is(sold_out, 1)),
                 ("Why would a defiler help a preserver?", why, ALWAYS),
                 ("Isn't this dangerous for you?", danger, ALWAYS),
                 ("Farewell.", then_leave(see_you), ALWAYS)])
@@ -384,6 +385,9 @@ def conversation() -> bytes:
         s.page()
         s.op(0x24, SPEAKER)  # (his own place in the game's object table: where its shops are)
         s.say("Learn them well, and burn the hide when you're done.")
+
+    def nothing_left():
+        s.say("Nothing. You've bought every scrap of hide I had, and more takes time I don't have.")
 
     def why():
         s.say("Because a preserver's coin buys the same bribe. And because I'm tired of being the "
@@ -563,10 +567,56 @@ def watch(gd) -> bool:
 # shop offers all he has, worn or not, in any of his lists. The game puts all a dead person's
 # things in a pile where he fell (none if he has nothing); the Ledger takes the other scrolls out
 # of it and puts the two in, after the scroll it leaves (once: LOOTED). If the party bought all
-# six, he has nothing and leaves no pile: nothing then.
+# six, he carries the two by then (below).
 LOOTED = 777
+# Once the party has bought all six (the Ledger's flag SOLD_OUT), his shop is no longer offered
+# ("Anything left to sell?" "Nothing."), and he carries the two from then on (DRESSED): the game
+# puts them in his body then, as it does anything a dead person carried.
+DRESSED, SOLD_OUT = 776, 778
+RIGHT_HAND = game.EQUIP_SLOTS.index("right hand")
 CLOAK_TEMPLATE = "e3fb000000001400000041003500000003ff0e0000"  # the game's Cloak (as npcitems')
 QUARTERSTAFF_TEMPLATE = "05fc0000000001000000030000000000" "04ff040000"  # the game's Quarterstaff
+
+
+def _index(gd) -> Optional[int]:
+    """His creature record (among the first CREATURES_SEEN), if he is alive."""
+    table = gd.creatures(CREATURES_SEEN)
+    want = NAME.encode("ascii") + b"\0"
+    size = game.CREATURE_SIZE
+    for index in range(game.PARTY_SIZE, len(table) // size):
+        rec = table[index * size:(index + 1) * size]
+        if rec[game.CREATURE_NAME:game.CREATURE_NAME + len(want)] == want:
+            alive = struct.unpack_from("<h", rec, 0)[0] > 0 and rec[game.CREATURE_STATUS] not in DEAD_STATUS
+            return index if alive else None
+    return None
+
+
+def sold_out(gd, quiet: bool) -> List[str]:
+    """In the pens, with him alive and stocked: SOLD_OUT once none of his scrolls is left on him;
+    then, when QUIET (the map's main loop running: no talk, menu or shop open, so never into an
+    open shop), the Cloak and Quarterstaff on him, worn, once (DRESSED). What was given, by name."""
+    from . import npcitems, ring
+    if gd.region() != REGION or not gd.flag(STOCKED) or gd.flag(DIED) or gd.flag(DRESSED):
+        return []
+    index = _index(gd)
+    if index is None:
+        return []
+    if not gd.flag(SOLD_OUT):
+        it = ring.Items(gd)
+        mine = {-(SCROLL_OBJECT + k) for k in range(len(SCROLLS))}
+        rec = gd.creature(index)
+        carried = [r for o in game.CREATURE_ITEM_LISTS for _, r in it.chain(struct.unpack_from("<h", rec, o)[0])]
+        if any(struct.unpack_from("<h", r, ITEM_OBJECT)[0] in mine for r in carried):
+            return []
+        gd.set_flag(SOLD_OUT)
+    if not quiet:
+        return []
+    given = []
+    for template, slot, name in ((QUARTERSTAFF_TEMPLATE, RIGHT_HAND, "Quarterstaff"), (CLOAK_TEMPLATE, game.CLOAK_SLOT, "Cloak")):
+        if npcitems.add_to(gd, index, npcitems._item(template), slot):
+            given.append(name)
+    gd.set_flag(DRESSED)
+    return given
 
 
 def _held_by_party(gd, it) -> set:
@@ -638,12 +688,14 @@ def loot(gd, choose: Callable = None) -> List[str]:
             if struct.unpack_from("<h", rec, ITEM_OBJECT)[0] in mine and index not in held}
     gd.set_flag(LOOTED)
     if not left:
-        return []
+        return []  # (all bought: he carried the two, and the game put them in his body)
     keep = (choose or random.choice)(sorted(left))
     for index in sorted(left):
         if index != keep:
             _unlink(gd, ring.Items(gd), index)
     out = [f"Scroll of {left[keep]}"]
+    if gd.flag(DRESSED):
+        return out  # (he carried them: in his body already)
     for rec, name in ((npcitems._item(QUARTERSTAFF_TEMPLATE), "Quarterstaff"), (npcitems._item(CLOAK_TEMPLATE), "Cloak")):
         if _after(gd, ring.Items(gd), keep, rec):
             out.append(name)

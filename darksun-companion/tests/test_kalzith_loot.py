@@ -70,5 +70,45 @@ class LootTests(unittest.TestCase):
         self.assertIn(kalzith.LOOTED, self.flags)
 
 
+class SoldOutTests(unittest.TestCase):
+    """All six bought: no more shop (SOLD_OUT), and the Cloak and Quarterstaff on him, worn, once
+    the map's main loop runs (kalzith.sold_out)."""
+
+    def setUp(self):
+        LootTests.setUp(self)  # (his three scrolls in PILE, here the list he carries)
+        self.flags = {kalzith.STOCKED}
+        self.gd.region = lambda: kalzith.REGION
+        self.him = game.PARTY_SIZE + 3
+        rec = CREATURES + self.him * game.CREATURE_SIZE
+        struct.pack_into("<h", self.m, rec, 16)
+        name = kalzith.NAME.encode() + b"\0"
+        self.m[rec + game.CREATURE_NAME:rec + game.CREATURE_NAME + len(name)] = name
+        struct.pack_into("<hhh", self.m, rec + game.CREATURE_ITEM_LISTS[0], PILE, game.NO_ITEM, game.NO_ITEM)
+
+    def worn(self):
+        return {-struct.unpack_from("<h", rec, 0)[0]: rec[game.ITEM_SLOT]
+                for _, rec in ring.Items(self.gd).chain(PILE)}
+
+    def test_some_left(self):
+        self.assertEqual(kalzith.sold_out(self.gd, True), [])
+        self.assertNotIn(kalzith.SOLD_OUT, self.flags)
+
+    def test_sold_out(self):
+        struct.pack_into("<Bh", self.m, THINGS + PILE * 3, game.THING_ITEM, game.NO_ITEM)
+        self.assertEqual(kalzith.sold_out(self.gd, False), [])  # (a talk or the shop open: later)
+        self.assertIn(kalzith.SOLD_OUT, self.flags)
+        self.assertNotIn(kalzith.DRESSED, self.flags)
+        self.assertEqual(kalzith.sold_out(self.gd, True), ["Quarterstaff", "Cloak"])
+        self.assertEqual(self.worn(), {1019: kalzith.RIGHT_HAND, 1053: game.CLOAK_SLOT})
+        self.assertIn(kalzith.DRESSED, self.flags)
+        self.assertEqual(kalzith.sold_out(self.gd, True), [])
+
+    def test_dead(self):
+        struct.pack_into("<Bh", self.m, THINGS + PILE * 3, game.THING_ITEM, game.NO_ITEM)
+        self.flags.add(kalzith.DIED)
+        self.assertEqual(kalzith.sold_out(self.gd, True), [])
+        self.assertNotIn(kalzith.SOLD_OUT, self.flags)
+
+
 if __name__ == "__main__":
     unittest.main()

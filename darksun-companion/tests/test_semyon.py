@@ -131,8 +131,24 @@ class SemyonTests(unittest.TestCase):
         self.assertIn((semyon.CLEARED, 1), sets)
         self.assertTrue(_ifs_closed(ops))
 
+    def test_settled(self):
+        """In his pen, once (SETTLED), before the escape: as the pens' slaves are, on their side
+        and with their 12 (his object is the arena's, on the party's side)."""
+        ops = gpl.decode(semyon.with_semyon(self.MASTER), b"")
+        fields = [o for o in ops if o.code == semyon.SET_FIELD]
+        self.assertEqual([(o.args[0], o.args[1]) for o in fields],
+                         [(("field", semyon.SEMYON, [semyon.SIDE]), ("n", semyon.NEUTRAL)),
+                          (("field", semyon.SEMYON, [semyon.STEADY]), ("n", semyon.SLAVES_STEADY))])
+        test = max((o for o in ops if o.code == 0x18 and o.at < fields[0].at), key=lambda o: o.at)
+        for flag, value in ((semyon.SETTLED, 0), (semyon.ESCAPED, 0)):
+            self.assertIn(["(", ("var", 0x8D, flag), "==", ("n", value), ")"],
+                          [test.args[0][1][i:i + 5] for i in range(len(test.args[0][1]) - 4)])
+        self.assertIn(0x80, [a[1].code for a in test.args[0][1] if isinstance(a, tuple) and a[0] == "op"])
+        sets = [(o.args[1][2], o.args[0][1]) for o in ops if o.code == 0x16 and o.at > fields[-1].at]
+        self.assertEqual(sets[0], (semyon.SETTLED, 1))
+
     def test_flags(self):
-        flags = (semyon.LEFT, semyon.DIED, semyon.CLEARED, kalzith.DIED)
+        flags = (semyon.LEFT, semyon.DIED, semyon.CLEARED, semyon.SETTLED, kalzith.DIED, kalzith.DRESSED, kalzith.SOLD_OUT)
         self.assertTrue(all(765 < f < 808 for f in flags))
         self.assertEqual(len(set(flags)), len(flags))
 

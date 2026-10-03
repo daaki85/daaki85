@@ -92,7 +92,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvS'          ; +0
+sig      db 'DSCLOGvT'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -211,6 +211,8 @@ tab_seq    dw 0                 ; +252 Tab pressed (counted) ...
 back_seq   dw 0                 ; +254 ... and Shift+Tab
 hit_target dw 0xFFFF            ; +256 the enemy chosen (the companion sets it; FFFFh: none)
 attack_seq dw 0                 ; +258 Enter pressed on it (counted)
+main_ticks dw 0                 ; +260 the map's main loop run (counted: not while a talk, menu or
+                                ;      shop is open)
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -3577,6 +3579,7 @@ probe_scroll:
         push dx
         push si
         push di
+        inc word [cs:main_ticks]
         call dust_tick
         call target_click
         cmp word [cs:view_redraw], 0

@@ -108,13 +108,17 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
   500; Cat's Grace only with its rule on), in the game's own shop screen. A
   preserver learns them as from any scroll. Accuse him and threaten to tell
   the templars, and he won't trade until the party pays 50 ceramic or wins
-  him over (a Charisma check). Killed, he leaves one random scroll of those
-  he still had, a Cloak and a Quarterstaff. New games only.
+  him over (a Charisma check). Once all six are bought, his shop closes and
+  he wears a Cloak and carries a Quarterstaff. Killed, he leaves one random
+  scroll of those he still had, the Cloak and the Quarterstaff. Attacked, he
+  is like any of the pens' slaves. New games only.
 - **Semyon in the slave pens,** once he has left the arena (after the fight he
   helps in, if the party recruits him): in a pen of his own above Kalzith's,
   with his own conversation (why he was tied up in the arena, who carries keys, where
   his gem is hidden, the Alliance's plans). The game itself never puts him
-  there; if he was killed, or left the arena another way, he isn't there.
+  there; if he was killed, or left the arena another way, he isn't there. In
+  the pens he is one of the slaves, no longer on the party's side: attacked,
+  he is like any of them.
 - **Dinos and the Trustee know about them:** their "who else is in here"
   questions also ask about Kalzith, and about Semyon once he is in the pens;
   if either is killed, they speak of him as of the game's dead ("What was

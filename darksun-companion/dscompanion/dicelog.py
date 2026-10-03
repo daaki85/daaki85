@@ -31,7 +31,7 @@ from .guestmem import GuestMemory
 from .textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGvS"
+HDR_SIG = b"DSCLOGvT"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
 MSG_SIZE = 900
@@ -50,6 +50,7 @@ STATS_RANGER = 2  # a STATS entry's +17 for a ranger: only move silently and hid
 BIOS_TIMER = 0x46C
 # ... and the rule changes it makes to the game (the Options tab)
 TSR_RULES = 170
+TSR_MAIN_TICKS = 260  # the map's main loop run (counted)
 TSR_PICK_SEQ, TSR_PICK_REPLY, TSR_PICK_OFF, TSR_PICK_ON, PICK_SIZE = 172, 174, 176, 178, 240
 TSR_USE_SEQ, TSR_USE_REPLY, TSR_USE_WHO, TSR_USE_TAKEN, TSR_USE_ITEM = 180, 182, 184, 186, 188
 TSR_SWAP_ON, TSR_SWAP_SEQ, TSR_SWAP_OFF, SWAP_SIZE, SWAP_TEXT_SIZE = 190, 192, 194, 64, 240
@@ -355,6 +356,7 @@ class DiceLog:
         self.rules = 0  # RULE_HELMS | RULE_BOOTS: rule changes DSCLOG makes (set_rules)
         self.stealth_roll: Callable[[], int] = lambda: random.randint(1, 100)  # hiding, moving silently
         self._ring_check = 0.0
+        self._main_ticks: Optional[int] = None  # DSCLOG's count of the map's main loop, last read
         self._look_seq = 0
         self._turn_seq = 0
         self._turn_attacks: Dict[int, List[dict]] = {}  # creature -> this turn's attacks
@@ -948,6 +950,7 @@ class DiceLog:
                 out += self.tracker.check(now)
                 out += self._arena_ring(now)
                 out += self._drawn(now)
+                self._kalzith_sold_out()
         self._scroll()
         if self._initiative and now - self._initiative_at >= INITIATIVE_WAIT:
             out += self.initiative_lines()
@@ -1017,6 +1020,20 @@ class DiceLog:
         except (struct.error, IndexError, ValueError):
             return []
         return out
+
+    def _kalzith_sold_out(self) -> None:
+        """All six of Kalzith's scrolls bought: no more shop, and he carries his two, put on him
+        only while the map's main loop runs (DSCLOG's count of it went up since the last look: no
+        talk, menu or shop open)."""
+        if self.tsr_hdr is None:
+            return
+        try:
+            ticks = struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_MAIN_TICKS, 2))[0]
+            quiet = self._main_ticks is not None and ticks != self._main_ticks
+            self._main_ticks = ticks
+            kalzith.sold_out(self.game, quiet)
+        except (struct.error, IndexError, ValueError):
+            pass
 
     def _scroll(self) -> None:
         """The map scrolled by the wheel's turns, at every look (they come in as they're made)."""
