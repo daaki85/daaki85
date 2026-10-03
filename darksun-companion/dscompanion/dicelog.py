@@ -947,6 +947,8 @@ class DiceLog:
             if not self._party_check(now):
                 out += self.tracker.check(now)
                 out += self._arena_ring(now)
+                out += self._drawn(now)
+        self._scroll()
         if self._initiative and now - self._initiative_at >= INITIATIVE_WAIT:
             out += self.initiative_lines()
         out += self.turn_lines()  # after the round's order and the last turn's XP
@@ -989,18 +991,36 @@ class DiceLog:
             out += self._ring_search()
             icons.repaint(self.game, icons.ready(self.game, self.tsr_hdr))  # the items' own icons
             self._dress(now)
-            if self.tsr_hdr is not None:
-                self._shadows.update(self.game, self.tsr_hdr, self.show_shadows, now,
-                                     needed=self.show_dust or self.ring_mode != rings.OFF)
-                foes = rings.enemies(self.game)
-                out += self._targeting.update(self.game, self.tsr_hdr, self.use_targeting, foes)
-                self._rings.update(self.game, self.tsr_hdr, self.ring_mode != rings.OFF, self._shadows.palettes,
-                                   self._targeting.chosen, all_enemies=self.ring_mode == rings.ALL)
-                self._dust.update(self.game, self.tsr_hdr, self.show_dust, self._shadows.palettes)
-                self._scrolling.update(self.game, self.tsr_hdr, self.scroll_map, self.scroll_right)
         except (struct.error, IndexError, ValueError):
             return out
         return out
+
+    def _drawn(self, now: float) -> List[str]:
+        """What DSCLOG draws and does for the Ledger, kept up four times a second (not with the
+        ring's search, every 3 s: a Tab's ring and the Enter's target were that late): shadows,
+        the enemy chosen with Tab and the rings, dust."""
+        if self.tsr_hdr is None:
+            return []
+        try:
+            self._shadows.update(self.game, self.tsr_hdr, self.show_shadows, now,
+                                 needed=self.show_dust or self.ring_mode != rings.OFF)
+            foes = rings.enemies(self.game)
+            out = self._targeting.update(self.game, self.tsr_hdr, self.use_targeting, foes)
+            self._rings.update(self.game, self.tsr_hdr, self.ring_mode != rings.OFF, self._shadows.palettes,
+                               self._targeting.chosen, all_enemies=self.ring_mode == rings.ALL)
+            self._dust.update(self.game, self.tsr_hdr, self.show_dust, self._shadows.palettes)
+        except (struct.error, IndexError, ValueError):
+            return []
+        return out
+
+    def _scroll(self) -> None:
+        """The map scrolled by the wheel's turns, at every look (they come in as they're made)."""
+        if self.tsr_hdr is None:
+            return
+        try:
+            self._scrolling.update(self.game, self.tsr_hdr, self.scroll_map, self.scroll_right)
+        except (struct.error, IndexError, ValueError):
+            pass
 
     def _dress(self, now: float) -> None:
         """The party's sprites in what they wear, once the game has the Ledger's SEGOBJEX (whose

@@ -951,6 +951,8 @@ Semyon?"). Kalzith's question waits until the Ledger has found him in the pens
 people); Semyon's is shown while he is in his pen. As with the game's own
 questions, each is shown only until it's answered in that talk.
 
+![The Trustee's menu (left) and Dinos's (right), scrolled to the end: after the game's own questions about people, the new ones about Kalzith and Semyon, then "Let's change the subject." and "Goodbye."](docs/pens-asks.png)
+
 How: in the Ledger's copy of `GPLDATA.GFF`, their scripts (139 and 146) keep
 every byte where it was, since the game's jumps go to fixed places. Two
 commands become jumps to code after the script's end: the one starting the
