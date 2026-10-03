@@ -1,9 +1,12 @@
 """Semyon in the slave pens, as he promises.
 
-Semyon (the arena's Tied-up Prisoner, untied: object SEMYON) fights beside the party for a
-while, then leaves: "That's enough for me. I'll see you in the holding pens." Every way he goes
-sets the game's flag GONE and walks him to the arena's door to the pens, where a script takes him
-off the map (5Eh to region 255). Nothing in the pens ever brings him back: no script of theirs
+Semyon (the arena's Tied-up Prisoner, untied: object SEMYON) meets the party again in the
+arena's bone area; recruited to the Alliance (the game's flag 6), he fights beside them in the
+next fight and, if he survives, leaves: "That's enough for me. I'm leaving. I'll go find more
+members for the Alliance." (script 2). Some of his replies in the bone area send him off before
+that ("I'll see you in the holding pens", script 5). Every way he goes sets the game's flag GONE
+and walks him out through the arena's entrance to the pens, where a script takes him off the map
+(5Eh to region 255). Nothing in the pens ever brings him back: no script of theirs
 names him or the flag. With the Ledger, the pens' master script (MAS 41) does, the way the
 arena's script first put him on the map (25h: an object made at a place, as script 5 does when he
 is untied): once the flag is set, the first time the party is in the pens after it he is in the

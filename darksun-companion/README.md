@@ -916,12 +916,15 @@ once a game.
 
 ### Semyon
 
-Untie the arena's prisoner and he is **Semyon**, of the Veiled Alliance; he
-fights beside the party for a while, then leaves: "That's enough for me. I'll
-see you in the holding pens." (Or "Right, see you there!", or "Why don't I
-meet you in the holding pen?") In the game he never arrives: every way he
-leaves walks him to the arena's door to the pens, where a script takes him off
-the map, and nothing in the pens brings him back.
+Untie the arena's prisoner and he is **Semyon**, of the Veiled Alliance. He
+meets the party again in the arena's bone area, where they can recruit him to
+the Alliance. Recruited, he fights beside them in the next fight and, if he
+survives it, leaves: "That's enough for me. I'm leaving. I'll go find more
+members for the Alliance." (Some of his replies in the bone area send him off
+before that: "That's enough for me. I'll see you in the holding pens.", "Right,
+see you there!", or, still weak, "Why don't I meet you in the holding pen?")
+Each way, he walks out through the arena's entrance to the pens, where a
+script takes him off the map, and nothing in the pens brings him back.
 
 With the Ledger he is there, in a pen of his own above Kalzith's, the first
 time the party is in the pens after he has left. Talk to him (Look, then

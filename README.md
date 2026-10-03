@@ -42,8 +42,8 @@ game itself, in the game's own lettering and windows:
   cooks it for the party, to the game's own quest-done sound).
 - **A new person in the slave pens:** Kalzith, a defiler slave who, treated
   with respect, sells arcane spell scrolls that a preserver can learn from.
-- **Semyon kept his word:** after he leaves the arena ("I'll see you in the
-  holding pens"), he is in the pens to talk to, as the game promised and never did.
+- **Semyon kept his word:** after he leaves the arena through the entrance to
+  the pens, he is in the pens to talk to, as the game promised and never did.
 - **What the party wears, on the map:** weapons, shields, bows, armour, helms,
   cloaks, boots and belts on their figures, walking and fighting, changing as
   their gear does.
@@ -109,8 +109,8 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
   preserver learns them as from any scroll. Accuse him and threaten to tell
   the templars, and he won't trade until the party pays 50 ceramic or wins
   him over (a Charisma check). New games only.
-- **Semyon in the slave pens,** as he promises when he leaves the arena ("I'll
-  see you in the holding pens"): in a pen of his own above Kalzith's, with his
+- **Semyon in the slave pens,** once he has left the arena (after the fight he
+  helps in, if the party recruits him): in a pen of his own above Kalzith's, with his
   own conversation (why he was tied up in the arena, who carries keys, where
   his gem is hidden, the Alliance's plans). The game itself never puts him
   there.
