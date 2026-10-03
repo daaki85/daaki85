@@ -34,6 +34,9 @@ class VultureTests(unittest.TestCase):
             struct.pack_into("<I", self.m, SHEETS + member * game.SHEET_SIZE + game.SHEET_XP, 1000 * (member + 1))
         set_character(self.log, 2, (1, 0, 0), (7, 0, 0), 18)
         self.put(cooked())
+        self.flags = set()
+        self.gd.flag = lambda n: n in self.flags
+        self.gd.set_flag = lambda n, on=True: self.flags.add(n)
 
     def put(self, rec):
         self.m[ITEMS + ITEM * game.ITEM_SIZE:ITEMS + (ITEM + 1) * game.ITEM_SIZE] = rec
@@ -51,8 +54,8 @@ class VultureTests(unittest.TestCase):
         self.assertTrue(vulture.is_vulture(self.item()))
         self.assertFalse(vulture.is_vulture(bytes(game.ITEM_SIZE)))
 
-    def test_dinos(self):
-        """Dinos cooks it and the party eats with him: XP, a full rest, and the vulture used up."""
+    def test_meal(self):
+        """Dinos's script has set MEAL: XP and a full rest for each, once."""
         jelly = CREATURES + 2 * game.CREATURE_SIZE
         sheet = SHEETS + 2 * game.SHEET_SIZE
         struct.pack_into("<hh", self.m, sheet + game.SHEET_MAX_HP, 40, 0)
@@ -61,20 +64,23 @@ class VultureTests(unittest.TestCase):
         self.m[jelly + game.CREATURE_STATUS] = 3  # Out Cold
         priest = DS * 16 + game.SLOTS_LEFT["Priest"] + 2 * game.SLOTS_STRIDE
         self.m[priest:priest + 10] = bytes(10)
-        used = self.use(DINOS)
-        self.assertEqual(used.text, vulture.MEAL)
-        self.assertIn("+100 XP each", used.log[0])
+        self.assertEqual(vulture.meal(self.gd), [])  # (not asked yet)
+        self.flags.add(vulture.MEAL)
+        lines = vulture.meal(self.gd)
+        self.assertIn("+100 XP each", lines[0])
         self.assertEqual(self.xp(), [1100, 2100, 3100])
         self.assertEqual(struct.unpack_from("<hh", self.m, jelly), (40, 30))
         self.assertEqual(self.m[jelly + game.CREATURE_STATUS], game.STATUS_OKAY)
         self.assertEqual(list(self.m[priest + 1:priest + 6]),
                          [self.gd.max_spell_slots(2, 2, level) for level in range(1, 6)])
         self.assertGreater(self.m[priest + 1], 0)
-        self.assertTrue(used.used_up)
+        self.assertEqual(vulture.meal(self.gd), [])  # (once)
+        self.assertEqual(self.xp(), [1100, 2100, 3100])
 
     def test_the_dead_get_none(self):
         self.m[CREATURES + game.CREATURE_STATUS] = vulture.STATUS_DEAD
-        self.use(DINOS)
+        self.flags.add(vulture.MEAL)
+        vulture.meal(self.gd)
         self.assertEqual(self.xp(), [1000, 2100, 3100])
 
     def test_bland(self):
@@ -83,34 +89,29 @@ class VultureTests(unittest.TestCase):
         self.assertIn("tough and bland", used.text)
         self.assertFalse(used.used_up)
 
-    def test_not_in_a_fight(self):
-        used = self.use(DINOS, fighting=True)
-        self.assertIn("when the fighting's done", used.text)
-        self.assertFalse(used.used_up)
-        self.assertEqual(self.xp(), [1000, 2000, 3000])
-
     def test_others(self):
-        """On anyone else, or not the vulture: the game's own doing."""
+        """On anyone else (Dinos too: he is asked about it in his talk), or not the vulture: the
+        game's own doing."""
         self.assertIsNone(self.use(STALKER))
+        self.assertIsNone(self.use(DINOS))
         self.put(bytes(game.ITEM_SIZE))
         self.assertIsNone(self.use(DINOS))
 
     def test_in_the_log(self):
-        """DSCLOG asks: the cooked vulture (item 70) used on object 0x30, Dinos."""
+        """Used on a party member, as DSCLOG asks (the cooked vulture, item 70, on object 0x30):
+        no use, and it stays on the pointer."""
         log = self.log
         table = (LOAD_SEG + game.COMBATANTS_SEG) * 16 + game.COMBATANTS_OFF
-        struct.pack_into("<Bh", self.m, table + 0x30 * 3, 2, DINOS)
+        struct.pack_into("<Bh", self.m, table + 0x30 * 3, 2, 1)
         struct.pack_into("<H", self.m, HDR + dicelog.TSR_USE_ITEM, ITEM)
         struct.pack_into("<H", self.m, HDR + dicelog.TSR_USE_WHO, 0x30)
         struct.pack_into("<H", self.m, HDR + dicelog.TSR_USE_SEQ, 1)
         struct.pack_into("<H", self.m, HDR + dicelog.TSR_HDR_OFF, 0)
         struct.pack_into("<H", self.m, HDR + dicelog.TSR_PICK_OFF, 0x600)
         set_clock(log, 5000)
-        lines = log._answer_use()
-        self.assertTrue(lines[0].startswith("Dinos cooks the vulture"))
-        self.assertEqual(struct.unpack_from("<H", self.m, HDR + dicelog.TSR_USE_TAKEN)[0], 2)  # used up
-        self.assertTrue(bytes(self.m[HDR + 0x600:HDR + 0x600 + 12]).startswith(b'Dinos: "A vu'))
-
+        log._answer_use()
+        self.assertEqual(struct.unpack_from("<H", self.m, HDR + dicelog.TSR_USE_TAKEN)[0], 1)
+        self.assertIn(b"tough and bland", bytes(self.m[HDR + 0x600:HDR + 0x700]))
 
     def ask(self, item, rec):
         """DSCLOG asks about ITEM (REC) used on object 0x30, Dinos: the lines, and the reply's text."""

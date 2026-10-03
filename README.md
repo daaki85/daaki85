@@ -47,7 +47,7 @@ game itself, in the game's own lettering and windows:
 - **What the party wears, on the map:** weapons, shields, bows, armour, helms,
   cloaks, boots and belts on their figures, walking and fighting, changing as
   their gear does.
-- **Shadows under every figure:** see-through, cast toward the lower left as
+- **Shadows under every figure:** see-through, cast toward the lower right as
   the walls' are, in the floor's own colours, with the walls and figures in
   front standing on them.
 - **Scrolling the map with the mouse:** press the wheel and drag the map, or
@@ -129,8 +129,8 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
   Kalzith like?"). After the party's escape both are gone from the pens with
   everyone else.
 - **Shadows under every figure on the map:** each living creature's outline,
-  laid down toward the lower left (the light on the maps comes from the upper
-  right, as the walls' shadows show), see-through and in the floor's own
+  laid down toward the lower right (the light on the maps comes from the upper
+  left, as the walls' shadows show), see-through and in the floor's own
   colours, drawn on the floor before the walls and figures, so everything in
   front stands on them. They follow figures as they move, in fights too. A
   switch on the Options tab, on by default.
@@ -157,11 +157,22 @@ Release **1.0.0** is pull requests #1 to #13. Its notes are in
 - **Windows' security warning only once:** after the first `.bat` file is let
   through ("Open File - Security Warning", Run), the Ledger takes the download
   mark off the files in its own folder, so the others start without asking.
+- **The vulture quest is part of Dinos's talk:** while the party carries the
+  cooked vulture, his "Who else is in here?" questions end with "We cooked the
+  vulture from the arena." His answer and the reward are in his own dialogue
+  window, with his portrait, instead of the game's message box; the vulture
+  is no longer used on him from the inventory.
 - **Cat's Grace's icon** is a cat's paw print instead of a cat's face.
 - **Dinos's vulture lines** are his own words, without narration (the game's
   conversations are people speaking).
 
 **Fixed**
+- **Figures' shadows fell the wrong way:** they lay toward the lower left, while
+  the walls', bones' and stones' shadows on the maps fall toward the lower right
+  (the light comes from the upper left). They now fall the same way.
+- **Kalzith's and Semyon's Look box** sometimes lacked the HP, AC and THAC0
+  lines: the Ledger only looked among the map's first 256 things, and the game
+  numbers them anew, sometimes past that.
 - **The slave pens broken by Kalzith** (in this pull request's earlier
   builds): Kurzak vanished after leading the party in, people were missing,
   Merzol didn't stop the party, the doors' "pick the lock" and "knock" and the

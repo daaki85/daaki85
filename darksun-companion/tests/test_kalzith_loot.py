@@ -110,5 +110,16 @@ class SoldOutTests(unittest.TestCase):
         self.assertNotIn(kalzith.SOLD_OUT, self.flags)
 
 
+class LookTests(unittest.TestCase):
+    def test_past_256(self):
+        """Kalzith's thing in the pens is the 285th: found (the Look box's HP, AC and THAC0)."""
+        thief = ThiefTests()
+        thief.setUp()
+        gd, m = thief.log.game, thief.log.guest.mem
+        struct.pack_into("<Bh", m, THINGS + 285 * 3, 2, 33)  # (a creature, record 33)
+        self.assertEqual(gd.combatant_creature(285), 33)
+        self.assertIsNone(gd.combatant_creature(game.THINGS))
+
+
 if __name__ == "__main__":
     unittest.main()

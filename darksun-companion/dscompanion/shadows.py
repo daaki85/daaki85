@@ -2,7 +2,7 @@
 
 DSCLOG draws them: after the game draws the floor of the map's view (or of a rectangle of it), each
 figure marked in its table casts a see-through shadow on it, its outline laid down toward the lower
-left (the light on the game's maps comes from the upper right, as the walls' shadows show), before
+right (the light on the game's maps comes from the upper left, as the walls' shadows show), before
 the walls and figures are drawn, so everything stands on the shadows. A shadow darkens the floor
 through a table of each colour's darker one, which DSCLOG makes from the palette when asked.
 

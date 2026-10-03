@@ -17,9 +17,9 @@ The Trustee's script is then longer than the game's buffer for scripts allows (1
 less some): the Ledger's copy of the game has a bigger one (gamepatch.SCRIPT_BUFFER).
 """
 
-from typing import NamedTuple, Optional, Sequence
+from typing import Callable, NamedTuple, Optional, Sequence
 
-from . import gamepatch, gpl, kalzith, semyon
+from . import gamepatch, gpl, kalzith, semyon, vulture
 from .kalzith import _Script
 
 GOTO, MENU, SET, TEST, SKIP_UNLESS = 0x64, 0x48, 0x16, 0x18, 0x63
@@ -64,6 +64,24 @@ class Ask(NamedTuple):
     answer: str
     dead: Optional[tuple] = None  # (a value) when true, DEAD_ANSWER instead (as Dinos does)
     dead_answer: str = ""
+    then: Optional[Callable[[_Script], None]] = None  # what comes of it, after the answer
+
+
+# The cooked vulture (vulture.py): the party asks Dinos about it while one of them carries it (the
+# game's 33h test, as the campfire's script asks about the plucked one). He takes it (5Ch, as the
+# campfire takes the plucked one), and they eat together: the quest's sound (5Dh 53, as the
+# game's quests), the reward said as the game's quests say theirs, and the Ledger's flag MEAL,
+# on which it gives each their XP and a full rest.
+PARTY, TAKE, SOUND, QUEST_SOUND = 32766, 0x5C, 0x5D, 53
+CARRIED = ("op", (0x33, [("n", PARTY), 77, 80, [(72, 4, ("n", -vulture.COOKED))]]))
+
+
+def _meal(s: _Script) -> None:
+    s.op(TAKE, ("n", 1), ("n", -vulture.COOKED), ("n", PARTY), ("n", 9999))
+    s.op(SOUND, ("n", QUEST_SOUND))
+    s.flag(vulture.MEAL, 1)
+    s.page()
+    s.say(vulture.REWARD)
 
 
 # As the game's people do for the dead: the Trustee asks "What was X like?" instead, Dinos keeps
@@ -85,6 +103,7 @@ DINOS_ASKS = (
         "Semyon? Dead, from what I hear. Asking too many questions about the Veiled Alliance will "
         "do that."),
 )
+VULTURE = Ask("  We cooked the vulture from the arena.", 782, (CARRIED,), vulture.MEAL_TEXT, then=_meal)
 TRUSTEE_ASKS = (
     Ask("  What can you tell me about Kalzith?", 768, (KALZITH_ALIVE,),
         "Keep clear of that one. A defiler. The templars put him in here until the arena wants "
@@ -103,7 +122,7 @@ TRUSTEE_ASKS = (
 QUESTION = "  What"  # (the new questions go after the menu's last asking about someone: before
 # Dinos's "Let's change the subject.", the Trustee's "How can I get to Dinos?", and "Goodbye.")
 # (the script, its menu's first question, the questions added)
-MENUS = ((DINOS_SCRIPT, "  What do you know about Gilal?", DINOS_ASKS),
+MENUS = ((DINOS_SCRIPT, "  What do you know about Gilal?", DINOS_ASKS + (VULTURE,)),
          (TRUSTEE_SCRIPT, "  What can you tell me about Dinos?", TRUSTEE_ASKS))
 
 
@@ -112,6 +131,8 @@ def _answer(s: _Script, ask: Ask) -> None:
         s.say(ask.answer)
     else:
         s.when(ask.dead, lambda: s.say(ask.dead_answer), lambda: s.say(ask.answer))
+    if ask.then:
+        ask.then(s)
 
 
 def with_asks(script: bytes, field_types: bytes, first: str, asks: Sequence[Ask]) -> bytes:

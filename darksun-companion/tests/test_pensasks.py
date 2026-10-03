@@ -1,6 +1,6 @@
 import unittest
 
-from dscompanion import gamepatch, gpl, kalzith, pensasks, semyon
+from dscompanion import gamepatch, gpl, kalzith, pensasks, semyon, vulture
 from dscompanion.kalzith import _Script
 
 
@@ -153,6 +153,26 @@ class PensAsksTests(unittest.TestCase):
         """Unchanged if it would be longer than the (bigger) buffer runs."""
         long = self.script + b"\x31" * (pensasks.LONGEST - len(self.script) - 10)
         self.assertEqual(pensasks.with_asks(long, b"", self.FIRST, pensasks.DINOS_ASKS), long)
+
+    def test_vulture(self):
+        """Asked while the party carries the cooked vulture (the game's 33h test on the party):
+        his answer, then the vulture taken, the quest's sound, MEAL set, and the reward said."""
+        out = pensasks.with_asks(self.script, b"", self.FIRST, pensasks.DINOS_ASKS + (pensasks.VULTURE,))
+        types = bytes(72) + b"\x12"  # (field 72, an object, carries a number: as the game's)
+        ops = gpl.decode(out[len(self.script):], types)
+        codes = [(o.code, o.args) for o in ops]
+        self.assertIn((pensasks.TAKE, [("n", 1), ("n", -vulture.COOKED), ("n", pensasks.PARTY), ("n", 9999)]), codes)
+        self.assertIn((pensasks.SOUND, [("n", pensasks.QUEST_SOUND)]), codes)
+        self.assertIn((0x16, [("n", 1), ("var", 13, vulture.MEAL)]), codes)
+        tests = [o.args[0] for o in ops if o.code == 0x18]
+        self.assertIn(("op", gpl.Op(0, 0x33, [("n", pensasks.PARTY), 77, 80, [(72, 4, ("n", -vulture.COOKED))]])),
+                      [(t[0], gpl.Op(0, t[1].code, t[1].args)) for t in tests if t[0] == "op"])
+        said = " ".join(gpl.strings(ops)).replace("  ", " ")
+        self.assertIn("A vulture! Give it here.", said)
+        self.assertIn("100 EXP", said)
+        flags = [a.flag for a in pensasks.DINOS_ASKS + pensasks.TRUSTEE_ASKS + (pensasks.VULTURE,)]
+        self.assertEqual(len(set(flags)), len(flags))
+        self.assertNotIn(pensasks.VULTURE.flag, (vulture.MEAL, vulture.EATEN, semyon.SETTLED, kalzith.SOLD_OUT))
 
     def test_buffer(self):
         """The Ledger's game has room for the Trustee's script with the questions (10540 bytes)."""

@@ -983,6 +983,7 @@ class DiceLog:
                 self._tools_new += sorted(self.tools_given - before)
             kalzith.stock(self.game, bool(self.rules & game.RULE_CATS_GRACE))  # (once a game, by its flag)
             semyon.watch(self.game)  # (killed: never put in the pens)
+            out += vulture.meal(self.game)  # (Dinos's script has set its flag: XP and a full rest)
             if kalzith.watch(self.game):  # (killed: Dinos and the Trustee speak of him so)
                 left = kalzith.loot(self.game)  # (one of his scrolls, his Cloak and Quarterstaff)
                 if left:

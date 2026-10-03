@@ -66,7 +66,7 @@ records; this ledger keeps the ones the game doesn't show you. What it does:
   Tools every thief now carries or with P in a conversation, a move silently
   roll deciding whether a fumble is noticed (see
   [Picking pockets](#picking-pockets)).
-- **A use for the cooked vulture:** take it to Dinos in the slave pens, and he
+- **A use for the cooked vulture:** ask Dinos in the slave pens about it, and he
   cooks it properly for the party (see [The cooked vulture](#the-cooked-vulture)).
 - **Gear for the slave pens' bosses:** Kurzak, Legcrusher and Pehtucl carry
   things worth taking from them (see [The slave pens' gear](#the-slave-pens-gear)).
@@ -272,7 +272,7 @@ If more than one DOSBox is running, add `--pid <number>` (from `processes`).
 | `Cilla's 3rd Ranger level: hit points d10 = 2, raised to 3 for CON 21` | The hit point roll for a new level: the class's die (d8 clerics and druids, d10 fighters, gladiators and rangers, d4 preservers, d6 psionicists and thieves), never less than 2, 3 or 4 with CON 20, 21-22 or 23+, and doubled for half-giants. After level 9 or 10 there's no roll, just a fixed gain (thieves roll at 10th too with [levels up to 10](#rule-changes)). |
 | `Cilla hides in shadows: d100 = 21, needs 27 or less (54, halved in daylight) -> hidden` / `  Cilla moves silently: ...` | A thief's or ranger's hiding and moving silently at the start of their turn (the [stealth rule](#rule-changes)). |
 | `Chosen with Tab: Guard (50 HP) - Enter attacks it` | An enemy chosen with Tab in a fight (see [Choosing an enemy](#choosing-an-enemy-tab-enter-and-the-rings)). |
-| `Dinos cooks the vulture and the party eats with him: ... +100 XP each, and restored as after a full rest` | The cooked vulture used on Dinos (see [The cooked vulture](#the-cooked-vulture)). |
+| `Dinos cooks the vulture and the party eats with him: ... +100 XP each, and restored as after a full rest` | Dinos asked about the cooked vulture (see [The cooked vulture](#the-cooked-vulture)). |
 | `Character creation, STR 17: best of four 4d4 (7, 11, 9, 10) = 11, +4, +1 dwarf = 16, raised to 17 (the Fighter's prime requisite)` | An ability score rolled on the character creation screen (see below). |
 | `Character creation, hit points 15: Fighter d10 per level: 7 + 9; Thief d6 per level: 5 + 1 = 22, / 2 classes = 11, +4 CON 16 = 15` | The new character's hit points: a die for every level of every class, divided by the number of classes, plus CON's bonus (see below). |
 | `Character creation: a name picked at random, 1d33 = 6` | The game picks a new name from its lists when the sex or race changes. |
@@ -809,26 +809,29 @@ own.
 
 Hit the arena's vulture and its feathers come off (a plucked vulture); the
 slave pens' campfire cooks it. In the game itself the cooked vulture is then no
-use to anyone: no script asks for it. With the Ledger running, take it to
-**Dinos**, the pens' fine cook: pick it up on the inventory screen, go back to
-the game with it on the pointer, and click him. He shows the party how it
-should be done, everyone eats together, and each party member gets **100 XP**
-and is **restored as after a full rest**: HP, PSP and spell slots full, and
-anyone knocked out back on their feet, to the sound the game plays when a
-quest is done (as for the Trustee's key or the filled water jug). The vulture
-is eaten, gone from the pointer. (Not during a fight: Dinos says to come back when it's over. Eaten by
-the party on their own, it's too tough to be worth the chewing.)
+use to anyone: no script asks for it. With the Ledger running, **Dinos**, the
+pens' fine cook, can be asked about it: talk to him while someone in the party
+carries it, and his "Who else is in here?" questions end with **"We cooked the
+vulture from the arena."** He takes it ("A vulture! Give it here. A little salt,
+some agafari leaf, slow over the coals... Sit, eat with me: the best meal in the
+pens!"), to the sound the game plays when a quest is done (as for the Trustee's
+key or the filled water jug), and, as the game's quests tell theirs: "For
+sharing the vulture with Dinos, each of you earns 100 EXP, and you are fully
+rested." Each party member gets **100 XP** and is **restored as after a full
+rest**: HP, PSP and spell slots full, and anyone knocked out back on their feet.
+The question is gone once the vulture is. (Eaten by the party on their own,
+used on one of them from the inventory, it's too tough to be worth the chewing.)
 
-![Dinos cooks the vulture](docs/vulture.png)
+![Dinos's answer, and the reward, in his own dialogue window with his portrait](docs/vulture-meal.png)
 
-How: when an item on the pointer is used on someone, the helper asks the
-Ledger first (`INT FDh`, as for the Thieves' Tools). For the cooked vulture
-(the game's object A4Ch) on Dinos, the Ledger adds the XP and refills the
-party, and the helper lets go of the pointer's item the way the game does with
-coins once it has counted them, so the item goes back to the game's free list.
-The sound is the game's own (sound 53, which its scripts play with "...
-receives N experience points!"): the helper calls the game's routine for it,
-the one behind the scripts' 5Dh command.
+How: in the Ledger's copy of `GPLDATA.GFF`, Dinos's talk (script 139) has the
+question in the same menu as the ones about Kalzith and Semyon (see
+[Dinos and the Trustee](#dinos-and-the-trustee-on-kalzith-and-semyon)), shown
+while the game's own test says someone in the party carries the cooked vulture
+(33h, as the campfire's script asks about the plucked one; the game's object
+A4Ch). Chosen, the script takes it (5Ch, as the campfire takes the plucked one),
+plays the game's quest sound (5Dh 53, as its quests do) and sets the Ledger's
+flag 780; the Ledger then adds the XP and refills the party, once (flag 781).
 
 ### The slave pens' gear
 
@@ -1107,8 +1110,8 @@ picture and fills it.
 
 Every living figure on the map (the party, the people, the monsters; not the
 dead, nor items) casts a soft see-through shadow on the floor, its outline laid
-long toward the lower left, the way the walls' own shadows fall (the light on
-the game's maps comes from the upper right). The shadows are drawn on the floor
+long toward the lower right, the way the walls' own shadows fall (the light on
+the game's maps comes from the upper left). The shadows are drawn on the floor
 before anything else, so every figure and wall stands on top of them: a shadow
 never covers another figure. Switch them off on the Options tab.
 

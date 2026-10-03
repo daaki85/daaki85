@@ -35,6 +35,7 @@ SPELL_NAMES = 0x254E  # DS offset of the NUL-separated spell and psionic names
 SPELL_NAMES_END = 0x2F00
 
 CREATURE_SIZE = 0x3A
+THINGS = 520  # the game's things (map entries; a fight's combatants are among them)
 SHEET_SIZE = 0x47
 ITEM_SIZE = 0x15
 ITEM_TYPE_SIZE = 0x14
@@ -570,7 +571,9 @@ class GameData:
         return b"".join(self.creature(i)[CREATURE_NAME:CREATURE_NAME + 16] for i in range(PARTY_SIZE))
 
     def combatant_creature(self, combatant: int) -> Optional[int]:
-        if not 0 <= combatant < 256:
+        """The creature record of one of the game's things on the map (all THINGS of them: the
+        people put in later, such as Kalzith and Semyon in the pens, are past the 256th)."""
+        if not 0 <= combatant < THINGS:
             return None
         kind, index = struct.unpack("<Bh", self.guest.read(
             (self.load_seg + COMBATANTS_SEG) * 16 + COMBATANTS_OFF + combatant * 3, 3))

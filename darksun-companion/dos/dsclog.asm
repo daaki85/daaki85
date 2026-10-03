@@ -2785,8 +2785,8 @@ extra   dw 0
 SPELL_SEG equ 2 + 0x79BB7 - 0x79A85  ; return address - (DSUN.EXE offsets: patch, mov ax's operand)
 
 ; SHADOWS (SHADOWS_ON): every figure the companion marks (SHADOW_TAB) casts a see-through shadow
-; on the floor, its outline laid down toward the lower left (the light on Athas's maps comes from
-; the upper right, as the walls' shadows show), drawn after the floor and before anything else, so
+; on the floor, its outline laid down toward the lower right (the light on Athas's maps comes from
+; the upper left, as the walls' and bones' shadows show), drawn after the floor and before anything else, so
 ; walls and figures, its own and everyone else's, stand on it.
 ;
 ; The game draws a view of the map into a page of its planar (mode X) video memory: first the floor
@@ -2803,10 +2803,10 @@ SPELL_SEG equ 2 + 0x79BB7 - 0x79A85  ; return address - (DSUN.EXE offsets: patch
 ; A figure that moves is drawn again within a rectangle round where it was and where it is; its
 ; shadow reaches beyond its picture, so the routines redrawing rectangles (PROBE_REDRAW: 2475Fh, a
 ; rectangle; PROBE_REDRAW_ALL: 24B18h, the one round everything that moved) make theirs bigger by
-; as far as a shadow reaches (SHADOW_LEFT, SHADOW_DOWN), or the old shadow would be left behind.
+; as far as a shadow reaches (SHADOW_RIGHT, SHADOW_DOWN), or the old shadow would be left behind.
 
 SHADOW_ROWS  equ 64             ; rows of a figure, up from its feet, that cast a shadow
-SHADOW_LEFT  equ 72             ; how far left a shadow reaches past its figure (SHADOW_ROWS * 1.05,
+SHADOW_RIGHT equ 72             ; how far right a shadow reaches past its figure (SHADOW_ROWS * 1.05,
                                 ;   and a step of 4: rectangles are kept to whole bytes)
 SHADOW_DOWN  equ 44             ; and how far down (SHADOW_ROWS / 2, and a figure's height off the
                                 ;   ground)
@@ -2826,7 +2826,7 @@ FIGURE_MOST  equ 128            ; (the widest and tallest a figure's picture may
 
 ; PROBE_REDRAW: INT VEC_REDRAW replaces "push bp / mov bp,sp / sub sp,8" (6 bytes: INT + 4 NOPs)
 ; at the start of the routine that draws a rectangle of the view again (camera x, y, page, x0,
-; y0, x1, y1, ...): with shadows on, the rectangle reaches further left and down.
+; y0, x1, y1, ...): with shadows on, the rectangle reaches further right and down.
 probe_redraw:
         push bp
         mov bp, sp
@@ -2835,7 +2835,7 @@ probe_redraw:
         cmp word [cs:rings_on], 0
         je .go
 .wide:
-        sub word [bp+18], SHADOW_LEFT   ; x0 (after BP, the interrupt's IP, CS and flags, and the
+        add word [bp+22], SHADOW_RIGHT  ; x1 (after BP, the interrupt's IP, CS and flags, and the
         add word [bp+24], SHADOW_DOWN   ;   caller's way back); y1 (the routine keeps both on screen)
 .go:    pop bp
         pop word [cs:resume]
@@ -2848,7 +2848,7 @@ probe_redraw:
 
 ; PROBE_REDRAW_ALL: INT VEC_REDRAW_ALL replaces "push word [bp+8] / push word [bp+6]" (6 bytes:
 ; INT + 4 NOPs) where the routine drawing again what moved, having made the rectangle round it all
-; (x0 at [BP-8], y1 at [BP-0Eh]), starts to draw: with shadows on, it reaches further left and down.
+; (x1 at [BP-0Ah], y1 at [BP-0Eh]), starts to draw: with shadows on, it reaches further right and down.
 probe_redraw_all:
         pop word [cs:resume]
         pop word [cs:resume + 2]
@@ -2857,9 +2857,10 @@ probe_redraw_all:
         jne .wide
         cmp word [cs:rings_on], 0
         je .dust
-.wide:  sub word [bp-8], SHADOW_LEFT
-        jge .x
-        mov word [bp-8], 0
+.wide:  add word [bp-0x0A], SHADOW_RIGHT
+        cmp word [bp-0x0A], 0x13F       ; (the routine draws to x1 + 1: kept on screen)
+        jle .x
+        mov word [bp-0x0A], 0x13F
 .x:     add word [bp-0x0E], SHADOW_DOWN
         cmp word [bp-0x0E], 0xC7
         jle .dust
@@ -3070,11 +3071,9 @@ shadow_of:
         mov [cs:frame], ax
         ; (none of its shadow where the floor was drawn: nothing to do)
         mov ax, [cs:fig_x]
-        sub ax, SHADOW_LEFT
         cmp ax, [cs:clip_x1]
         jg .no
-        mov ax, [cs:fig_x]
-        add ax, FIGURE_MOST
+        add ax, FIGURE_MOST + SHADOW_RIGHT
         cmp ax, [cs:clip_x0]
         jl .no
         mov ax, [cs:fig_y]
@@ -3179,7 +3178,7 @@ cast_run:
         sub di, cx
         mov dx, di
 .lean:  add dx, [cs:fig_x]
-        mov di, ax                      ; leaning left by 1.05 times as far as it is up
+        mov di, ax                      ; leaning right by 1.05 times as far as it is up
         add ax, 10
         push dx
         xor dx, dx
@@ -3189,7 +3188,7 @@ cast_run:
         pop bx
         pop dx
         add di, ax
-        sub dx, di                      ; DX: its first x
+        add dx, di                      ; DX: its first x
         mov di, dx
         add di, cx
         dec di                          ; DI: its last
