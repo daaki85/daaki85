@@ -1054,14 +1054,16 @@ the view drawn again a few times a second until the last puff is gone.
 
 ### Choosing an enemy: Tab, Enter and the rings
 
-In a fight, a red ring on the ground marks each enemy, under their feet (the
+In a fight, a red ring on the ground can mark the enemies, under their feet (the
 figures stand in it, as on their shadows). On a party member's turn, **Tab**
 chooses an enemy, the nearest first, then the next nearest (**Shift+Tab** goes
 back): its ring is drawn thicker and redder, the view scrolls to it if it is
 out of sight, and the log names it. **Enter** then attacks it, as clicking on
 it does (walking up to it first when it is out of reach), even where another
-figure stands in front of it. On the Options tab, the rings can be switched to
-only the chosen enemy's (none until Tab is pressed), and Tab and Enter off.
+figure stands in front of it. On the Options tab the rings are **none**, **only
+under the enemy chosen with Tab** (the default: none until Tab is pressed) or
+**under all the enemies** (the chosen one's thicker and redder); Tab and Enter
+have a switch of their own.
 
 How: DSCLOG hooks the keyboard (`INT 16h`) and takes Tab, Shift+Tab and, with an
 enemy chosen, Enter from what the game reads, counting them for the Ledger

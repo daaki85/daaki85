@@ -16,7 +16,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
-from . import __version__, art, dicelog, game, launch, partyview, spellbook, theme, values
+from . import __version__, art, dicelog, game, launch, partyview, rings, spellbook, theme, values
 from .dicelog import DiceLog, DiceLogError
 from .guestmem import GuestMemory
 from .layout import Layout
@@ -353,10 +353,13 @@ class Viewer:
         self.show_dust = tk.BooleanVar(value=bool(settings.get("dust", True)))
         ttk.Checkbutton(rules, text="Dust raised behind the feet of anyone walking on sand or dirt",
                         variable=self.show_dust, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
-        self.show_rings = tk.BooleanVar(value=bool(settings.get("rings", True)))
-        ttk.Checkbutton(rules, text="Red rings on the ground under all the enemies in a fight (off: only "
-                        "under the one chosen with Tab)",
-                        variable=self.show_rings, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        self.ring_mode = tk.StringVar(value=rings.mode(settings))
+        ttk.Label(rules, text="Red rings on the ground in a fight:").pack(anchor="w", pady=(4, 0))
+        for value, text in ((rings.OFF, "... none"),
+                            (rings.ONLY_CHOSEN, "... under the enemy chosen with Tab"),
+                            (rings.ALL, "... under all the enemies (the chosen one's redder)")):
+            ttk.Radiobutton(rules, text=text, value=value, variable=self.ring_mode,
+                            command=self._popups_changed).pack(anchor="w", padx=(20, 0))
         self.use_targeting = tk.BooleanVar(value=bool(settings.get("targeting", True)))
         ttk.Checkbutton(rules, text="In a fight, Tab (Shift+Tab back) chooses an enemy, its ring brighter, and "
                         "Enter attacks it, even behind someone", variable=self.use_targeting,
@@ -664,7 +667,7 @@ class Viewer:
                 self.dice.show_gear = self.show_gear.get()
                 self.dice.show_shadows = self.show_shadows.get()
                 self.dice.show_dust = self.show_dust.get()
-                self.dice.show_rings = self.show_rings.get()
+                self.dice.ring_mode = self.ring_mode.get()
                 self.dice.use_targeting = self.use_targeting.get()
                 self.dice.scroll_map = self.scroll_map.get()
                 self.dice.scroll_right = self.scroll_right.get()
@@ -752,7 +755,7 @@ class Viewer:
         settings["show_gear"] = self.show_gear.get()
         settings["shadows"] = self.show_shadows.get()
         settings["dust"] = self.show_dust.get()
-        settings["rings"] = self.show_rings.get()
+        settings["rings"] = self.ring_mode.get()
         settings["targeting"] = self.use_targeting.get()
         settings["scroll_map"] = self.scroll_map.get()
         settings["scroll_right"] = self.scroll_right.get()
@@ -768,7 +771,7 @@ class Viewer:
             self.dice.show_gear = self.show_gear.get()
             self.dice.show_shadows = self.show_shadows.get()
             self.dice.show_dust = self.show_dust.get()
-            self.dice.show_rings = self.show_rings.get()
+            self.dice.ring_mode = self.ring_mode.get()
             self.dice.use_targeting = self.use_targeting.get()
             self.dice.scroll_map = self.scroll_map.get()
             self.dice.scroll_right = self.scroll_right.get()

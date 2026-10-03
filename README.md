@@ -53,8 +53,9 @@ game itself, in the game's own lettering and windows:
 - **Scrolling the map with the mouse:** press the wheel and drag the map, or
   turn the wheel.
 - **Dust** raised behind the feet of anyone walking on sand or dirt.
-- **Choosing an enemy with Tab:** red rings under the enemies in a fight; Tab
-  chooses one (its ring brighter), Enter attacks it even behind someone.
+- **Choosing an enemy with Tab:** in a fight Tab chooses an enemy, marked by a
+  red ring (or rings under all of them, or none: an option), and Enter attacks
+  it even behind someone.
 
 The game folder is never modified, and your save files only keep what you'd
 expect from play: the items the Ledger hands out, the XP it gives. For the dice

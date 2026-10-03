@@ -92,6 +92,14 @@ class TargetingTests(unittest.TestCase):
         table = gd.guest.read(BASE + 0x100, 520)
         self.assertEqual((table[42], table[44]), (0, rings.CHOSEN))
 
+    def test_mode(self):
+        """The Options tab's rings: none, the chosen enemy's (the default, and for older settings),
+        or all the enemies'."""
+        self.assertEqual(rings.mode({}), rings.ONLY_CHOSEN)
+        self.assertEqual(rings.mode({"rings": True}), rings.ONLY_CHOSEN)
+        self.assertEqual(rings.mode({"rings": "off"}), rings.OFF)
+        self.assertEqual(rings.mode({"rings": "all"}), rings.ALL)
+
     def test_ring_table(self):
         table = rings.ring_table([42, 44], 44)
         self.assertEqual((table[42], table[44], table[45]), (rings.RING, rings.CHOSEN, 0))

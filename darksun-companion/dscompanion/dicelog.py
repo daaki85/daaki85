@@ -331,7 +331,7 @@ class DiceLog:
         self._shadows = shadows.Shadows()
         self.show_dust = True  # dust raised by walkers on sand and dirt (dust.py)
         self._dust = dust.Dust()
-        self.show_rings = True  # rings under all the enemies in a fight, else only the chosen one (rings.py)
+        self.ring_mode = rings.ONLY_CHOSEN  # rings in a fight: off, the chosen enemy's, all the enemies' (rings.py)
         self._rings = rings.Rings()
         self.use_targeting = True  # Tab chooses an enemy in a fight, Enter attacks it (targeting.py)
         self._targeting = targeting.Targeting()
@@ -608,7 +608,7 @@ class DiceLog:
         self.show_shadows = bool(settings.get("shadows", True))
         self.scroll_map = bool(settings.get("scroll_map", True))
         self.show_dust = bool(settings.get("dust", True))
-        self.show_rings = bool(settings.get("rings", True))
+        self.ring_mode = rings.mode(settings)
         self.use_targeting = bool(settings.get("targeting", True))
         self.scroll_right = bool(settings.get("scroll_right", False))
         self.load_picked(settings.get("pickpocketed", []))
@@ -991,11 +991,11 @@ class DiceLog:
             self._dress(now)
             if self.tsr_hdr is not None:
                 self._shadows.update(self.game, self.tsr_hdr, self.show_shadows, now,
-                                     needed=self.show_dust or self.show_rings)
+                                     needed=self.show_dust or self.ring_mode != rings.OFF)
                 foes = rings.enemies(self.game)
                 out += self._targeting.update(self.game, self.tsr_hdr, self.use_targeting, foes)
-                self._rings.update(self.game, self.tsr_hdr, self.show_rings or self.use_targeting,
-                                   self._shadows.palettes, self._targeting.chosen, all_enemies=self.show_rings)
+                self._rings.update(self.game, self.tsr_hdr, self.ring_mode != rings.OFF, self._shadows.palettes,
+                                   self._targeting.chosen, all_enemies=self.ring_mode == rings.ALL)
                 self._dust.update(self.game, self.tsr_hdr, self.show_dust, self._shadows.palettes)
                 self._scrolling.update(self.game, self.tsr_hdr, self.scroll_map, self.scroll_right)
         except (struct.error, IndexError, ValueError):

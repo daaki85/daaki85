@@ -22,6 +22,13 @@ HUE_WEIGHT = 2
 STATUS_DEAD = 5
 SIDE_NEUTRAL = 4  # (the arena's Tied-up Prisoner: on no one's side)
 RING, CHOSEN = 1, 2
+OFF, ONLY_CHOSEN, ALL = "off", "chosen", "all"  # the Options tab's choice of rings
+
+
+def mode(settings: dict) -> str:
+    """The rings to draw, as saved (only the chosen enemy's unless set otherwise)."""
+    value = settings.get("rings", ONLY_CHOSEN)
+    return value if value in (OFF, ALL) else ONLY_CHOSEN
 
 
 def red_table(dac: bytes) -> bytes:
