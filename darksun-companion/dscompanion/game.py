@@ -35,6 +35,7 @@ SPELL_NAMES = 0x254E  # DS offset of the NUL-separated spell and psionic names
 SPELL_NAMES_END = 0x2F00
 
 CREATURE_SIZE = 0x3A
+THINGS = 520  # the game's things (map entries; a fight's combatants are among them)
 SHEET_SIZE = 0x47
 ITEM_SIZE = 0x15
 ITEM_TYPE_SIZE = 0x14
@@ -96,6 +97,13 @@ RULE_SETTINGS = (("helm_ac", RULE_HELMS), ("boots_move", RULE_BOOTS), ("two_weap
 # a number the game leaves unused) that adds to DEX, at most 24, as Strength's adds to STR.
 FLAMING_SPHERE, STRENGTH_SPELL, GRACE_EFFECT = 14, 23, 54
 GRACE_NAME, SPHERE_NAME = b"CAT'S GRACE", b"FLAMING SPHERE"  # (in the game's capitals)
+# The game's table of effects (DSUN.EXE 44CD0h, from the load segment 3F8Dh), 6 bytes each from
+# effect 1: a far pointer to its name (the line under a portrait: "Hasted" for "Okay") and its
+# icon (an ICON chunk of RESOURCE.GFF, as the spells' are) on the Effects screen, which shows
+# only those with one. Effect 54 has neither (an empty name, icon 0): with the rule, it has
+# Cat's Grace's spell icon (Flaming Sphere's, the cat's paw with the rule) and the spell's name.
+EFFECT_TABLE_SEG, EFFECT_ENTRY = 0x3F8D, 6
+GRACE_ICON, NO_NAME = 21014, 0x1FF0  # (NO_NAME: the empty string the game's unnamed effects use)
 # Flaming Sphere's own record, from DSUN.EXE, to put back when the rule is off
 SPHERE_RECORD = bytes.fromhex("067800000000003c0014000001ffff4dff004049ffff6106ff000202001104a1")
 # The game turns a spell's kind of save (bits 5-7 of its +0Fh) into one of the sheet's five
@@ -147,6 +155,9 @@ REGION = 0x117C  # DS word: the region the party is in
 # The party's money, in ceramic pieces (the inventory screen's bottom bar): a dword the game's
 # script command for giving money (0Ch) adds to
 MONEY_SEG, MONEY = 0x3781, 0x357
+# The game's global flags (its scripts' 13h/8Dh variables): bits, flag n bit n % 8 of byte n // 8,
+# at the far pointer here (a save keeps them: SAVE chunk 29)
+FLAGS_PTR = 0x1352
 # Speakers the game names in its own text (the dialogue window shows only a portrait):
 # 119 is asked about as "Yell something back at the Announcer?"
 SPEAKERS = {119: "The Announcer"}
@@ -567,7 +578,9 @@ class GameData:
         return b"".join(self.creature(i)[CREATURE_NAME:CREATURE_NAME + 16] for i in range(PARTY_SIZE))
 
     def combatant_creature(self, combatant: int) -> Optional[int]:
-        if not 0 <= combatant < 256:
+        """The creature record of one of the game's things on the map (all THINGS of them: the
+        people put in later, such as Kalzith and Semyon in the pens, are past the 256th)."""
+        if not 0 <= combatant < THINGS:
             return None
         kind, index = struct.unpack("<Bh", self.guest.read(
             (self.load_seg + COMBATANTS_SEG) * 16 + COMBATANTS_OFF + combatant * 3, 3))
@@ -627,6 +640,15 @@ class GameData:
     def add_money(self, amount: int) -> None:
         self.guest.write((self.load_seg + MONEY_SEG) * 16 + MONEY,
                          struct.pack("<I", max(0, self.money() + amount) & 0xFFFFFFFF))
+
+    def flag(self, n: int) -> bool:
+        at = far_pointer(self.guest, self.ds, FLAGS_PTR) + n // 8
+        return bool(self.guest.read(at, 1)[0] >> (n % 8) & 1)
+
+    def set_flag(self, n: int, on: bool = True) -> None:
+        at = far_pointer(self.guest, self.ds, FLAGS_PTR) + n // 8
+        byte = self.guest.read(at, 1)[0]
+        self.guest.write(at, bytes([byte | 1 << (n % 8) if on else byte & ~(1 << (n % 8))]))
 
     def region(self) -> int:
         """The region the party is in (its RGNxx.GFF)."""
@@ -776,6 +798,9 @@ class GameData:
             self.guest.write(sphere, want)
         text = GRACE_NAME if on else SPHERE_NAME
         self.guest.write(name_at, text.ljust(len(SPHERE_NAME), b"\0") + b"\0")
+        entry = (self.load_seg + EFFECT_TABLE_SEG) * 16 + (GRACE_EFFECT - 1) * EFFECT_ENTRY
+        name_off = name_at - self.ds * 16 if on else NO_NAME
+        self.guest.write(entry, struct.pack("<HHH", name_off, self.ds, GRACE_ICON if on else 0))
         return True
 
     def spell_record(self, spell: int) -> bytes:

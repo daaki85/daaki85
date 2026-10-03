@@ -58,6 +58,12 @@ VEC_THIEF_SKILL equ 0xE4   ; PROBE_THIEF_SKILL
 VEC_TWO_HANDED equ 0xE3    ; PROBE_TWO_HANDED
 VEC_SPELL_TEXT equ 0xE2    ; PROBE_SPELL_TEXT
 VEC_CHUNK_ID equ 0xE1      ; PROBE_CHUNK_ID
+VEC_FLOOR_ALL equ 0xE0     ; PROBE_FLOOR (the whole view's floor)
+VEC_FLOOR_RECT equ 0xDF    ; PROBE_FLOOR (a rectangle's floor)
+VEC_REDRAW equ 0xDE        ; PROBE_REDRAW
+VEC_REDRAW_ALL equ 0xDD    ; PROBE_REDRAW_ALL
+VEC_SCROLL equ 0xDC        ; PROBE_SCROLL
+VEC_HIT    equ 0xDB        ; PROBE_HIT
 TSIZE    equ 8192     ; bytes in the text buffer
 
 NENT    equ 128         ; entries in the ring
@@ -86,7 +92,7 @@ section image follows=mz vstart=0
 
 ; ---- header, found by the companion via SIG (16-byte aligned) ----
 hdr:
-sig      db 'DSCLOGvR'          ; +0
+sig      db 'DSCLOGvU'          ; +0
 seq      dw 0                   ; +8   entries written so far (wraps at 65536)
 widx     dw 0                   ; +10  ring slot the next entry goes to
 nent     dw NENT                ; +12
@@ -177,6 +183,36 @@ types_first dw 0                ; +212 the number the first of them gets (the ga
 types_ptr  dd 0                 ; +214 the game's item type table, as last loaded with them
 objects_on dw 0                 ; +218 1 once the game has opened the companion's copy of
                                 ;      SEGOBJEX.GFF (its icons: see PROBE_DOS_OPEN)
+shadows_on dw 0                 ; +220 the companion sets 1 to have figures cast shadows (SHADOWS)
+shadow_tab_off dw shadow_tab    ; +222 offset of SHADOW_TAB: a byte for each of the game's 520 things,
+                                ;      1 for those that cast a shadow (the companion keeps it)
+dark_build dw 0                 ; +224 the companion sets 1 to have DARK made again from the palette
+                                ;      (after the area, so the palette, changes); 0 once it is
+shadow_passes dw 0              ; +226 shadow passes drawn (counted)
+scroll_on  dw 0                 ; +228 the companion sets SCROLL_MIDDLE and/or SCROLL_RIGHT to have
+                                ;      a drag with that button scroll the map (SCROLLING)
+pan_x      dw 0                 ; +230 the companion adds to these (wrapping) to scroll the map by
+pan_y      dw 0                 ; +232   as many pixels (the mouse wheel, read in Windows)
+dust_on    dw 0                 ; +234 the companion sets 1 once LIGHT is made, to have walkers raise
+                                ;      dust (DUST)
+light_off  dw light             ; +236 offset of LIGHT: each colour's lighter one (0: none, not ground
+                                ;      dust shows on), the companion makes it from DAC
+dac_off    dw dac               ; +238 offset of DAC: the palette as DARK was last made from it
+dust_puffs dw 0                 ; +240 puffs of dust raised (counted)
+view_redraw dw 0                ; +242 the companion sets 1 to have the view drawn again (all of it, from
+                                ;      the main loop: VIEW_AGAIN), as it is once it has been
+rings_on   dw 0                 ; +244 the companion sets 1 to have rings drawn under the things RING_TAB
+                                ;      marks (RINGS), once RED is made
+ring_tab_off dw ring_tab        ; +246 offset of RING_TAB: a byte for each of the game's 520 things: 1 a
+                                ;      ring, 2 the chosen one's (brighter, thicker)
+red_off    dw red               ; +248 offset of RED: each colour's reddened one (0: none), as LIGHT
+target_on  dw 0                 ; +250 the companion sets 1 while Tab chooses an enemy (TARGETING)
+tab_seq    dw 0                 ; +252 Tab pressed (counted) ...
+back_seq   dw 0                 ; +254 ... and Shift+Tab
+hit_target dw 0xFFFF            ; +256 the enemy chosen (the companion sets it; FFFFh: none)
+attack_seq dw 0                 ; +258 Enter pressed on it (counted)
+main_ticks dw 0                 ; +260 the map's main loop run (counted: not while a talk, menu or
+                                ;      shop is open)
 
 ; TEXT BUFFER: what the game sends to its dialogue window, as records of
 ;   byte 0FEh, byte kind (the dialogue window's: 0 = a reply to choose, the
@@ -1104,13 +1140,17 @@ probe_pick:
         xor ax, ax
         mov es, ax
         mov dx, [es:0x46C]      ; the BIOS timer
+        call rtc_begin
 .wait:  mov ax, [cs:pick_reply]
         cmp ax, [cs:pick_seq]
         je .ready
         mov ax, [es:0x46C]
         sub ax, dx
         cmp ax, PICK_WAIT
-        jb .wait
+        jae .late_pick_reply
+        call rtc_waited         ; (the BIOS clock can stand still: the game's timer
+        jnc .wait               ;   doesn't always pass its ticks on; at most 2 s by the real-time clock)
+.late_pick_reply:
         jmp .out                ; no answer: the companion isn't reading
 .ready: cmp byte [cs:pick_text], 0
         je .out
@@ -1152,6 +1192,7 @@ pick_show:
 PICK_SIZE equ 240
 pick_text times PICK_SIZE db 0
 drop_call dw DROP_OFF, 0
+sound_call dw SOUND_OFF, 0
 
 ; PROBE_USE_ITEM: INT VEC_USE_ITEM replaces "cmp si,-1 / jne +3" (5 bytes: INT + 3 NOPs) in the
 ; routine that uses the item on the pointer on whatever is under it on the map (SI: that
@@ -1170,6 +1211,8 @@ HELD_LIST equ 0x179E            ; DS: the object whose item list is the pointer'
 DGROUP_SEG equ 0x4356           ; the game's DS, less its load segment
 DROP_SEG  equ 0x1A0A            ; and the resident routine (21134h in DSUN.EXE) that empties an
 DROP_OFF  equ 0x1C94            ;   object's item list, putting the items back on the free list
+SOUND_OFF equ 0x0663            ; the resident routine there that plays a sound (GPL's 5Dh)
+QUEST_SOUND equ 53              ; the sound of a quest done (the game's scripts, with their XP)
 probe_use_item:
         sti
         pushad
@@ -1201,13 +1244,17 @@ probe_use_item:
         xor ax, ax
         mov es, ax
         mov cx, [es:0x46C]      ; the BIOS timer
+        call rtc_begin
 .wait:  mov ax, [cs:use_reply]
         cmp ax, [cs:use_seq]
         je .ready
         mov ax, [es:0x46C]
         sub ax, cx
         cmp ax, PICK_WAIT
-        jb .wait
+        jae .late_use_reply
+        call rtc_waited         ; (the BIOS clock can stand still: the game's timer
+        jnc .wait               ;   doesn't always pass its ticks on; at most 2 s by the real-time clock)
+.late_use_reply:
         jmp .go                 ; no answer: the companion isn't reading
 .ready: cmp word [cs:use_taken], 0
         je .go
@@ -1223,6 +1270,12 @@ probe_use_item:
         call far [cs:drop_call]
         add sp, 2
         mov word [HELD], -1
+        mov ax, ds              ; (the drop routine's AX is its own)
+        sub ax, DGROUP_SEG - DROP_SEG
+        mov [cs:sound_call + 2], ax  ; and the sound the game plays when a quest is done (with
+        push word QUEST_SOUND   ;   "... receives N experience points!": its 5Dh command)
+        call far [cs:sound_call]
+        add sp, 2
         pop bx
 .kept:
         mov dx, USE_DONE
@@ -1263,13 +1316,17 @@ turn_check:
         xor ax, ax
         mov es, ax
         mov dx, [es:0x46C]      ; the BIOS timer
+        call rtc_begin
 .wait:  mov ax, [cs:reply_seq]
         cmp ax, [cs:turn_seq]
         je .ready
         mov ax, [es:0x46C]
         sub ax, dx
         cmp ax, TURN_WAIT
-        jb .wait
+        jae .late_reply_seq
+        call rtc_waited         ; (the BIOS clock can stand still: the game's timer
+        jnc .wait               ;   doesn't always pass its ticks on; at most 2 s by the real-time clock)
+.late_reply_seq:
         jmp .out                ; no answer: the companion isn't reading
 .ready: cmp byte [cs:msg_buf], 0
         je .out                 ; nothing to say about that turn
@@ -1491,13 +1548,17 @@ probe_look:
         xor ax, ax
         mov es, ax
         mov dx, [es:0x46C]      ; the BIOS timer
+        call rtc_begin
 .wait:  mov ax, [cs:look_reply]
         cmp ax, [cs:look_seq]
         je .ready
         mov ax, [es:0x46C]
         sub ax, dx
         cmp ax, TURN_WAIT
-        jb .wait
+        jae .late_look_reply
+        call rtc_waited         ; (the BIOS clock can stand still: the game's timer
+        jnc .wait               ;   doesn't always pass its ticks on; at most 2 s by the real-time clock)
+.late_look_reply:
         jmp .done               ; no answer: the companion isn't reading
 .ready: mov es, [ss:si + 36]
         mov di, [ss:si + 34]
@@ -1604,13 +1665,16 @@ stats_sync:
         cmp ax, STATS_FRESH
         jae .out                ; the companion isn't running
         inc word [cs:stats_req]
+        call rtc_begin
 .wait:  mov ax, [cs:stats_reply]
         cmp ax, [cs:stats_req]
         je .done
         mov ax, [es:0x46C]
         sub ax, dx
         cmp ax, STATS_WAIT
-        jb .wait
+        jae .done
+        call rtc_waited         ; (as the waits for the companion: the BIOS clock can stand still)
+        jnc .wait
 .done:  mov ax, [es:0x46C]
         mov [cs:sync_at], ax
 .out:   pop es
@@ -1619,6 +1683,42 @@ stats_sync:
         ret
 
 sync_at dw 0
+
+; RTC_BEGIN, RTC_WAITED: a wait for the companion ends after its BIOS ticks, or, as the BIOS clock
+; stands still while the game's timer handler keeps its ticks to itself (as in some fights), once
+; the real-time clock's second has changed twice (1 to 2 seconds): never a hang.
+rtc_begin:
+        push ax
+        call rtc_second
+        mov [cs:w_sec], al
+        mov byte [cs:w_flips], 0
+        pop ax
+        ret
+rtc_waited:                             ; CF set: the wait is over
+        push ax
+        call rtc_second
+        cmp al, [cs:w_sec]
+        je .no
+        mov [cs:w_sec], al
+        inc byte [cs:w_flips]
+        cmp byte [cs:w_flips], 2
+        jb .no
+        pop ax
+        stc
+        ret
+.no:    pop ax
+        clc
+        ret
+rtc_second:                             ; AL = the real-time clock's seconds (CMOS register 0)
+        pushf
+        cli
+        mov al, 0
+        out 0x70, al
+        in al, 0x71
+        popf
+        ret
+w_sec   db 0
+w_flips db 0
 
 ; BX = a party member (0-3): CF clear and CS:BX = their STATS entry if the companion keeps it
 ; current, CF set if not
@@ -2292,7 +2392,8 @@ dex_table:
 
 ; PROBE_DOS_OPEN: the DOS services (INT 21h), hooked. Opening a file (AH=3Dh) whose name ends in
 ; one of COPIES' (SEGOBJEX.GFF, the game's objects and their pictures; RESOURCE.GFF, its screens'
-; pictures and texts) opens the companion's copy instead (D:\..., which the launcher writes with
+; pictures and texts; GPLDATA.GFF, its scripts; RGN29.GFF, the slave pens) opens the companion's
+; copy instead (D:\..., which the launcher writes with
 ; the companion's icons added; the game folder is never changed), and notes that it has; with no
 ; copy there, the game's own. Everything else goes on to DOS.
 OBJ_NAME_LEN equ 12
@@ -2311,18 +2412,32 @@ probe_dos_open:
         inc si
         loop .end
         jmp .no
+;
+; Each copy's name (its length first) is matched against the end of the path, where it starts the
+; path or follows a \, : or /.
 .at_end:
         mov ax, si
-        sub ax, dx
-        cmp ax, OBJ_NAME_LEN
-        jb .no
-        sub si, OBJ_NAME_LEN
+        sub ax, dx              ; AX: the path's length
         mov bx, copies
-.file:  cmp byte [cs:bx], 0
-        je .no
+.file:  mov cl, [cs:bx]         ; this copy's name length (0: no more)
+        xor ch, ch
+        jcxz .no
+        cmp ax, cx
+        jb .next
+        push ax
         push si
-        mov di, bx
-        mov cx, OBJ_NAME_LEN
+        sub si, cx              ; where the name would start
+        cmp ax, cx
+        je .compare             ; (the path is just the name)
+        mov al, [si - 1]
+        cmp al, '\'
+        je .compare
+        cmp al, ':'
+        je .compare
+        cmp al, '/'
+        jne .differ
+.compare:
+        lea di, [bx + 1]
 .cmp:   mov al, [si]
         cmp al, 'a'
         jb .upper
@@ -2330,14 +2445,17 @@ probe_dos_open:
         ja .upper
         sub al, 20h
 .upper: cmp al, [cs:di]
-        jne .next
+        jne .differ
         inc si
         inc di
         loop .cmp
         pop si
+        pop ax
         jmp .found
-.next:  pop si
-        add bx, COPY_SIZE
+.differ:
+        pop si
+        pop ax
+.next:  add bx, COPY_SIZE
         jmp .file
 .found: mov [cs:copy_at], bx
         pop di
@@ -2352,7 +2470,7 @@ probe_dos_open:
         push cs
         pop ds
         mov dx, [cs:copy_at]
-        add dx, OBJ_NAME_LEN    ; its copy's path
+        add dx, 1 + OBJ_NAME_LEN  ; its copy's path
         pushf
         call far [cs:old21]
         pop dx
@@ -2361,7 +2479,7 @@ probe_dos_open:
         pop word [cs:obj_scratch]  ; (POP keeps the flags: CF clear, AX the handle)
         push bx
         mov bx, [cs:copy_at]
-        mov bx, [cs:bx + OBJ_NAME_LEN + COPY_PATH]  ; (its flag: set to 1)
+        mov bx, [cs:bx + 1 + OBJ_NAME_LEN + COPY_PATH]  ; (its flag: set to 1)
         mov word [cs:bx], 1
         pop bx
         retf 2
@@ -2377,14 +2495,24 @@ old21       dd 0
 obj_scratch dw 0
 copy_at     dw 0
 resources_on dw 0               ; 1 once the game has opened D:\RESOURCE.GFF (PROBE_CHUNK_ID)
-; the files with copies: the game's name (12 letters), the copy's path, the flag set when opened
+scripts_on dw 0                 ; 1 once the game has opened D:\GPLDATA.GFF (Kalzith's conversation)
+region_on dw 0                  ; 1 once the game has opened D:\RGN29.GFF (Kalzith in the pens)
+; the files with copies: the name's length, the game's name (up to 12 letters), the copy's path,
+; the flag set when opened
 COPY_PATH equ 16
-COPY_SIZE equ OBJ_NAME_LEN + COPY_PATH + 2
+COPY_SIZE equ 1 + OBJ_NAME_LEN + COPY_PATH + 2
+%macro COPY 3
+        db %strlen(%1), %1
+        times OBJ_NAME_LEN - %strlen(%1) db 0
+        db %2
+        times COPY_PATH - %strlen(%2) db 0
+        dw %3
+%endmacro
 copies:
-        db 'SEGOBJEX.GFF', 'D:\SEGOBJEX.GFF', 0
-        dw objects_on
-        db 'RESOURCE.GFF', 'D:\RESOURCE.GFF', 0
-        dw resources_on
+        COPY 'SEGOBJEX.GFF', 'D:\SEGOBJEX.GFF', objects_on
+        COPY 'RESOURCE.GFF', 'D:\RESOURCE.GFF', resources_on
+        COPY 'GPLDATA.GFF', 'D:\GPLDATA.GFF', scripts_on
+        COPY 'RGN29.GFF', 'D:\RGN29.GFF', region_on
         db 0
 
 ; CAT'S GRACE (RULE_CATS_GRACE): Flaming Sphere (spell 14), given Strength's record and the
@@ -2711,6 +2839,1792 @@ kind    dw 0
 extra   dw 0
 SPELL_SEG equ 2 + 0x79BB7 - 0x79A85  ; return address - (DSUN.EXE offsets: patch, mov ax's operand)
 
+; SHADOWS (SHADOWS_ON): every figure the companion marks (SHADOW_TAB) casts a see-through shadow
+; on the floor, its outline laid down toward the lower right (the light on Athas's maps comes from
+; the upper left, as the walls' and bones' shadows show), drawn after the floor and before anything else, so
+; walls and figures, its own and everyone else's, stand on it.
+;
+; The game draws a view of the map into a page of its planar (mode X) video memory: first the floor
+; (DSUN.EXE 2700Eh: all of the view; 27162h: a rectangle of it), then, row by row, the walls and
+; things standing on it and the figures (1DBD:0002). The floor routines are hooked at their start
+; (PROBE_FLOOR): their way back is pointed at FLOOR_POST, which draws the shadows over the floor
+; they have just drawn, clipped to it, then goes back (not when the routine draws nothing: then
+; whatever is there was shadowed already). Each pixel of a shadow is darkened once, by DARK (each
+; colour's nearest darker one, at 3/4 strength, among the colours the game doesn't animate). A
+; figure's outline is its picture's: the runs of each row of the frame it is drawn with (no colours
+; needed), its picture loaded into the cache first if it isn't in memory (as drawing it is about to;
+; in a fight most aren't till then).
+;
+; A figure that moves is drawn again within a rectangle round where it was and where it is; its
+; shadow reaches beyond its picture, so the routines redrawing rectangles (PROBE_REDRAW: 2475Fh, a
+; rectangle; PROBE_REDRAW_ALL: 24B18h, the one round everything that moved) make theirs bigger by
+; as far as a shadow reaches (SHADOW_RIGHT, SHADOW_DOWN), or the old shadow would be left behind.
+
+SHADOW_ROWS  equ 64             ; rows of a figure, up from its feet, that cast a shadow
+SHADOW_RIGHT equ 72             ; how far right a shadow reaches past its figure (SHADOW_ROWS * 1.05,
+                                ;   and a step of 4: rectangles are kept to whole bytes)
+SHADOW_DOWN  equ 44             ; and how far down (SHADOW_ROWS / 2, and a figure's height off the
+                                ;   ground)
+PAGES_SEG    equ 0x0980         ; (DSUN.EXE segments, less the load segment) the page routines',
+                                ;   whose code segment holds the pages' table
+CACHE_SEG    equ 0x3E60         ; the picture cache's table: 16 bytes a slot
+OBJ_LIST     equ 0x6690         ; DS: far pointer to the things on the map, 8 bytes each (x, y,
+OBJ_COUNT    equ 0x1F72         ;   height, flags, which thing), and how many
+MAP_THINGS   equ 0x6694         ; DS: each thing on the map, 32 bytes (sprites.py)
+MAP_COUNT    equ 520            ; how many things the game has
+CACHE_LAST   equ 0x1F84         ; DS: the last slot of the picture cache
+FLOOR_ON     equ 0x2F44         ; DS: 0 when the floor routines draw nothing
+LOADER_SEG   equ 0x1DF3         ; (DSUN.EXE 25D6Ah) the routine that loads a picture into the cache
+LOADER_OFF   equ 0x2A3A         ;   (slot, 0), as drawing one does when it isn't in memory
+FIGURE_MOST  equ 128            ; (the widest and tallest a figure's picture may be, for the test of
+                                ;   whether its shadow can be where the floor was drawn)
+
+; PROBE_REDRAW: INT VEC_REDRAW replaces "push bp / mov bp,sp / sub sp,8" (6 bytes: INT + 4 NOPs)
+; at the start of the routine that draws a rectangle of the view again (camera x, y, page, x0,
+; y0, x1, y1, ...): with shadows on, the rectangle reaches further right and down.
+probe_redraw:
+        push bp
+        mov bp, sp
+        cmp word [cs:shadows_on], 0
+        jne .wide
+        cmp word [cs:rings_on], 0
+        je .go
+.wide:
+        add word [bp+22], SHADOW_RIGHT  ; x1 (after BP, the interrupt's IP, CS and flags, and the
+        add word [bp+24], SHADOW_DOWN   ;   caller's way back); y1 (the routine keeps both on screen)
+.go:    pop bp
+        pop word [cs:resume]
+        pop word [cs:resume + 2]
+        popf
+        push bp
+        mov bp, sp
+        sub sp, 8
+        jmp far [cs:resume]
+
+; PROBE_REDRAW_ALL: INT VEC_REDRAW_ALL replaces "push word [bp+8] / push word [bp+6]" (6 bytes:
+; INT + 4 NOPs) where the routine drawing again what moved, having made the rectangle round it all
+; (x1 at [BP-0Ah], y1 at [BP-0Eh]), starts to draw: with shadows on, it reaches further right and down.
+probe_redraw_all:
+        pop word [cs:resume]
+        pop word [cs:resume + 2]
+        pop word [cs:resume_fl]
+        cmp word [cs:shadows_on], 0
+        jne .wide
+        cmp word [cs:rings_on], 0
+        je .dust
+.wide:  add word [bp-0x0A], SHADOW_RIGHT
+        cmp word [bp-0x0A], 0x13F       ; (the routine draws to x1 + 1: kept on screen)
+        jle .x
+        mov word [bp-0x0A], 0x13F
+.x:     add word [bp-0x0E], SHADOW_DOWN
+        cmp word [bp-0x0E], 0xC7
+        jle .dust
+        mov word [bp-0x0E], 0xC7
+.dust:  call dust_union
+.go:    push word [bp+8]
+        push word [bp+6]
+        push word [cs:resume_fl]
+        push word [cs:resume + 2]
+        push word [cs:resume]
+        iret
+
+; PROBE_FLOOR: INT VEC_FLOOR_ALL and INT VEC_FLOOR_RECT replace "push bp / mov bp,sp / sub sp,N"
+; (6 bytes: INT + 4 NOPs) at the start of the routines drawing the floor of the view (page, camera
+; x, y) and of a rectangle of it (page, x0, y0, x1 + 1, y1, camera x, y). With shadows on, their
+; way back is FLOOR_POST.
+probe_floor_all:
+        mov word [cs:floor_frame], 0x1C
+        mov byte [cs:floor_kind], 0
+        jmp floor_enter
+probe_floor_rect:
+        mov word [cs:floor_frame], 0x1E
+        mov byte [cs:floor_kind], 1
+floor_enter:
+        pop word [cs:resume]
+        pop word [cs:resume + 2]
+        popf
+        cmp word [cs:shadows_on], 0
+        jne .on
+        cmp word [cs:dust_on], 0
+        jne .on
+        cmp word [cs:rings_on], 0
+        je .plain
+.on:    cmp byte [cs:floor_busy], 0
+        jne .plain
+        cmp word [FLOOR_ON], 0          ; (DS: the game's) the routine draws nothing without it
+        je .plain
+        mov byte [cs:floor_busy], 1
+        push bp
+        mov bp, sp
+        push ax
+        mov ax, [bp+2]                  ; the caller's way back, kept, and FLOOR_POST in its place
+        mov [cs:floor_ret], ax
+        mov ax, [bp+4]
+        mov [cs:floor_ret + 2], ax
+        mov word [bp+2], floor_post
+        mov [bp+4], cs
+        pop ax
+        pop bp
+.plain: push bp
+        mov bp, sp
+        sub sp, [cs:floor_frame]
+        jmp far [cs:resume]
+
+; the floor drawn: the shadows on it, then back to the caller (its arguments still on the stack)
+floor_post:
+        pushf
+        pushad
+        push ds
+        push es
+        mov bp, sp
+        call shadow_pass
+        pop es
+        pop ds
+        popad
+        popf
+        mov byte [cs:floor_busy], 0
+        jmp far [cs:floor_ret]
+
+F_ARGS equ 38                   ; (FLOOR_POST's frame: ES, DS, PUSHAD, flags, then the arguments)
+
+shadow_pass:
+        cld
+        inc word [cs:shadow_passes]
+        mov [cs:game_ds], ds
+        mov ax, ds
+        sub ax, DGROUP_SEG
+        mov [cs:load_seg], ax
+        ; the page: where it is (its bounds, the clip), and the page it is part of (its memory)
+        add ax, PAGES_SEG
+        mov es, ax
+        mov bx, [bp + F_ARGS]
+        shl bx, 1
+        mov ax, [es:bx + 0x404]
+        mov [cs:clip_x0], ax
+        mov ax, [es:bx + 0x604]
+        mov [cs:clip_y0], ax
+        mov ax, [es:bx + 0x804]
+        mov [cs:clip_x1], ax
+        mov ax, [es:bx + 0xA04]
+        mov [cs:clip_y1], ax
+.parent:
+        test word [es:bx + 0xC04], 0x40
+        jz .root
+        mov bx, [es:bx + 4]
+        jmp .parent
+.root:  mov ax, [es:bx + 4]
+        mov [cs:v_seg], ax
+        mov ax, [es:bx + 0x604]
+        mov [cs:v_y0], ax
+        mov ax, [es:bx + 0x404]
+        shr ax, 2
+        mov [cs:v_x0], ax
+        mov cx, [es:bx + 0x804]
+        shr cx, 2
+        sub cx, ax
+        inc cx
+        mov [cs:v_row], cx
+        ; the camera, and for a rectangle's floor the rectangle
+        cmp byte [cs:floor_kind], 0
+        jne .rect
+        mov ax, [bp + F_ARGS + 2]
+        mov [cs:cam_x], ax
+        mov ax, [bp + F_ARGS + 4]
+        mov [cs:cam_y], ax
+        jmp .clipped
+.rect:  mov ax, [bp + F_ARGS + 10]
+        mov [cs:cam_x], ax
+        mov ax, [bp + F_ARGS + 12]
+        mov [cs:cam_y], ax
+        mov ax, [bp + F_ARGS + 2]       ; x0
+        cmp ax, [cs:clip_x0]
+        jle .rx1
+        mov [cs:clip_x0], ax
+.rx1:   mov ax, [bp + F_ARGS + 6]       ; x1 + 1
+        dec ax
+        cmp ax, [cs:clip_x1]
+        jge .ry0
+        mov [cs:clip_x1], ax
+.ry0:   mov ax, [bp + F_ARGS + 4]       ; y0
+        cmp ax, [cs:clip_y0]
+        jle .ry1
+        mov [cs:clip_y0], ax
+.ry1:   mov ax, [bp + F_ARGS + 8]       ; y1
+        cmp ax, [cs:clip_y1]
+        jge .clipped
+        mov [cs:clip_y1], ax
+.clipped:
+        cmp word [cs:dark_build], 0
+        je .dark
+        call build_dark
+        jc .dark                        ; (not yet: the screen is fading)
+        mov word [cs:dark_build], 0
+.dark:  call vga_save
+        cmp word [cs:shadows_on], 0
+        je .dust
+        cmp byte [cs:dark_ready], 0
+        je .dust                        ; (no colours to darken with yet)
+        mov ds, [cs:game_ds]
+        les di, [OBJ_LIST]
+        mov cx, [OBJ_COUNT]
+        jcxz .done
+.thing: push cx
+        push di
+        push es
+        call shadow_of
+        pop es
+        pop di
+        pop cx
+        add di, 8
+        loop .thing
+.dust:  call ring_pass
+        call dust_pass
+.done:  call vga_restore
+        ret
+
+; the shadow of the thing at ES:DI (DS = the game's), if it casts one
+shadow_of:
+        mov bx, [es:di + 6]
+        cmp bx, MAP_COUNT - 1
+        ja .no                          ; (none)
+        cmp byte [cs:shadow_tab + bx], 0
+        je .no
+        shl bx, 5
+        add bx, MAP_THINGS
+        test byte [bx], 0x80
+        jnz .no                         ; (not drawn)
+        mov si, [bx + 0x0F]             ; its picture's place in the cache
+        cmp si, 0xFFFF
+        je .no
+        cmp si, [CACHE_LAST]
+        ja .no
+        ; where its picture is drawn (as the game works it out), on the ground
+        mov al, [es:di + 5]
+        mov [cs:mirror], al
+        xor dx, dx
+        test al, 0x20
+        jz .fixed
+        mov ax, [es:di]
+        mov dl, [bx + 7]
+        sub ax, dx
+        sub ax, [cs:cam_x]
+        mov [cs:fig_x], ax
+        mov ax, [es:di + 2]
+        mov dl, [bx + 8]
+        sub ax, dx                      ; (its height off the ground left out: the shadow is on it)
+        sub ax, [cs:cam_y]
+        mov [cs:fig_y], ax
+        jmp .frame
+.fixed: mov ax, [bx + 3]
+        sub ax, [cs:cam_x]
+        mov [cs:fig_x], ax
+        mov ax, [bx + 5]
+        sub ax, [cs:cam_y]
+        mov [cs:fig_y], ax
+.frame: mov al, [bx + 0x11]
+        xor ah, ah
+        mov [cs:frame], ax
+        ; (none of its shadow where the floor was drawn: nothing to do)
+        mov ax, [cs:fig_x]
+        cmp ax, [cs:clip_x1]
+        jg .no
+        add ax, FIGURE_MOST + SHADOW_RIGHT
+        cmp ax, [cs:clip_x0]
+        jl .no
+        mov ax, [cs:fig_y]
+        cmp ax, [cs:clip_y1]
+        jg .no
+        add ax, FIGURE_MOST + SHADOW_DOWN
+        cmp ax, [cs:clip_y0]
+        jl .no
+        ; its picture, if in the cache
+        mov ax, [cs:load_seg]
+        add ax, CACHE_SEG
+        mov es, ax
+        shl si, 4
+        cmp dword [es:si + 6], 0
+        jl .no
+        test byte [es:si + 0x0E], 2
+        jnz .loaded
+        shr si, 4                       ; (not in memory: loaded, as drawing it is about to)
+        push si
+        mov ax, [cs:load_seg]
+        add ax, LOADER_SEG
+        mov [cs:loader + 2], ax
+        push word 0
+        push si
+        call far [cs:loader]
+        add sp, 4
+        pop si
+        or ax, ax
+        jz .no
+        mov ax, [cs:load_seg]
+        add ax, CACHE_SEG
+        mov es, ax
+        shl si, 4
+.loaded:
+        les si, [es:si + 0x0A]
+        mov bx, [cs:frame]
+        cmp bx, [es:si + 4]
+        jae .no
+        shl bx, 2
+        movzx eax, word [cs:zero]       ; (EAX: the frame's address, linear)
+        mov ax, es
+        shl eax, 4
+        movzx ecx, si
+        add eax, ecx
+        add eax, [es:si + bx + 6]
+        mov si, ax
+        and si, 0x0F
+        shr eax, 4
+        mov es, ax
+        ; the frame: width, height, then its rows
+        mov ax, [es:si]
+        mov [cs:f_w], ax
+        mov ax, [es:si + 2]
+        dec ax
+        mov [cs:f_bottom], ax
+        add si, 4
+.row:   mov al, [es:si]
+        inc si
+        cmp al, 0xFF
+        je .no
+        xor ah, ah
+        mov [cs:f_y], ax
+.run:   mov ax, [es:si]                 ; a run: x (8000h: the row's last), its pixels, its data
+        mov [cs:r_x], ax
+        mov cl, [es:si + 2]
+        mov [cs:r_n], cl
+        mov dl, [es:si + 3]
+        xor dh, dh
+        add si, 4
+        add si, dx
+        mov ax, [cs:f_bottom]
+        sub ax, [cs:f_y]                ; how far up from the feet
+        jl .next
+        cmp ax, SHADOW_ROWS
+        jg .next
+        test al, 1
+        jnz .next                       ; (every other row: the shadow is half as tall)
+        push es
+        push si
+        call cast_run
+        pop si
+        pop es
+.next:  test byte [cs:r_x + 1], 0x80
+        jz .run
+        jmp .row
+.no:    ret
+
+; the shadow of the current run, AX rows up from the feet
+cast_run:
+        mov bx, ax
+        shr bx, 1
+        add bx, [cs:f_bottom]
+        add bx, [cs:fig_y]              ; BX: the screen row it falls on
+        mov dx, [cs:r_x]
+        and dx, 0x7FFF
+        xor ch, ch
+        mov cl, [cs:r_n]
+        test byte [cs:mirror], 0x80
+        jz .lean
+        mov di, [cs:f_w]                ; (drawn mirrored: from the other side)
+        sub di, dx
+        sub di, cx
+        mov dx, di
+.lean:  add dx, [cs:fig_x]
+        mov di, ax                      ; leaning right by 1.05 times as far as it is up
+        add ax, 10
+        push dx
+        xor dx, dx
+        push bx
+        mov bx, 20
+        div bx
+        pop bx
+        pop dx
+        add di, ax
+        add dx, di                      ; DX: its first x
+        mov di, dx
+        add di, cx
+        dec di                          ; DI: its last
+        call darken
+        ret
+
+; darken DX..DI on row BX (screen), within the clip
+darken: cmp bx, [cs:clip_y0]
+        jl .out
+        cmp bx, [cs:clip_y1]
+        jg .out
+        cmp dx, [cs:clip_x0]
+        jge .x1
+        mov dx, [cs:clip_x0]
+.x1:    cmp di, [cs:clip_x1]
+        jle .span
+        mov di, [cs:clip_x1]
+.span:  cmp dx, di
+        jg .out
+        mov [cs:s_first], dx            ; (before MUL, which takes DX)
+        mov [cs:s_last], di
+        ; darken DX..DI on row BX, a plane at a time
+        mov ax, bx
+        sub ax, [cs:v_y0]
+        mul word [cs:v_row]
+        sub ax, [cs:v_x0]
+        mov [cs:row_at], ax
+        mov es, [cs:v_seg]
+        xor cx, cx                      ; the plane
+.plane: mov ax, cx
+        sub ax, [cs:s_first]
+        and ax, 3
+        add ax, [cs:s_first]            ; the first x on this plane
+        cmp ax, [cs:s_last]
+        jg .nextp
+        push ax
+        mov dx, 0x3C4                   ; write to this plane, read from it
+        mov al, 2
+        mov ah, 1
+        shl ah, cl
+        out dx, ax
+        mov dx, 0x3CE
+        mov al, 4
+        mov ah, cl
+        out dx, ax
+        pop ax
+        mov si, [cs:s_last]
+        sub si, ax
+        shr si, 2
+        inc si                          ; SI: how many
+        shr ax, 2
+        add ax, [cs:row_at]
+        mov di, ax
+        xor bh, bh
+.pix:   mov bl, [es:di]
+        mov bl, [cs:dark + bx]
+        mov [es:di], bl
+        inc di
+        dec si
+        jnz .pix
+.nextp: inc cx
+        cmp cx, 4
+        jb .plane
+.out:   ret
+
+; the VGA's registers the shadows change, kept and put back
+vga_save:
+        mov dx, 0x3C4
+        in al, dx
+        mov [cs:sc_index], al
+        mov al, 2
+        out dx, al
+        inc dx
+        in al, dx
+        mov [cs:sc_mask], al
+        mov dx, 0x3CE
+        in al, dx
+        mov [cs:gc_index], al
+        xor bx, bx
+.save:  mov al, [cs:gc_regs + bx]
+        out dx, al
+        inc dx
+        in al, dx
+        dec dx
+        mov [cs:gc_saved + bx], al
+        inc bx
+        cmp bx, 5
+        jb .save
+        mov ax, 0x0001                  ; no set/reset, no rotation, all bits, write mode 0
+        out dx, ax
+        mov ax, 0x0003
+        out dx, ax
+        mov ah, [cs:gc_saved + 3]
+        and ah, 0xF4
+        mov al, 5
+        out dx, ax
+        mov ax, 0xFF08
+        out dx, ax
+        ret
+
+vga_restore:
+        mov dx, 0x3CE
+        xor bx, bx
+.put:   mov al, [cs:gc_regs + bx]
+        mov ah, [cs:gc_saved + bx]
+        out dx, ax
+        inc bx
+        cmp bx, 5
+        jb .put
+        mov al, [cs:gc_index]
+        out dx, al
+        mov dx, 0x3C4
+        mov al, 2
+        mov ah, [cs:sc_mask]
+        out dx, ax
+        mov al, [cs:sc_index]
+        out dx, al
+        ret
+
+; DARK: for each colour of the palette as it is now, the nearest to it at 3/4 strength among the
+; colours the game doesn't animate (DARK_FIRST-DARK_LAST: 11-15 and 224-255 cycle, for fire and
+; water); made again when the area, so the palette, changes
+DARK_FIRST equ 16
+DARK_LAST  equ 223
+DARK_PARTS equ 3                ; (a shadow's strength: 3/4, as the walls' own shadows on the floor)
+DARK_WHOLE equ 4
+DARK_HUE   equ 4                ; (how much a change of hue counts against a colour)
+DARK_LIT   equ 4000             ; (the palette's 768 values, out of 63 each, add up to less in a fade)
+build_dark:
+        push ds
+        push cs
+        pop ds
+        mov dx, 0x3C7
+        xor al, al
+        out dx, al
+        mov dx, 0x3C9
+        mov di, dac
+        mov cx, 768
+        xor bx, bx                      ; (BX: how bright it is in all)
+.read:  in al, dx
+        mov [di], al
+        xor ah, ah
+        add bx, ax
+        inc di
+        loop .read
+        cmp bx, DARK_LIT
+        jae .lit
+        pop ds                          ; (nearly black: a fade, not the area's colours)
+        stc
+        ret
+.lit:
+        xor bx, bx                      ; the colour
+.colour:
+        mov si, bx
+        imul si, si, 3
+        add si, dac
+        xor di, di                      ; its darker self
+.chan:  lodsb
+        mov ah, DARK_PARTS
+        mul ah
+        mov dl, DARK_WHOLE
+        div dl
+        mov [want + di], al
+        inc di
+        cmp di, 3
+        jb .chan
+        mov si, bx                      ; (only clearly darker ones: brightness under 7/8 of its own)
+        imul si, si, 3
+        add si, dac
+        xor ax, ax
+        xor dx, dx
+        mov di, 3
+.own:   lodsb
+        add dx, ax
+        dec di
+        jnz .own
+        imul dx, dx, 7
+        shr dx, 3
+        mov [lit_most], dx
+        mov dword [best_d], 0xFFFFFFFF
+        mov [best_c], bl
+        mov cx, DARK_FIRST
+.cand:  mov word [lit_sum], 0
+        mov si, cx                      ; how far a colour is from the one wanted: the differences
+        imul si, si, 3                  ;   squared, and those between them weighted (DARK_HUE),
+        add si, dac                     ;   so that it keeps its hue (sand stays sand, not pink)
+        xor di, di
+.diff:  lodsb
+        mov ah, 0
+        add [lit_sum], ax
+        sub al, [want + di]
+        cbw
+        mov [diffs + di], al
+        inc di
+        cmp di, 3
+        jb .diff
+        mov ax, [lit_sum]
+        cmp ax, [lit_most]
+        jae .worse                      ; (not darker enough)
+        xor edx, edx
+        xor di, di
+.sq:    movsx eax, byte [diffs + di]
+        imul eax, eax
+        add edx, eax
+        inc di
+        cmp di, 3
+        jb .sq
+        movsx eax, byte [diffs]
+        movsx edi, byte [diffs + 1]
+        sub eax, edi
+        imul eax, eax
+        imul eax, eax, DARK_HUE
+        add edx, eax
+        movsx eax, byte [diffs + 1]
+        movsx edi, byte [diffs + 2]
+        sub eax, edi
+        imul eax, eax
+        imul eax, eax, DARK_HUE
+        add edx, eax
+        cmp edx, [best_d]
+        jae .worse
+        mov [best_d], edx
+        mov [best_c], cl
+.worse: inc cx
+        cmp cx, DARK_LAST
+        jbe .cand
+        mov al, [best_c]
+        mov [dark + bx], al
+        inc bx
+        cmp bx, 256
+        jb .colour
+        mov byte [dark_ready], 1
+        pop ds
+        clc
+        ret
+
+; SCROLLING (SCROLL_ON): holding the right mouse button and moving scrolls the map with the pointer,
+; as if dragging it; a right click (released before the pointer has moved DRAG_START pixels) is
+; still the game's (it changes what the pointer does: walk, use, look).
+;
+; The game is told of the mouse's buttons by the mouse driver calling its handler (INT 33h, 0Ch).
+; INT33 puts MOUSE_EVENT in its place, which keeps the right button from the game while it is
+; held: if it was a click, the game gets the press and the release when it is let go; if it was a
+; drag, nothing. The game's main loop reads where the pointer is (DSUN.EXE 1CAACh, the call to the
+; driver's 03h), to scroll the map when it is at the screen's edge; PROBE_SCROLL makes that call
+; itself and, while dragging, has the game centre its view where the drag puts it (191F:0281h, as
+; clicking on the overview map does: the view is then drawn again), and the pointer is kept off
+; the edges. It also scrolls by what the companion adds to PAN_X and PAN_Y.
+
+DRAG_START  equ 4               ; pixels the pointer moves before a right click is a drag
+CAM_X       equ 0x1178          ; DS: the view's top left on the map
+CAM_Y       equ 0x117A
+CAM_X_MOST  equ 0x6C0           ; (as far as the game lets it go: the map less the view)
+CAM_Y_MOST  equ 0x558
+CENTRE_SEG  equ 0x191F          ; (DSUN.EXE 1E871h) centre the view on (x, y, 1: draw it again)
+CENTRE_OFF  equ 0x0281
+EVENT_PRESS equ 8               ; the driver's events: right button pressed, released
+EVENT_LEAVE equ 16
+RIGHT       equ 2               ; the right button, in the buttons held
+MIDDLE      equ 4               ; the middle one (pressing the wheel)
+EVENT_MID_PRESS equ 0x20
+EVENT_MID_LEAVE equ 0x40
+SCROLL_MIDDLE equ 1             ; SCROLL_ON's bits: dragging with the wheel pressed,
+SCROLL_RIGHT  equ 2             ;   with the right button held
+
+int33:
+        cmp ax, 0x0C
+        jne .chain
+        or cx, cx
+        jz .chain                       ; (taking the handler away)
+        mov [cs:game_handler], dx
+        mov [cs:game_handler + 2], es
+        mov [cs:game_mask], cx
+        push es
+        push dx
+        push cx
+        or cx, 0x7F                     ; (moves, and all three buttons)
+        push cs
+        pop es
+        mov dx, mouse_event
+        pushf
+        call far [cs:old33]
+        pop cx
+        pop dx
+        pop es
+        iret
+.chain: jmp far [cs:old33]
+
+mouse_event:                            ; AX = events, BX = buttons held, CX, DX = where
+        cmp word [cs:scroll_on], 0
+        je .pass
+        test byte [cs:scroll_on], SCROLL_MIDDLE
+        jz .right
+        test al, EVENT_MID_PRESS        ; the wheel pressed: a drag at once (the game has no use
+        jz .mheld                       ;   for that button)
+        cmp byte [cs:drag], 0
+        jne .mheld
+        mov byte [cs:drag], 2
+        mov byte [cs:drag_mid], 1
+        mov byte [cs:drag_new], 1
+        mov [cs:drag_x], cx
+        mov [cs:drag_y], dx
+.mheld: cmp byte [cs:drag_mid], 0
+        je .right
+        and bx, ~MIDDLE
+        test al, EVENT_MID_LEAVE
+        jz .mdone
+        mov byte [cs:drag], 0
+        mov byte [cs:drag_mid], 0
+.mdone: and al, ~(EVENT_MID_PRESS | EVENT_MID_LEAVE)
+        jmp .pass
+.right: test byte [cs:scroll_on], SCROLL_RIGHT
+        jz .pass
+        test al, EVENT_PRESS
+        jz .held
+        cmp byte [cs:drag], 0
+        jne .held
+        mov byte [cs:drag], 1
+        mov [cs:drag_x], cx
+        mov [cs:drag_y], dx
+        and al, ~EVENT_PRESS
+.held:  cmp byte [cs:drag], 0
+        je .pass
+        and bx, ~RIGHT
+        cmp byte [cs:drag], 1
+        jne .leave
+        push ax                         ; moved far enough to be a drag?
+        mov ax, cx
+        sub ax, [cs:drag_x]
+        call .apart
+        jnc .y
+        mov ax, dx
+        sub ax, [cs:drag_y]
+        call .apart
+        jc .near
+.y:     mov byte [cs:drag], 2
+        mov byte [cs:drag_new], 1
+.near:  pop ax
+.leave: test al, EVENT_LEAVE
+        jz .pass
+        and al, ~EVENT_LEAVE
+        cmp byte [cs:drag], 1
+        mov byte [cs:drag], 0
+        jne .pass                       ; (a drag: the game never knows)
+        pusha                           ; a click: pressed and released, where it was pressed
+        or bx, RIGHT
+        mov cx, [cs:drag_x]
+        mov dx, [cs:drag_y]
+        mov ax, EVENT_PRESS
+        call .give
+        popa
+        pusha
+        mov ax, EVENT_LEAVE
+        call .give
+        popa
+.pass:  call .give
+        retf
+.give:  and ax, [cs:game_mask]          ; the events the game asked for, to its handler
+        jz .none
+        pusha
+        push ds
+        push es
+        call far [cs:game_handler]
+        pop es
+        pop ds
+        popa
+.none:  ret
+.apart: or ax, ax                       ; CF clear when |AX| >= DRAG_START
+        jns .pos
+        neg ax
+.pos:   cmp ax, DRAG_START
+        ret
+
+; PROBE_SCROLL: INT VEC_SCROLL replaces the start of "call far 3118:002E" (9Ah 2Eh 00h, then the
+; segment: A9h makes it a harmless "test ax,<segment>" the loader may relocate), the game's main
+; loop asking where the pointer is (its arguments, far pointers to x and y, on the stack).
+probe_scroll:
+        pop word [cs:s_resume]
+        pop word [cs:s_resume + 2]
+        pop word [cs:s_resume_fl]
+        add word [cs:s_resume], 3       ; (past the segment)
+        push bp
+        mov bp, sp
+        push es
+        push bx
+        push cx
+        push dx
+        push si
+        push di
+        inc word [cs:main_ticks]
+        call dust_tick
+        call target_click
+        cmp word [cs:view_redraw], 0
+        je .read
+        mov word [cs:view_redraw], 0
+        call view_again
+.read:  mov ax, 3
+        int 0x33                        ; BX = buttons, CX, DX = where
+        cmp word [cs:scroll_on], 0
+        je .wheel                       ; (the companion's scrolling, as for a chosen enemy, anyway)
+        cmp byte [cs:drag], 2
+        jne .wheel
+        cmp byte [cs:drag_new], 0
+        je .follow
+        mov byte [cs:drag_new], 0
+        mov ax, [CAM_X]
+        mov [cs:cam0_x], ax
+        mov ax, [CAM_Y]
+        mov [cs:cam0_y], ax
+.follow:
+        mov ax, [cs:cam0_x]             ; where the drag puts the view: the map moves with it
+        sub ax, cx
+        add ax, [cs:drag_x]
+        mov si, [cs:cam0_y]
+        sub si, dx
+        add si, [cs:drag_y]
+        call pan_to
+.wheel: mov ax, [cs:pan_x]              ; the companion's
+        sub ax, [cs:pan_x_done]
+        mov si, [cs:pan_y]
+        sub si, [cs:pan_y_done]
+        mov di, ax
+        or di, si
+        jz .report
+        add [cs:pan_x_done], ax
+        add [cs:pan_y_done], si
+        add [cs:cam0_x], ax             ; (a drag under way goes on from there)
+        add [cs:cam0_y], si
+        add ax, [CAM_X]
+        add si, [CAM_Y]
+        call pan_to
+.report:
+        cmp byte [cs:drag], 0
+        je .put
+        and bx, ~(RIGHT | MIDDLE)
+        cmp cx, 1                       ; (off the edges: no scrolling of the game's own)
+        jge .x1
+        mov cx, 1
+.x1:    cmp cx, 0x13D
+        jle .y0
+        mov cx, 0x13D
+.y0:    cmp dx, 1
+        jge .y1
+        mov dx, 1
+.y1:    cmp dx, 0xC6
+        jle .put
+        mov dx, 0xC6
+.put:   les di, [bp + 2]
+        mov [es:di], cx
+        les di, [bp + 6]
+        mov [es:di], dx
+        mov ax, bx
+        pop di
+        pop si
+        pop dx
+        pop cx
+        pop bx
+        pop es
+        pop bp
+        push word [cs:s_resume_fl]
+        push word [cs:s_resume + 2]
+        push word [cs:s_resume]
+        iret
+
+pan_to:                                 ; the view's top left to (AX, SI) as far as the map goes;
+        cmp ax, 0                       ;   keeps CX, DX
+        jge .x1
+        xor ax, ax
+.x1:    cmp ax, CAM_X_MOST
+        jle .y0
+        mov ax, CAM_X_MOST
+.y0:    cmp si, 0
+        jge .y1
+        xor si, si
+.y1:    cmp si, CAM_Y_MOST
+        jle .snap
+        mov si, CAM_Y_MOST
+.snap:  and ax, 0xFFF8                  ; (as the game keeps it)
+        and si, 0xFFF8
+        cmp ax, [CAM_X]
+        jne .go
+        cmp si, [CAM_Y]
+        je .done
+.go:    call centre_on
+.done:  ret
+
+centre_on:                              ; the view's top left to (AX, SI), drawn again; keeps CX, DX
+        push cx
+        push dx
+        push bx
+        mov bx, ds
+        sub bx, DGROUP_SEG - CENTRE_SEG
+        mov [cs:centre + 2], bx
+        push 1
+        add si, 100
+        push si
+        add ax, 160
+        push ax
+        call far [cs:centre]
+        add sp, 6
+        pop bx
+        pop dx
+        pop cx
+        ret
+
+; DUST (DUST_ON): a figure walking raises puffs of dust behind it, which spread, rise a little and
+; fade away in about a second (DUST_LIFE ticks of the BIOS clock). Each is drawn on the floor as the
+; shadows are (DUST_PASS: before the walls and figures, which stand in it), lightening the ground's
+; colours through LIGHT (made by the companion from the palette: 0 for colours that aren't ground
+; dust shows on, so only sand and dirt take it), dithered thinner toward its edge and as it fades,
+; by a pattern fixed to the map (so a puff looks the same however much of it is drawn again).
+;
+; DUST_TICK, from the main loop (PROBE_SCROLL), notes how far each figure that casts a shadow
+; (SHADOW_TAB) has walked, and raises a puff behind its feet every DUST_STEP pixels. While puffs
+; change (each tick of the clock), their ground is to be drawn again: the rectangle the game draws
+; again round what moved takes them in (DUST_UNION, from PROBE_REDRAW_ALL), and when no one is
+; walking, DUST_NUDGE has the game draw the view again. Nothing of the game's is changed (marking a
+; figure changed to have it drawn again can set one in a fight walking again).
+
+DUST_LIFE  equ 18               ; ticks of the BIOS clock (18.2 a second) a puff lasts
+DUST_STEP  equ 6                ; pixels walked for each puff
+JUMP_MOST  equ 40               ; a move further than this (across or up and down) is a jump, not a walk
+PUFFS      equ 24               ; puffs at most at once
+PUFF_SIZE  equ 12               ; a puff: x, y (on the map), born (ticks), owner (thing), seed, live
+BIOS_TICKS equ 0x46C
+
+dust_tick:                      ; DS = the game's
+        cmp word [cs:dust_on], 0
+        jne .on
+        ret
+.on:    push es
+        push bp
+        xor ax, ax
+        mov es, ax
+        mov ax, [es:BIOS_TICKS]
+        mov [cs:d_now], ax
+        cmp ax, [cs:d_last]
+        je .walk
+        mov [cs:d_last], ax
+        mov si, puffs                   ; a tick on: each puff looks different, or is gone
+        mov cx, PUFFS
+.age:   cmp byte [cs:si + 10], 0
+        je .anext
+        call puff_dirty
+        mov ax, [cs:d_now]
+        sub ax, [cs:si + 4]
+        cmp ax, DUST_LIFE
+        jbe .anext
+        mov byte [cs:si + 10], 0        ; (drawn once more, gone: now free)
+.anext: add si, PUFF_SIZE
+        loop .age
+.walk:  les di, [OBJ_LIST]
+        mov cx, [OBJ_COUNT]
+        or cx, cx
+        jz .done
+.thing: push cx
+        mov bx, [es:di + 6]
+        cmp bx, MAP_COUNT - 1
+        ja .tnext
+        cmp byte [cs:shadow_tab + bx], 0
+        je .tnext
+        mov [cs:t_thing], bx
+        mov ax, [es:di]
+        mov [cs:t_x], ax
+        mov dx, [es:di + 2]
+        mov [cs:t_y], dx
+        shl bx, 1
+        sub ax, [cs:last_x + bx]
+        mov [cs:t_dx], ax
+        sub dx, [cs:last_y + bx]
+        mov [cs:t_dy], dx
+        mov ax, [cs:t_x]
+        mov [cs:last_x + bx], ax
+        mov ax, [cs:t_y]
+        mov [cs:last_y + bx], ax
+        mov ax, [cs:t_dx]               ; walked a little (not a jump: an area loaded, someone placed)
+        call abs16
+        cmp ax, JUMP_MOST
+        jae .tnext
+        mov cx, ax
+        mov ax, [cs:t_dy]
+        call abs16
+        cmp ax, JUMP_MOST
+        jae .tnext
+        add ax, cx
+        jz .tnext
+        mov ax, [cs:d_now]
+        mov [cs:d_walked_at], ax
+        mov bx, [cs:t_thing]
+        add [cs:walked + bx], al
+        cmp byte [cs:walked + bx], DUST_STEP
+        jb .tnext
+        sub byte [cs:walked + bx], DUST_STEP
+        cmp byte [cs:walked + bx], DUST_STEP
+        jb .one
+        mov byte [cs:walked + bx], 0        ; (one puff a tick at most)
+.one:
+        call puff_raise
+.tnext: pop cx
+        add di, 8
+        dec cx
+        jnz .thing
+.done:  call dust_nudge
+        pop bp
+        pop es
+        ret
+
+abs16:  or ax, ax
+        jns .pos
+        neg ax
+.pos:   ret
+
+sgn16:  or ax, ax                       ; AX -> -1, 0 or 1
+        jz .z
+        mov ax, 1
+        jg .z
+        neg ax
+.z:     ret
+
+puff_raise:                             ; behind T_THING's feet at (T_X, T_Y), walking (T_DX, T_DY)
+        mov ax, [cs:d_next]             ; the next in turn (the oldest, if all are in use)
+        inc word [cs:d_next]
+        cmp word [cs:d_next], PUFFS
+        jb .slot
+        mov word [cs:d_next], 0
+.slot:  imul si, ax, PUFF_SIZE
+        add si, puffs
+        cmp byte [cs:si + 10], 0
+        je .free
+        call puff_dirty                 ; (its ground drawn again without it)
+.free:  xor byte [cs:d_side], 1         ; (the feet in turn: a little to one side, then the other)
+        mov ax, [cs:t_dx]
+        call sgn16
+        mov [cs:t_sx], ax
+        mov ax, [cs:t_dy]
+        call sgn16
+        mov [cs:t_sy], ax
+        mov ax, [cs:t_sx]               ; x: behind, and to the side across the way it goes
+        imul ax, ax, -3
+        add ax, [cs:t_x]
+        mov dx, [cs:t_sy]
+        shl dx, 1
+        cmp byte [cs:d_side], 0
+        je .x
+        neg dx
+.x:     add ax, dx
+        mov [cs:si], ax
+        mov ax, [cs:t_sy]               ; y: behind, and to the side
+        imul ax, ax, -2
+        add ax, [cs:t_y]
+        mov dx, [cs:t_sx]
+        cmp byte [cs:d_side], 0
+        jne .y
+        neg dx
+.y:     add ax, dx
+        mov [cs:si + 2], ax
+        mov ax, [cs:d_now]
+        mov [cs:si + 4], ax
+        mov ax, [cs:t_thing]
+        mov [cs:si + 6], ax
+        inc word [cs:dust_puffs]
+        imul ax, [cs:dust_puffs], 0x3D7
+        mov [cs:si + 8], ax
+        mov byte [cs:si + 10], 1
+        call puff_dirty
+        ret
+
+puff_dirty:                             ; the puff at CS:SI: its ground to be drawn again (DS = the game's)
+        mov ax, [cs:si]
+        sub ax, 12
+        mov dx, [cs:si + 2]
+        sub dx, 12
+        cmp byte [cs:d_dirty], 0
+        je .first
+        cmp ax, [cs:d_x0]
+        jge .x1
+.first: mov [cs:d_x0], ax
+.x1:    add ax, 24
+        cmp byte [cs:d_dirty], 0
+        je .fx1
+        cmp ax, [cs:d_x1]
+        jle .y0
+.fx1:   mov [cs:d_x1], ax
+.y0:    cmp byte [cs:d_dirty], 0
+        je .fy0
+        cmp dx, [cs:d_y0]
+        jge .y1
+.fy0:   mov [cs:d_y0], dx
+.y1:    add dx, 19
+        cmp byte [cs:d_dirty], 0
+        je .fy1
+        cmp dx, [cs:d_y1]
+        jle .mark
+.fy1:   mov [cs:d_y1], dx
+.mark:  mov byte [cs:d_dirty], 1
+        mov ax, [cs:si + 6]
+        mov [cs:d_owner], ax
+        ret
+
+STILL_TICKS equ 3              ; how long no one has walked (nor the view moved) before DUST_NUDGE
+NUDGE_TICKS equ 4               ; ... and between its drawings of the view
+
+; DUST_NUDGE: with puffs to draw again while no one walks and the view stands still (when the
+; game draws again round what moved anyway, DUST_UNION taking them in), the view drawn again
+; (VIEW_AGAIN) every NUDGE_TICKS, till they are gone
+dust_nudge:
+        mov ax, [CAM_X]                 ; (the view: when it last moved)
+        cmp ax, [cs:d_cam_x]
+        jne .cam
+        mov ax, [CAM_Y]
+        cmp ax, [cs:d_cam_y]
+        je .still
+.cam:   mov ax, [CAM_X]
+        mov [cs:d_cam_x], ax
+        mov ax, [CAM_Y]
+        mov [cs:d_cam_y], ax
+        mov ax, [cs:d_now]
+        mov [cs:d_walked_at], ax
+        ret
+.still: cmp byte [cs:d_dirty], 0
+        je .ret
+        mov ax, [cs:d_now]
+        sub ax, [cs:d_walked_at]
+        cmp ax, STILL_TICKS
+        jb .ret
+        mov ax, [cs:d_now]
+        sub ax, [cs:d_nudged]
+        cmp ax, NUDGE_TICKS
+        jb .ret
+        mov ax, [cs:d_now]
+        mov [cs:d_nudged], ax
+        mov byte [cs:d_dirty], 0
+        call view_again
+.ret:   ret
+
+; VIEW_AGAIN: the view drawn again, all of it, as the game does when the view is centred where it
+; is (DS = the game's). The figures are never marked changed to have them drawn again: in a fight
+; that can set one walking again.
+view_again:
+        push ax
+        push bx
+        push cx
+        push dx
+        push si
+        mov si, [CAM_Y]
+        mov ax, [CAM_X]
+        call centre_on
+        pop si
+        pop dx
+        pop cx
+        pop bx
+        pop ax
+        ret
+
+; DUST_UNION: in PROBE_REDRAW_ALL (x0 [BP-8], x1 [BP-0Ah], y0 [BP-0Ch], y1 [BP-0Eh]: on screen),
+; the puffs' ground taken in, as far as it is on screen
+dust_union:
+        cmp byte [cs:d_dirty], 0
+        je .ret
+        mov byte [cs:d_dirty], 0
+        mov ax, [cs:d_x0]
+        sub ax, [CAM_X]
+        mov cx, [cs:d_x1]
+        sub cx, [CAM_X]
+        mov dx, [cs:d_y0]
+        sub dx, [CAM_Y]
+        mov bx, [cs:d_y1]
+        sub bx, [CAM_Y]
+        cmp cx, 0                       ; (off screen: nothing)
+        jl .ret
+        cmp ax, 0x13F
+        jg .ret
+        cmp bx, 0
+        jl .ret
+        cmp dx, 0xC7
+        jg .ret
+        cmp ax, 0
+        jge .ax
+        xor ax, ax
+.ax:    and ax, 0xFFFC
+        cmp ax, [bp-8]
+        jge .cx
+        mov [bp-8], ax
+.cx:    cmp cx, 0x13F
+        jle .cx3
+        mov cx, 0x13F
+.cx3:   or cx, 3
+        cmp cx, [bp-0x0A]
+        jle .dx
+        mov [bp-0x0A], cx
+.dx:    cmp dx, 0
+        jge .dx0
+        xor dx, dx
+.dx0:   cmp dx, [bp-0x0C]
+        jge .bx
+        mov [bp-0x0C], dx
+.bx:    cmp bx, 0xC7
+        jle .bx1
+        mov bx, 0xC7
+.bx1:   cmp bx, [bp-0x0E]
+        jle .ret
+        mov [bp-0x0E], bx
+.ret:   ret
+
+; DUST_PASS: in SHADOW_PASS (the VGA's registers kept; the clip, camera and page known), each puff
+dust_pass:
+        cmp word [cs:dust_on], 0
+        je .ret
+        push ds
+        xor ax, ax
+        mov ds, ax
+        mov ax, [BIOS_TICKS]
+        pop ds
+        mov [cs:d_now], ax
+        mov si, puffs
+        mov cx, PUFFS
+.puff:  cmp byte [cs:si + 10], 0
+        je .next
+        push cx
+        push si
+        call puff_draw
+        pop si
+        pop cx
+.next:  add si, PUFF_SIZE
+        loop .puff
+.ret:   ret
+
+puff_draw:                              ; the puff at CS:SI
+        mov ax, [cs:d_now]
+        sub ax, [cs:si + 4]
+        cmp ax, DUST_LIFE
+        jb .young
+        ret
+.young: mov bx, ax                      ; BX: its age
+        shl ax, 3                       ; across: 3, growing to 11
+        xor dx, dx
+        mov cx, DUST_LIFE
+        div cx
+        add ax, 3
+        mov [cs:d_rx], ax
+        imul ax, ax, 9                  ; up and down: a little over half that
+        add ax, 8
+        shr ax, 4
+        mov [cs:d_ry], ax
+        mov al, [cs:dust_dens + bx]
+        xor ah, ah
+        mov [cs:d_dens], ax
+        mov al, [cs:dust_core + bx]
+        mov [cs:d_core], ax
+        imul ax, bx, 5                  ; rising, 5 pixels in all
+        xor dx, dx
+        div cx
+        mov dx, [cs:si + 2]
+        sub dx, ax
+        mov [cs:d_wy], dx
+        mov ax, [cs:si]
+        mov [cs:d_wx], ax
+        mov ax, [cs:si + 8]
+        mov [cs:d_seed], ax
+        mov ax, [cs:d_ry]
+        neg ax
+        mov [cs:d_yy], ax
+.row:   mov ax, [cs:d_yy]
+        cmp ax, [cs:d_ry]
+        jle .inrow
+        ret
+.inrow: mov bx, [cs:d_wy]
+        add bx, ax
+        mov [cs:d_wrow], bx
+        sub bx, [cs:cam_y]
+        cmp bx, [cs:clip_y0]
+        jl .nrow
+        cmp bx, [cs:clip_y1]
+        jg .nrow
+        mov ax, bx                      ; the row's place in the page
+        sub ax, [cs:v_y0]
+        mul word [cs:v_row]
+        sub ax, [cs:v_x0]
+        mov [cs:row_at], ax
+        mov ax, [cs:d_yy]               ; how far out it is, up and down: (y / ry)^2, of 256
+        imul ax, ax
+        shl ax, 8
+        mov cx, [cs:d_ry]
+        imul cx, cx
+        xor dx, dx
+        div cx
+        mov [cs:d_ey], ax
+        mov ax, [cs:d_rx]
+        neg ax
+        mov [cs:d_xx], ax
+.col:   mov ax, [cs:d_xx]
+        cmp ax, [cs:d_rx]
+        jg .nrow
+        imul ax, ax                     ; and across
+        shl ax, 8
+        mov cx, [cs:d_rx]
+        imul cx, cx
+        xor dx, dx
+        div cx
+        add ax, [cs:d_ey]
+        cmp ax, 256
+        ja .ncol
+        mov [cs:d_e], ax
+        mov bx, [cs:d_wx]
+        add bx, [cs:d_xx]
+        mov [cs:d_wcol], bx
+        sub bx, [cs:cam_x]
+        cmp bx, [cs:clip_x0]
+        jl .ncol
+        cmp bx, [cs:clip_x1]
+        jg .ncol
+        mov ax, [cs:d_e]                ; how thick it is here: thinner toward the edge
+        imul ax, ax, 154
+        shr ax, 8
+        neg ax
+        add ax, 256
+        mul word [cs:d_dens]
+        shr ax, 8
+        mov [cs:d_thr], ax
+        mov ax, [cs:d_wcol]             ; the pattern, fixed to the map
+        imul ax, ax, 0x9E5
+        mov dx, [cs:d_wrow]
+        imul dx, dx, 0x3B1
+        xor ax, dx
+        add ax, [cs:d_seed]
+        mov dx, ax
+        shr dx, 7
+        xor ax, dx
+        imul ax, ax, 0x2C5
+        shr ax, 4
+        and ax, 0xFF
+        cmp ax, [cs:d_thr]
+        jae .ncol
+        call dust_px
+.ncol:  inc word [cs:d_xx]
+        jmp .col
+.nrow:  inc word [cs:d_yy]
+        jmp .row
+
+dust_px:                                ; lighten screen x BX on the row at ROW_AT (twice in the core)
+        mov cx, bx
+        and cx, 3
+        mov dx, 0x3C4
+        mov al, 2
+        mov ah, 1
+        shl ah, cl
+        out dx, ax
+        mov dx, 0x3CE
+        mov al, 4
+        mov ah, cl
+        out dx, ax
+        shr bx, 2
+        add bx, [cs:row_at]
+        mov es, [cs:v_seg]
+        xor ax, ax
+        mov al, [es:bx]
+        mov di, ax
+        mov al, [cs:light + di]
+        or al, al
+        jz .ret
+        mov cx, [cs:d_e]
+        cmp cx, [cs:d_core]
+        jae .put
+        mov di, ax
+        mov ah, [cs:light + di]
+        or ah, ah
+        jz .put
+        mov al, ah
+.put:   mov [es:bx], al
+.ret:   ret
+
+dust_dens  db 255, 255, 255, 255, 247, 238, 229, 219, 209, 198, 187, 174, 161, 147, 132, 114, 93, 66   ; how thick, by age (of 256)
+dust_core  db 140, 132, 125, 117, 109, 101, 93, 86, 78, 70, 62, 54, 46, 39, 31, 23, 15, 7   ; the core (twice as light), by age
+d_now      dw 0
+d_nudged   dw 0
+d_cam_x    dw 0
+d_cam_y    dw 0
+d_owner    dw 0
+d_walked_at dw 0                ; when someone last took a step
+d_last     dw 0
+d_next     dw 0
+d_side     db 0
+d_dirty    db 0
+d_x0       dw 0
+d_x1       dw 0
+d_y0       dw 0
+d_y1       dw 0
+d_rx       dw 0
+d_ry       dw 0
+d_dens     dw 0
+d_core     dw 0
+d_wx       dw 0
+d_wy       dw 0
+d_seed     dw 0
+d_yy       dw 0
+d_xx       dw 0
+d_wrow     dw 0
+d_wcol     dw 0
+d_ey       dw 0
+d_e        dw 0
+d_thr      dw 0
+t_thing    dw 0
+t_x        dw 0
+t_y        dw 0
+t_dx       dw 0
+t_dy       dw 0
+t_sx       dw 0
+t_sy       dw 0
+puffs      times PUFFS * PUFF_SIZE db 0
+last_x     times MAP_COUNT dw 0
+last_y     times MAP_COUNT dw 0
+walked     times MAP_COUNT db 0
+light      times 256 db 0
+
+; RINGS (RINGS_ON): a ring on the ground under each thing RING_TAB marks (the companion marks the
+; enemies in a fight, and the one chosen with Tab), drawn in the floor pass as the shadows are, so
+; the figures stand in it, the ground's colours reddened through RED (made by the companion from the
+; palette): two pixels thick, the chosen one's three, and redder.
+ring_pass:
+        cmp word [cs:rings_on], 0
+        je .ret
+        mov ds, [cs:game_ds]
+        les di, [OBJ_LIST]
+        mov cx, [OBJ_COUNT]
+        or cx, cx
+        jz .ret
+.thing: push cx
+        push di
+        push es
+        mov bx, [es:di + 6]
+        cmp bx, MAP_COUNT - 1
+        ja .next
+        mov al, [cs:ring_tab + bx]
+        or al, al
+        jz .next
+        mov [cs:r_kind], al
+        mov ax, [es:di]
+        sub ax, [cs:cam_x]
+        mov [cs:r_fx], ax
+        mov ax, [es:di + 2]
+        sub ax, [cs:cam_y]
+        mov [cs:r_fy], ax
+        mov si, ring_outer
+        mov cx, RING_OUTER
+        call ring_points
+        mov si, ring_inner
+        mov cx, RING_INNER
+        call ring_points
+        cmp byte [cs:r_kind], 2
+        jne .next
+        mov si, ring_extra
+        mov cx, RING_EXTRA
+        call ring_points
+.next:  pop es
+        pop di
+        pop cx
+        add di, 8
+        loop .thing
+.ret:   ret
+
+ring_points:                            ; CX points (dx, dy bytes) at CS:SI, round (R_FX, R_FY)
+.pt:    push cx
+        mov al, [cs:si]
+        cbw
+        add ax, [cs:r_fx]
+        mov bx, ax
+        mov al, [cs:si + 1]
+        cbw
+        add ax, [cs:r_fy]
+        add si, 2
+        cmp ax, [cs:clip_y0]
+        jl .skip
+        cmp ax, [cs:clip_y1]
+        jg .skip
+        cmp bx, [cs:clip_x0]
+        jl .skip
+        cmp bx, [cs:clip_x1]
+        jg .skip
+        sub ax, [cs:v_y0]               ; the row's place in the page
+        mul word [cs:v_row]
+        sub ax, [cs:v_x0]
+        mov [cs:row_at], ax
+        push si
+        call ring_px
+        pop si
+.skip:  pop cx
+        loop .pt
+        ret
+
+ring_px:                                ; redden screen x BX on the row at ROW_AT (twice for the chosen)
+        mov cx, bx
+        and cx, 3
+        mov dx, 0x3C4
+        mov al, 2
+        mov ah, 1
+        shl ah, cl
+        out dx, ax
+        mov dx, 0x3CE
+        mov al, 4
+        mov ah, cl
+        out dx, ax
+        shr bx, 2
+        add bx, [cs:row_at]
+        mov es, [cs:v_seg]
+        xor ax, ax
+        mov al, [es:bx]
+        mov cl, [cs:r_kind]
+        inc cl                          ; (reddened twice, the chosen one three times)
+.again: mov di, ax
+        mov ah, [cs:red + di]
+        or ah, ah
+        jz .put
+        mov al, ah
+        xor ah, ah
+        dec cl
+        jnz .again
+.put:   mov [es:bx], al
+        ret
+
+RING_OUTER equ 76
+RING_INNER equ 68
+RING_EXTRA equ 84
+ring_outer db 13, 0, 13, 1, 13, 2, 12, 2, 12, 3, 11, 3, 11, 4, 10, 4, 9, 4, 9, 5, 8, 5, 7, 5, 6, 5, 5, 5, 5, 6, 4, 6, 3, 6, 2, 6, 1, 6, 0, 6, 255, 6, 254, 6, 253, 6, 252, 6, 251, 6, 251, 5, 250, 5, 249, 5, 248, 5, 247, 5, 247, 4, 246, 4, 245, 4, 245, 3, 244, 3, 244, 2, 243, 2, 243, 1, 243, 0, 243, 255, 243, 254, 244, 254, 244, 253, 245, 253, 245, 252, 246, 252, 247, 252, 247, 251, 248, 251, 249, 251, 250, 251, 251, 251, 251, 250, 252, 250, 253, 250, 254, 250, 255, 250, 0, 250, 1, 250, 2, 250, 3, 250, 4, 250, 5, 250, 5, 251, 6, 251, 7, 251, 8, 251, 9, 251, 9, 252, 10, 252, 11, 252, 11, 253, 12, 253, 12, 254, 13, 254, 13, 255
+ring_inner db 12, 0, 12, 1, 11, 1, 11, 2, 10, 2, 10, 3, 9, 3, 9, 4, 8, 4, 7, 4, 6, 4, 5, 4, 5, 5, 4, 5, 3, 5, 2, 5, 1, 5, 0, 5, 255, 5, 254, 5, 253, 5, 252, 5, 251, 5, 251, 4, 250, 4, 249, 4, 248, 4, 247, 4, 247, 3, 246, 3, 246, 2, 245, 2, 245, 1, 244, 1, 244, 0, 244, 255, 245, 255, 245, 254, 246, 254, 246, 253, 247, 253, 247, 252, 248, 252, 249, 252, 250, 252, 251, 252, 251, 251, 252, 251, 253, 251, 254, 251, 255, 251, 0, 251, 1, 251, 2, 251, 3, 251, 4, 251, 5, 251, 5, 252, 6, 252, 7, 252, 8, 252, 9, 252, 9, 253, 10, 253, 10, 254, 11, 254, 11, 255, 12, 255
+ring_extra db 14, 0, 14, 1, 14, 2, 13, 2, 13, 3, 12, 3, 12, 4, 11, 4, 11, 5, 10, 5, 9, 5, 9, 6, 8, 6, 7, 6, 6, 6, 5, 6, 5, 7, 4, 7, 3, 7, 2, 7, 1, 7, 0, 7, 255, 7, 254, 7, 253, 7, 252, 7, 251, 7, 251, 6, 250, 6, 249, 6, 248, 6, 247, 6, 247, 5, 246, 5, 245, 5, 245, 4, 244, 4, 244, 3, 243, 3, 243, 2, 242, 2, 242, 1, 242, 0, 242, 255, 242, 254, 243, 254, 243, 253, 244, 253, 244, 252, 245, 252, 245, 251, 246, 251, 247, 251, 247, 250, 248, 250, 249, 250, 250, 250, 251, 250, 251, 249, 252, 249, 253, 249, 254, 249, 255, 249, 0, 249, 1, 249, 2, 249, 3, 249, 4, 249, 5, 249, 5, 250, 6, 250, 7, 250, 8, 250, 9, 250, 9, 251, 10, 251, 11, 251, 11, 252, 12, 252, 12, 253, 13, 253, 13, 254, 14, 254, 14, 255
+r_kind     db 0
+r_fx       dw 0
+r_fy       dw 0
+ring_tab   times MAP_COUNT db 0
+red        times 256 db 0
+
+; TARGETING (TARGET_ON): Tab and Shift+Tab, counted for the companion, choose an enemy in a fight
+; (its ring brighter: RINGS); Enter attacks it, as a click on it does, even where another figure
+; stands in front of it. The game reads keys through INT 16h: INT16 takes Tab, Shift+Tab and (with
+; an enemy chosen) Enter out of what it sees. For Enter, the main loop (TARGET_CLICK, from
+; PROBE_SCROLL) puts the pointer at the enemy's feet and gives the game a left click there, while
+; the routine that finds what is under the pointer (PROBE_HIT, DSUN.EXE 25B52h) answers with the
+; chosen enemy for a moment (HIT_PASSES), whatever is in front of it.
+
+KEY_TAB     equ 0x0F09
+KEY_BACKTAB equ 0x0F00
+KEY_ENTER   equ 0x1C0D
+KEY_PAD_ENTER equ 0xE00D
+HIT_PASSES  equ 600             ; passes of the map's main loop the hit is the chosen enemy, from the
+                                ;   click (not BIOS ticks: the BIOS clock can stand still in a fight,
+                                ;   and the hit stayed the enemy, the walk to it stalling)
+EVENT_LEFT_PRESS equ 2
+EVENT_LEFT_LEAVE equ 4
+LEFT        equ 1
+
+int16:
+        cmp word [cs:target_on], 0
+        je .chain
+        cmp ah, 0x00
+        je .read
+        cmp ah, 0x10
+        je .read
+        cmp ah, 0x01
+        je .peek
+        cmp ah, 0x11
+        je .peek
+.chain: jmp far [cs:old16]
+.peek:  push ax                         ; a key waiting: if it is ours, take it and say none is
+        pushf
+        call far [cs:old16]
+        jz .none
+        call our_key
+        jc .took
+        add sp, 2                       ; (not ours: as the BIOS said)
+        push bp
+        mov bp, sp
+        and word [bp + 6], ~0x40        ; ZF clear
+        pop bp
+        iret
+.took:  pop ax
+        push ax
+        xor ah, ah
+        pushf
+        call far [cs:old16]
+        pop ax
+        jmp .peek
+.none:  pop ax
+        push bp
+        mov bp, sp
+        or word [bp + 6], 0x40          ; ZF set: no key
+        pop bp
+        iret
+.read:  push ax                         ; reading: ours are taken out and the next one read
+.again: pop ax
+        push ax
+        pushf
+        call far [cs:old16]
+        call our_key
+        jc .again
+        add sp, 2
+        iret
+
+our_key:                                ; AX a key: CF set (and counted) if it is one of ours
+        cmp ax, KEY_TAB
+        jne .back
+        inc word [cs:tab_seq]
+        stc
+        ret
+.back:  cmp ax, KEY_BACKTAB
+        jne .enter
+        inc word [cs:back_seq]
+        stc
+        ret
+.enter: cmp word [cs:hit_target], 0xFFFF
+        je .no
+        cmp ax, KEY_ENTER
+        je .go
+        cmp ax, KEY_PAD_ENTER
+        jne .no
+.go:    inc word [cs:attack_seq]
+        mov byte [cs:t_click], 1
+        stc
+        ret
+.no:    clc
+        ret
+
+; TARGET_CLICK: (in PROBE_SCROLL, DS = the game's) Enter on the chosen enemy: a left click at its feet
+target_click:
+        cmp byte [cs:t_click], 0
+        je .ret
+        mov byte [cs:t_click], 0
+        cmp word [cs:game_mask], 0
+        je .ret
+        mov bx, [cs:hit_target]
+        cmp bx, MAP_COUNT - 1
+        ja .ret
+        shl bx, 5
+        mov cx, [bx + MAP_THINGS + 9]   ; its feet, on the map
+        mov dx, [bx + MAP_THINGS + 11]
+        sub cx, [CAM_X]
+        sub dx, [CAM_Y]
+        sub dx, 8                       ; (a little above them)
+        cmp cx, 1
+        jl .ret
+        cmp cx, 0x13E
+        jg .ret
+        cmp dx, 1
+        jl .ret
+        cmp dx, 0xC6
+        jg .ret
+        mov [cs:t_x], cx
+        mov [cs:t_y], dx
+        mov ax, [cs:main_ticks]
+        add ax, HIT_PASSES
+        mov [cs:hit_until], ax
+        mov byte [cs:hit_forced], 1
+        mov ax, 4                       ; the pointer there
+        mov cx, [cs:t_x]
+        mov dx, [cs:t_y]
+        int 0x33
+        pusha                           ; and a click
+        push ds
+        push es
+        mov ax, EVENT_LEFT_PRESS
+        mov bx, LEFT
+        mov cx, [cs:t_x]
+        mov dx, [cs:t_y]
+        xor si, si
+        xor di, di
+        call far [cs:game_handler]
+        pop es
+        pop ds
+        popa
+        pusha
+        push ds
+        push es
+        mov ax, EVENT_LEFT_LEAVE
+        xor bx, bx
+        mov cx, [cs:t_x]
+        mov dx, [cs:t_y]
+        xor si, si
+        xor di, di
+        call far [cs:game_handler]
+        pop es
+        pop ds
+        popa
+.ret:   ret
+
+; PROBE_HIT: INT VEC_HIT replaces "push bp / mov bp,sp / sub sp,10h" (6 bytes: INT + 4 NOPs) at the
+; start of the routine that finds the thing under the pointer (camera x, y, x, y on screen; the
+; thing, or FFFFh): for a moment after TARGET_CLICK, the chosen enemy, wherever the pointer is.
+probe_hit:
+        cmp byte [cs:hit_forced], 0
+        je .plain
+        push ax
+        mov ax, [cs:main_ticks]
+        sub ax, [cs:hit_until]
+        pop ax
+        jns .over
+        push bp                         ; (the caller's flags back: the INT turned interrupts off,
+        mov bp, sp                      ;   and a RETF leaves them so; the game then ran on without
+        push word [bp + 6]              ;   its timer, a walk to the enemy frozen till something
+        popf                            ;   turned them on again)
+        pop bp
+        add sp, 6                       ; (the interrupt's frame: back to the caller, the enemy)
+        mov ax, [cs:hit_target]
+        retf
+.over:  mov byte [cs:hit_forced], 0
+.plain: pop word [cs:h_resume]
+        pop word [cs:h_resume + 2]
+        popf
+        push bp
+        mov bp, sp
+        sub sp, 0x10
+        jmp far [cs:h_resume]
+
+old16      dd 0
+t_click    db 0
+hit_forced db 0
+hit_until  dw 0
+h_resume   dd 0
+
+old33        dd 0
+game_handler dd 0
+game_mask    dw 0
+centre       dw CENTRE_OFF, 0
+s_resume     dd 0
+s_resume_fl  dw 0
+drag         db 0               ; 0: no drag; 1: the right button held, not moved yet; 2: dragging
+drag_mid     db 0               ; 1: dragging with the wheel pressed
+drag_new     db 0
+drag_x       dw 0               ; where it was pressed
+drag_y       dw 0
+cam0_x       dw 0               ; the view's top left then
+cam0_y       dw 0
+pan_x_done   dw 0
+pan_y_done   dw 0
+
+loader     dw LOADER_OFF, 0
+resume     dd 0
+resume_fl  dw 0
+floor_ret  dd 0
+floor_frame dw 0
+floor_kind db 0
+floor_busy db 0
+dark_ready db 0
+mirror     db 0
+r_n        db 0
+sc_index   db 0
+sc_mask    db 0
+gc_index   db 0
+gc_regs    db 1, 3, 4, 5, 8
+gc_saved   times 5 db 0
+zero       dw 0
+game_ds    dw 0
+load_seg   dw 0
+clip_x0    dw 0
+clip_y0    dw 0
+clip_x1    dw 0
+clip_y1    dw 0
+v_seg      dw 0
+v_x0       dw 0
+v_y0       dw 0
+v_row      dw 0
+cam_x      dw 0
+cam_y      dw 0
+fig_x      dw 0
+fig_y      dw 0
+frame      dw 0
+f_w        dw 0
+f_bottom   dw 0
+f_y        dw 0
+r_x        dw 0
+row_at     dw 0
+s_first    dw 0
+s_last     dw 0
+best_d     dd 0
+diffs      times 3 db 0
+lit_sum    dw 0
+lit_most   dw 0
+best_c     db 0
+want       times 3 db 0
+shadow_tab times MAP_COUNT db 0
+dark       times 256 db 0
+dac        times 768 db 0
+
 align 16
 ring:   times NENT*ESIZE db 0
 tbuf:   times TSIZE db 0
@@ -2721,7 +4635,7 @@ install:                        ; DS = ES = PSP, CS = the image
         push cs
         pop ds
         mov si, all_vectors     ; the vectors must be free
-        mov cx, 36
+        mov cx, 42
 .check:
         lodsb
         mov ah, 35h
@@ -2845,6 +4759,42 @@ install:                        ; DS = ES = PSP, CS = the image
         mov ax, 2500h + VEC_CHUNK_ID
         mov dx, probe_chunk_id
         int 21h
+        mov ax, 2500h + VEC_FLOOR_ALL
+        mov dx, probe_floor_all
+        int 21h
+        mov ax, 2500h + VEC_FLOOR_RECT
+        mov dx, probe_floor_rect
+        int 21h
+        mov ax, 2500h + VEC_REDRAW
+        mov dx, probe_redraw
+        int 21h
+        mov ax, 2500h + VEC_REDRAW_ALL
+        mov dx, probe_redraw_all
+        int 21h
+        mov ax, 2500h + VEC_SCROLL
+        mov dx, probe_scroll
+        int 21h
+        mov ax, 2500h + VEC_HIT
+        mov dx, probe_hit
+        int 21h
+        mov ax, 3516h           ; the keyboard's (TARGETING)
+        int 21h
+        mov [old16], bx
+        mov [old16 + 2], es
+        mov ax, 2516h
+        mov dx, int16
+        int 21h
+        mov ax, 3533h           ; the mouse driver's (SCROLLING), if there is one
+        int 21h
+        mov ax, es
+        or ax, bx
+        jz .no_mouse
+        mov [old33], bx
+        mov [old33 + 2], es
+        mov ax, 2533h
+        mov dx, int33
+        int 21h
+.no_mouse:
         mov ax, 3521h           ; DOS itself last: opening the objects file (PROBE_DOS_OPEN)
         int 21h
         mov [old21], bx
@@ -2867,8 +4817,8 @@ install:                        ; DS = ES = PSP, CS = the image
 
 msg     db 'Dark Sun companion dice log helper loaded.', 13, 10, '$'
 psp     dw 0
-busy    db 'DSCLOG: interrupts 60h-65h or E5h-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
-all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED, VEC_SPELL_TEXT, VEC_CHUNK_ID
+busy    db 'DSCLOG: interrupts 60h-65h or DBh-FEh are in use (already loaded?). Not loaded.', 13, 10, '$'
+all_vectors db VEC_RAND, VEC_SAVE, VEC_AC, VEC_TEXT, VEC_MSG, VEC_CHAR, VEC_TURN, VEC_USE, VEC_VIEW, VEC_WIN, VEC_LOOK, VEC_UNLOOK, VEC_NEXT, VEC_RING_AC, VEC_RING_SAVE, VEC_WEAPON, VEC_MOVE, VEC_PICK, VEC_USE_ITEM, VEC_TWO, VEC_DOUBLE, VEC_GRACE_CAST, VEC_GRACE_EFFECT, VEC_GRACE_ABILITY, VEC_NAMES_SIZE, VEC_NAMES_FILL, VEC_STEALTH, VEC_TYPES_SIZE, VEC_TYPES_FILL, VEC_LEVEL, VEC_HD_ROLL, VEC_HD_CON, VEC_THIEF_SKILL, VEC_TWO_HANDED, VEC_SPELL_TEXT, VEC_CHUNK_ID, VEC_FLOOR_ALL, VEC_FLOOR_RECT, VEC_REDRAW, VEC_REDRAW_ALL, VEC_SCROLL, VEC_HIT
 
         align 16, db 0
 image_len equ $ - $$

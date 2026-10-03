@@ -39,7 +39,23 @@ game itself, in the game's own lettering and windows:
   picking anyone's pockets; and no more thief skill penalty for what a thief
   holds.
 - **A mini-quest:** the cooked vulture, at last good for something (Dinos
-  cooks it for the party).
+  cooks it for the party, to the game's own quest-done sound).
+- **A new person in the slave pens:** Kalzith, a defiler slave who, treated
+  with respect, sells arcane spell scrolls that a preserver can learn from.
+- **Semyon kept his word:** after he leaves the arena through the entrance to
+  the pens, he is in the pens to talk to, as the game promised and never did.
+- **What the party wears, on the map:** weapons, shields, bows, armour, helms,
+  cloaks, boots and belts on their figures, walking and fighting, changing as
+  their gear does.
+- **Shadows under every figure:** see-through, cast toward the lower right as
+  the walls' are, in the floor's own colours, with the walls and figures in
+  front standing on them.
+- **Scrolling the map with the mouse:** press the wheel and drag the map, or
+  turn the wheel.
+- **Dust** raised behind the feet of anyone walking on sand or dirt.
+- **Choosing an enemy with Tab:** in a fight Tab chooses an enemy, marked by a
+  red ring (or rings under all of them, or none: an option), and Enter attacks
+  it even behind someone.
 
 The game folder is never modified, and your save files only keep what you'd
 expect from play: the items the Ledger hands out, the XP it gives. For the dice
@@ -60,6 +76,10 @@ folder.
    as it stands: **Code → Download ZIP**.)
 2. In the `darksun-companion` folder, double-click **`Start Templar's Ledger.bat`**.
    The first time, it offers to install 64-bit Python if you don't have it.
+   If Windows shows "Open File - Security Warning" (it does for any `.bat`
+   from a download), press **Run**: the Ledger then unblocks its own files, so
+   it asks only that once. (Or, before unzipping, tick **Unblock** in the zip's
+   Properties.)
 3. On the Ledger's **Options** tab, pick the rule changes and additions you
    want (they're remembered).
 4. Press **Start the game** at the top left. The game starts with your options,
@@ -70,10 +90,139 @@ double-click, with the options as last set.)
 
 ## Changelog
 
-Release **1.0.0** is everything below, pull requests #1 to #11. Its notes are
-in [`release-notes/v1.0.0.md`](release-notes/v1.0.0.md).
+Release **1.0.0** is pull requests #1 to #13. Its notes are in
+[`release-notes/v1.0.0.md`](release-notes/v1.0.0.md).
 
-### Pull request #11 ([in review](https://github.com/daaki85/darksun-companion-mod/pull/11))
+### Pull request #14 (in review)
+
+**Added**
+- **What the party wears, on the map:** each character's figure shows their
+  weapons and shields (each kind its shape, in its material's colours), bow
+  and quiver on the back, armour (their own clothing recoloured toward its
+  material), helms as circlets, cloaks (the game's own cloak, fitted to them),
+  boots and belts, walking and fighting, and changes as soon as their gear
+  does. Walking, a one-handed weapon hangs at the belt; in a fight it is in
+  the hand. Two characters of the same race and sex each show their own
+  gear. On by default; a switch on the Options tab.
+- **Kalzith, a defiler in the slave pens:** a slave the templars put in the
+  arena now and then, kept in a pen of his own, with a face of his own (the
+  game's portrait 61 with a slave's brand). Talk to him (Look, then Talk):
+  treated with respect, he sells six spell scrolls, one of each (Magic Missile
+  and Color Spray 100, Blur and Cat's Grace 250, Lightning Bolt and Haste
+  500; Cat's Grace only with its rule on), in the game's own shop screen. A
+  preserver learns them as from any scroll. Accuse him and threaten to tell
+  the templars, and he won't trade until the party pays 50 ceramic or wins
+  him over (a Charisma check). Once all six are bought, his shop closes and
+  he wears a Cloak and carries a Quarterstaff. Killed, he leaves one random
+  scroll of those he still had, the Cloak and the Quarterstaff. Attacked, he
+  is like any of the pens' slaves. New games only.
+- **Semyon in the slave pens,** once he has left the arena (after the fight he
+  helps in, if the party recruits him): in a pen of his own above Kalzith's,
+  with his own conversation (why he was tied up in the arena, who carries keys, where
+  his gem is hidden, the Alliance's plans). The game itself never puts him
+  there; if he was killed, or left the arena another way, he isn't there. In
+  the pens he is one of the slaves, no longer on the party's side: attacked,
+  he is like any of them.
+- **Dinos and the Trustee know about them:** their "who else is in here"
+  questions also ask about Kalzith, and about Semyon once he is in the pens;
+  if either is killed, they speak of him as of the game's dead ("What was
+  Kalzith like?"). After the party's escape both are gone from the pens with
+  everyone else.
+- **Shadows under every figure on the map:** each living creature's outline,
+  laid down toward the lower right (the light on the maps comes from the upper
+  left, as the walls' shadows show), see-through and in the floor's own
+  colours, drawn on the floor before the walls and figures, so everything in
+  front stands on them. They follow figures as they move, in fights too. A
+  switch on the Options tab, on by default.
+- **Scrolling the map with the mouse:** pressing the wheel and moving drags
+  the map with the pointer, in fights too, and in Windows turning the wheel
+  scrolls it (sideways with Shift). Optionally the right button drags it too (a
+  right click still changes the pointer). Switches on the Options tab.
+- **Dust behind walking feet:** puffs on sand and dirt behind anyone walking,
+  spreading and fading in about a second, under the walls and figures. A
+  switch on the Options tab, on by default.
+- **Choosing an enemy with Tab, attacking it with Enter:** on a party member's
+  turn in a fight, Tab picks an enemy (nearest first; Shift+Tab back), marked
+  by a red ring, with the view scrolled to it; Enter attacks it as a click on
+  it would, even when someone stands in front of it. Rings on the Options tab:
+  none, only the chosen enemy's (the default) or all the enemies'.
+- **Hits that do less than rolled** in the dice log: a weapon hit that took
+  part of its damage, or none, with what the monster's defences say (`Skeleton
+  takes none of the 6 damage: crushing weapons can't hurt it`).
+- **The quest sound for the vulture:** giving Dinos the cooked vulture plays
+  the sound the game plays when a quest is done (the Trustee's key, the
+  filled water jug).
+
+**Changed**
+- **Windows' security warning only once:** after the first `.bat` file is let
+  through ("Open File - Security Warning", Run), the Ledger takes the download
+  mark off the files in its own folder, so the others start without asking.
+- **The vulture quest is part of Dinos's talk:** while the party carries the
+  cooked vulture, his "Who else is in here?" questions end with "We cooked the
+  vulture from the arena." His answer and the reward are in his own dialogue
+  window, with his portrait, instead of the game's message box; the vulture
+  is no longer used on him from the inventory.
+- **Cat's Grace's icon** is a cat's paw print instead of a cat's face.
+- **Dinos's vulture lines** are his own words, without narration (the game's
+  conversations are people speaking).
+
+**Fixed**
+- **Tab + Enter froze the game:** after Enter, the walk to the chosen enemy
+  stalled, sometimes until a mouse click. The helper answered the game's "what is
+  under the pointer" with the enemy and returned without giving back the game's
+  interrupt state, so the game ran on with its timer stopped. Fixed; the
+  helper's waits for the Ledger also no longer depend on the BIOS clock, so
+  they can't hang if it stands still.
+- **The party's gear showed late after an area change:** the Ledger looked for the
+  area's newly loaded pictures only every 10 seconds, and dressed the party with
+  its slower checks (every 3 seconds); a party walking off as the area loaded
+  stayed plain meanwhile. It now dresses them four times a second and looks for
+  the new pictures half a second, 2 and 5 seconds after the area changes.
+- **Cat's Grace was missing from the Effects screen:** its effect (54, one the
+  game leaves unused) had no icon in the game's table of effects, and the
+  screen shows only effects with one. It now has its paw and its name.
+- **Kalzith's scrolls cast their spell instead of teaching it:** the game
+  teaches only from scroll objects numbered 1400 to 1499, and his were 1001 to
+  1006. They are now 1440 to 1445; scrolls bought before are renumbered.
+- **Figures' shadows fell the wrong way:** they lay toward the lower left, while
+  the walls', bones' and stones' shadows on the maps fall toward the lower right
+  (the light comes from the upper left). They now fall the same way.
+- **Kalzith's and Semyon's Look box** sometimes lacked the HP, AC and THAC0
+  lines: the Ledger only looked among the map's first 256 things, and the game
+  numbers them anew, sometimes past that.
+- **The slave pens broken by Kalzith** (in this pull request's earlier
+  builds): Kurzak vanished after leading the party in, people were missing,
+  Merzol didn't stop the party, the doors' "pick the lock" and "knock" and the
+  main door's "Summon Kurzak!" were gone and the water jug couldn't be filled.
+  Kalzith was put in among the pens' people and their scripts, moving what came
+  after him; he now comes after everything of the game's. A game whose party
+  has already been in the pens with an earlier build keeps the damage: start
+  a new game, or load a save from before the pens.
+- **Kalzith's scrolls taught the spell before their own** (Flame Arrow for
+  Haste, Grease for Magic Missile...). Ones already bought or in his stock are
+  put right by the Ledger.
+- **"Who are you?" hung the game** when asked of Kalzith.
+- **Pickpocketing said "won't get another chance" to everyone** in a new game
+  with the same party: the last game's tries were remembered.
+- **Figures taking extra steps after their turn in a fight:** to have figures
+  drawn again with their shadows, the Ledger marked them "changed", which in a
+  fight could set one walking again after its turn (in this pull request's
+  earlier builds). The view is now drawn again whole instead.
+- **"Killed" lines for everyone in an area the party left:** walking from the
+  slave pens into the arena logged most of the pens as "is killed (7261 XP)".
+
+### Pull request #13 ([merged 2026-10-02](https://github.com/daaki85/darksun-companion-mod/pull/13))
+
+**Added**
+- **The Release workflow can be run by hand**, making the version's tag.
+
+### Pull request #12 ([merged 2026-10-02](https://github.com/daaki85/darksun-companion-mod/pull/12))
+
+**Added**
+- **Release 1.0.0:** the version, its release notes, and a workflow that
+  builds the release zip.
+
+### Pull request #11 ([merged 2026-10-02](https://github.com/daaki85/darksun-companion-mod/pull/11))
 
 **Added**
 - **Cat's Grace looks like itself:** its own icon (a lean, fox-like cat's face

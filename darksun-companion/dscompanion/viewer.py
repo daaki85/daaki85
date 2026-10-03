@@ -16,7 +16,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
-from . import __version__, art, dicelog, game, launch, partyview, spellbook, theme, values
+from . import __version__, art, dicelog, game, launch, partyview, rings, spellbook, theme, values
 from .dicelog import DiceLog, DiceLogError
 from .guestmem import GuestMemory
 from .layout import Layout
@@ -343,7 +343,36 @@ class Viewer:
         ttk.Checkbutton(rules, text="P in a conversation: the leader, a thief, tries the other's pockets "
                         "(until caught)", variable=self.pickpockets,
                         command=self._popups_changed).pack(anchor="w", pady=(4, 0))
-        ttk.Button(rules, text="Give thieving tools now", command=self.give_tools).pack(anchor="w", pady=(4, 0))
+        self.show_gear = tk.BooleanVar(value=bool(settings.get("show_gear", True)))
+        ttk.Checkbutton(rules, text="Show what the party wears on their figures in the game (weapons, "
+                        "armour, helms, cloaks, boots, belts)", variable=self.show_gear,
+                        command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        self.show_shadows = tk.BooleanVar(value=bool(settings.get("shadows", True)))
+        ttk.Checkbutton(rules, text="Shadows under the figures in the game (see-through, on the floor)",
+                        variable=self.show_shadows, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        self.show_dust = tk.BooleanVar(value=bool(settings.get("dust", True)))
+        ttk.Checkbutton(rules, text="Dust raised behind the feet of anyone walking on sand or dirt",
+                        variable=self.show_dust, command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        self.ring_mode = tk.StringVar(value=rings.mode(settings))
+        ttk.Label(rules, text="Red rings on the ground in a fight:").pack(anchor="w", pady=(4, 0))
+        for value, text in ((rings.OFF, "... none"),
+                            (rings.ONLY_CHOSEN, "... under the enemy chosen with Tab"),
+                            (rings.ALL, "... under all the enemies (the chosen one's redder)")):
+            ttk.Radiobutton(rules, text=text, value=value, variable=self.ring_mode,
+                            command=self._popups_changed).pack(anchor="w", padx=(20, 0))
+        self.use_targeting = tk.BooleanVar(value=bool(settings.get("targeting", True)))
+        ttk.Checkbutton(rules, text="In a fight, Tab (Shift+Tab back) chooses an enemy, its ring brighter, and "
+                        "Enter attacks it, even behind someone", variable=self.use_targeting,
+                        command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        self.scroll_map = tk.BooleanVar(value=bool(settings.get("scroll_map", True)))
+        ttk.Checkbutton(rules, text="Scroll the map with the mouse wheel: press it and move, or turn it "
+                        "(Shift: sideways)", variable=self.scroll_map,
+                        command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        self.scroll_right = tk.BooleanVar(value=bool(settings.get("scroll_right", False)))
+        ttk.Checkbutton(rules, text="Scroll it by holding the right mouse button and moving too (a right "
+                        "click still changes the pointer)", variable=self.scroll_right,
+                        command=self._popups_changed).pack(anchor="w", pady=(4, 0))
+        ttk.Button(rules, text="Give thieving tools now", command=self.give_tools).pack(anchor="w", pady=(8, 0))
 
     def give_tools(self) -> None:
         """A set of thieving tools for each thief in the party without one, right away (they
@@ -635,6 +664,13 @@ class Viewer:
                 self.dice.monster_info = self.monster_info.get()
                 self.dice.arena_ring = self.arena_ring.get()
                 self.dice.pickpockets = self.pickpockets.get()
+                self.dice.show_gear = self.show_gear.get()
+                self.dice.show_shadows = self.show_shadows.get()
+                self.dice.show_dust = self.show_dust.get()
+                self.dice.ring_mode = self.ring_mode.get()
+                self.dice.use_targeting = self.use_targeting.get()
+                self.dice.scroll_map = self.scroll_map.get()
+                self.dice.scroll_right = self.scroll_right.get()
                 self.dice.load_picked(launch.pickpocketed())
                 self.dice.tools_given = launch.tools_given()
                 self.dice.rules = self._rules()
@@ -716,6 +752,13 @@ class Viewer:
         settings["monster_info"] = self.monster_info.get()
         settings["arena_ring"] = self.arena_ring.get()
         settings["pickpockets"] = self.pickpockets.get()
+        settings["show_gear"] = self.show_gear.get()
+        settings["shadows"] = self.show_shadows.get()
+        settings["dust"] = self.show_dust.get()
+        settings["rings"] = self.ring_mode.get()
+        settings["targeting"] = self.use_targeting.get()
+        settings["scroll_map"] = self.scroll_map.get()
+        settings["scroll_right"] = self.scroll_right.get()
         for key, var in self.rule_vars.items():
             settings[key] = var.get()
         launch.save_settings(settings)
@@ -725,6 +768,13 @@ class Viewer:
             self.dice.set_monster_info(self.monster_info.get())
             self.dice.arena_ring = self.arena_ring.get()
             self.dice.set_pickpockets(self.pickpockets.get())
+            self.dice.show_gear = self.show_gear.get()
+            self.dice.show_shadows = self.show_shadows.get()
+            self.dice.show_dust = self.show_dust.get()
+            self.dice.ring_mode = self.ring_mode.get()
+            self.dice.use_targeting = self.use_targeting.get()
+            self.dice.scroll_map = self.scroll_map.get()
+            self.dice.scroll_right = self.scroll_right.get()
             self.dice.set_rules(self._rules())
 
     def _rules(self) -> int:

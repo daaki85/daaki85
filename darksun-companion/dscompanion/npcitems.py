@@ -115,18 +115,38 @@ def who(gd: GameData, it: ring.Items, index: int) -> Optional[str]:
     return None
 
 
+def _new_list(gd: GameData, it, creature: int, lists) -> Optional[int]:
+    """An empty item list for the creature, from the game's free objects, in its last list word."""
+    free = it.word(ring.FREE_THINGS)
+    if free >= ring.THING_COUNT or game.NO_ITEM not in lists:
+        return None
+    ds = gd.ds * 16
+    gd.guest.write(ds + ring.FREE_THINGS, struct.pack("<H", it.thing(free)[1] & 0xFFFF))
+    gd.guest.write(ds + ring.THINGS_USED, struct.pack("<H", it.word(ring.THINGS_USED) + 1))
+    gd.guest.write(it.things + free * 3, struct.pack("<BH", game.THING_ITEM, game.NO_ITEM))
+    offset = game.CREATURE_ITEM_LISTS[len(lists) - 1 - lists[::-1].index(game.NO_ITEM)]
+    base = game.far_pointer(gd.guest, gd.ds, game.CREATURES_PTR) + creature * game.CREATURE_SIZE
+    gd.guest.write(base + offset, struct.pack("<H", free))
+    return free
+
+
 def add_to(gd: GameData, creature: int, rec: bytes, slot: Optional[int] = None) -> bool:
     """An item from the game's free list, made `rec`, put first in the creature's (last
-    non-empty) item list: worn in `slot` if given and free, else in a backpack cell of its
-    own. False if there's nowhere (or no item record) for it."""
+    non-empty) item list, or a new one if they have none: worn in `slot` if given and free,
+    else in a backpack cell of its own. False if there's nowhere (or no item record) for it."""
     it = ring.Items(gd)
     lists = [struct.unpack_from("<h", gd.creature(creature), o)[0] for o in game.CREATURE_ITEM_LISTS]
     thing = next((t for t in reversed(lists) if 0 <= t < ring.THING_COUNT), None)
     used = {data[game.ITEM_SLOT] for t in lists for _, data in it.chain(t, inside=False)}
     cell = slot if slot is not None and slot not in used else pickpocket.free_cell(gd, it, creature)
     item = it.word(ring.FREE_ITEMS)
-    if thing is None or cell is None or item >= game.NO_ITEM:
+    if cell is None or item >= game.NO_ITEM:
         return False
+    if thing is None:  # no list yet (no things of their own): one, as the game's allocator gives it
+        thing = _new_list(gd, it, creature, lists)
+        if thing is None:
+            return False
+        it = ring.Items(gd)  # (read again: the list is new)
     kind, first = it.thing(thing)
     if kind != game.THING_ITEM:
         return False

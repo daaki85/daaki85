@@ -130,10 +130,11 @@ def new_chunks(chunks: gff.Chunks) -> gff.Chunks:
 
 
 def with_chunks(data: bytes, added: gff.Chunks) -> bytes:
-    """DATA (a GFF file whose types list their ids as ranges, with their offsets in GFFI index
-    chunks, its table of contents last) with ADDED appended: each added chunk, the index chunks
-    of their types grown by them, and a new table of contents, the header pointing to it.
-    Everything already in the file stays where it was."""
+    """DATA (a GFF file, its table of contents last; types listing their ids as ranges have their
+    offsets in GFFI index chunks, the others in the table itself) with ADDED appended: each added
+    chunk (in place of one with its id, if there is one), the index chunks of their types grown
+    by them, and a new table of contents, the header pointing to it. Everything already in the
+    file stays where it was."""
     toc_offset, toc_length = struct.unpack_from("<II", data, 12)
     pos = toc_offset + 8
     count, = struct.unpack_from("<H", data, pos)
@@ -158,8 +159,17 @@ def with_chunks(data: bytes, added: gff.Chunks) -> bytes:
         ids = sorted(cid for (k, cid) in added if k.encode("latin1") == kind)
         if not ids:
             continue
-        if not ranged:
-            raise gff.GffError(f"{kind!r} lists its chunks one by one")
+        if not ranged:  # (listed one by one in the table of contents: each entry its place)
+            for cid in ids:
+                chunk = added[(kind.decode("latin1"), cid)]
+                entry = next((e for e in info if e[0] == cid), None)
+                if entry is None:
+                    entry = [cid, 0, 0]
+                    info.append(entry)
+                    info.sort(key=lambda e: e[0])
+                entry[1], entry[2] = len(out), len(chunk)
+                out += chunk
+            continue
         total, index, ranges = info
         entry = next(e for e in gffi if e[0] == index)
         table = data[entry[1]:entry[1] + entry[2]]
@@ -204,24 +214,24 @@ def with_chunks(data: bytes, added: gff.Chunks) -> bytes:
 
 # Cat's Grace's spell icon (RESOURCE.GFF), for Flaming Sphere's (ICON 21014) with that rule:
 # Strength's tile (ICON 21023: the spell Cat's Grace works as) in a tawny cat's golds, its glyph a
-# lean cat's face in the game's dark line, with the light line below and right of it that its
+# cat's paw print in the game's dark line, with the light line below and right of it that its
 # glyphs have. DSCLOG asks for it in Flaming Sphere's place (PROBE_CHUNK_ID).
 RESOURCE_FILE = "RESOURCE.GFF"
 STRENGTH_ICON, GRACE_ICON = 21023, 21900
 GRACE_FILL = {163: 168, 76: 169, 77: 65, 75: 168, 78: 170, 134: 205}
 GRACE_FRAME = {60: 170, 145: 169, 147: 170, 133: 205, 203: 207, 134: 205}
 GLYPH, GLYPH_LIGHT = 204, 170
-CAT_FACE = (  # (a lean, fox-like face: the one liked best)
-    "....D......D....",
+CAT_PAW = (  # (a paw print: four toes over the pad)
+    ".....DD..DD.....",
+    "....DDD..DDD....",
     "....DD....DD....",
-    "....D.D..D.D....",
-    "....D..DD..D....",
-    "....D......D....",
-    "....D.D..D.D....",
-    "....D......D....",
-    ".....D.DD.D.....",
-    "......D..D......",
-    ".......DD.......",
+    ".DD..........DD.",
+    ".DDD........DDD.",
+    "..DD..DDDD..DD..",
+    ".....DDDDDD.....",
+    "....DDDDDDDD....",
+    "....DDDDDDDD....",
+    ".....DDDDDD.....",
 )
 CAT_TOP = 3
 
@@ -239,7 +249,7 @@ def cat_icon(strength: Rows) -> Rows:
                 out[y][x] = out[y][x - 1] if x > 1 else 169
             else:
                 out[y][x] = GRACE_FILL.get(p, 169)
-    glyph = {(x, CAT_TOP + j) for j, line in enumerate(CAT_FACE) for x, ch in enumerate(line) if ch == "D"}
+    glyph = {(x, CAT_TOP + j) for j, line in enumerate(CAT_PAW) for x, ch in enumerate(line) if ch == "D"}
     for x, y in glyph:
         if (x + 1, y + 1) not in glyph and 0 < x + 1 < n - 1 and 0 < y + 1 < n - 1:
             out[y + 1][x + 1] = GLYPH_LIGHT
@@ -264,7 +274,16 @@ def write_objects(source: str, dest: str) -> None:
     """The game's SEGOBJEX.GFF (SOURCE, only read) with the companion's icons, to DEST."""
     with open(source, "rb") as f:
         data = f.read()
-    out = with_chunks(data, new_chunks(gff.read_gff(data)))
+    from . import sprites
+    chunks = gff.read_gff(data)
+    added = new_chunks(chunks)
+    try:
+        added.update(sprites.new_chunks(chunks))  # (the party's own sprites, for what they wear)
+    except (KeyError, ValueError, IndexError, struct.error):
+        pass
+    from . import kalzith
+    added.update(kalzith.object_chunks(chunks))  # (the slave pens' defiler)
+    out = with_chunks(data, added)
     tmp = dest + ".tmp"
     with open(tmp, "wb") as f:
         f.write(out)

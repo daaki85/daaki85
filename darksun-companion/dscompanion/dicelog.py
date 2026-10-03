@@ -24,14 +24,14 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Callable, Dict, List, NamedTuple, Optional, Tuple
 
-from . import bonescale, game, icons, monsters, names, npcitems, pickpocket, ring, stealth, tools, vulture
+from . import bonescale, dust, game, rings, targeting, icons, kalzith, monsters, names, npcitems, pickpocket, ring, scrolling, semyon, shadows, sprites, stealth, tools, vulture
 from .game import (CONVENTIONAL_AND_UPPER, CREATURE_ABILITIES, CREATURE_SIDE, CREATURE_THAC0, EFFECT_NAMES,
                    EFFECT_RULES, MATERIAL_TO_HIT, MATERIALS, SAVE_NAMES, STR_DAMAGE, GameData)
 from .guestmem import GuestMemory
 from .textlog import KIND_MESSAGE, KIND_PORTRAIT, KIND_TEXT, Dialogue, DialogueEntry, TextBuffer
 from .tracker import PartyTracker
 
-HDR_SIG = b"DSCLOGvR"
+HDR_SIG = b"DSCLOGvU"
 # DSCLOG's header: the in-game turn summaries (see PROBE_TURN in dos/dsclog.asm)
 TSR_TURN_SEQ, TSR_REPLY_SEQ, TSR_POPUPS, TSR_MSG_OFF, TSR_ENDED, TSR_HDR_OFF = 138, 140, 142, 144, 146, 20
 MSG_SIZE = 900
@@ -50,6 +50,7 @@ STATS_RANGER = 2  # a STATS entry's +17 for a ranger: only move silently and hid
 BIOS_TIMER = 0x46C
 # ... and the rule changes it makes to the game (the Options tab)
 TSR_RULES = 170
+TSR_MAIN_TICKS = 260  # the map's main loop run (counted)
 TSR_PICK_SEQ, TSR_PICK_REPLY, TSR_PICK_OFF, TSR_PICK_ON, PICK_SIZE = 172, 174, 176, 178, 240
 TSR_USE_SEQ, TSR_USE_REPLY, TSR_USE_WHO, TSR_USE_TAKEN, TSR_USE_ITEM = 180, 182, 184, 186, 188
 TSR_SWAP_ON, TSR_SWAP_SEQ, TSR_SWAP_OFF, SWAP_SIZE, SWAP_TEXT_SIZE = 190, 192, 194, 64, 240
@@ -171,6 +172,7 @@ RING_INTERVAL = 3.0  # seconds between looks for the arena's Ring +1
 LOAD_SETTLE = 3.0  # seconds after the party changes (a game was loaded) when effects are not news
 PENDING_SECONDS = 1.0  # how long dice wait to learn which spell they belong to
 SPELL_WINDOW = 15.0  # seconds after a spell's roll in which HP changes are put down to the spell
+HIT_WAIT = 3.0  # seconds after a weapon hit's damage roll with no HP lost: the target took none
 FIGHT_GAP = 120  # game seconds without a new round after which the fight is over
 
 
@@ -325,12 +327,28 @@ class DiceLog:
         self.monster_info = True  # monsters' defences in the game's Look box (set_monster_info)
         self.arena_ring = True  # put the Ring +1 on the Tied-up Prisoner's body in the arena (ring.py)
         self.pickpockets = True  # P in a conversation picks a pocket (pickpocket.py)
+        self.show_gear = True  # the party's map sprites dressed in what they wear (sprites.py)
+        self.show_shadows = True  # shadows under the figures on the map (shadows.py)
+        self._shadows = shadows.Shadows()
+        self.show_dust = True  # dust raised by walkers on sand and dirt (dust.py)
+        self._dust = dust.Dust()
+        self.ring_mode = rings.ONLY_CHOSEN  # rings in a fight: off, the chosen enemy's, all the enemies' (rings.py)
+        self._rings = rings.Rings()
+        self.use_targeting = True  # Tab chooses an enemy in a fight, Enter attacks it (targeting.py)
+        self._targeting = targeting.Targeting()
+        self.scroll_map = True  # the map scrolled with the wheel, turned or pressed and dragged (scrolling.py)
+        self.scroll_right = False  # ... and dragged with the right button held
+        self._scrolling = scrolling.Scrolling()
+        self._wheel: Optional[scrolling.WheelWatch] = None
+        self._dresser: Optional[sprites.Dresser] = None
+        self._dresser_tried = False
         self.picked: set = set()  # the pockets tried already (each person gets one try)
         # ... and when, by the game's clock: one tried after the game being played was saved is
         # forgotten when that save is loaded (the clock goes back past it)
         self.picked_at: Dict[str, Optional[int]] = {}
         self._picked_changed = False
         self._clock: Optional[int] = None
+        self._mended_in: Optional[int] = None  # the area Kalzith's scrolls were last mended in
         self.tools_given: set = set()  # the thieves given thieving tools (tools.py)
         self._tools_session: set = set()  # ... while this runs
         self._swap_seq = 0  # DSCLOG's text swaps seen (the arena ring's search, ring.py)
@@ -338,6 +356,8 @@ class DiceLog:
         self.rules = 0  # RULE_HELMS | RULE_BOOTS: rule changes DSCLOG makes (set_rules)
         self.stealth_roll: Callable[[], int] = lambda: random.randint(1, 100)  # hiding, moving silently
         self._ring_check = 0.0
+        self._dress_region: Optional[int] = None  # the area the party's pictures were last looked for in
+        self._main_ticks: Optional[int] = None  # DSCLOG's count of the map's main loop, last read
         self._look_seq = 0
         self._turn_seq = 0
         self._turn_attacks: Dict[int, List[dict]] = {}  # creature -> this turn's attacks
@@ -346,7 +366,9 @@ class DiceLog:
         self._stats_written = b""
         self._own_text: set = set()  # summaries shown in the game's window, not to log as dialogue
         self._skip_choice = False
-        self._hits: Dict[int, int] = {}  # creature -> damage of weapon hits not yet seen in its HP
+        self._hits: Dict[int, dict] = {}  # creature -> weapon hits not yet seen in its HP: their
+        # damage, in order ("hits"), when the last landed ("at"), its HP then ("hp")
+        self._tables: Optional[monsters.MonsterTables] = None  # the monster kinds (read once)
         self._round, self._round_time = 0, None  # this fight's round, and the game time it began
         self._save_rolls: Dict[Tuple[int, int], int] = {}  # (SS, save frame BP) -> natural d20
         self._effects: Optional[Counter] = None
@@ -392,6 +414,14 @@ class DiceLog:
         self.tsr_hdr, self.rand_addr = hdr, rand_addr
         self.guest.write(hdr + 22, struct.pack("<5H", SEED, TARGET_GLOBAL, 0, 0, 0))
         self.game = GameData(self.guest, ds)
+        self._scrolling.forget()  # (a DSCLOG of its own: told again)
+        self._dust = dust.Dust()
+        self._rings = rings.Rings()
+        self._targeting.forget()
+        if self._wheel is None:
+            proc = getattr(self.guest, "proc", None)
+            self._wheel = scrolling.WheelWatch(lambda: getattr(proc, "pid", None), self._scrolling.add)
+            self._wheel.start()
         self.tracker = PartyTracker(self.game)
         self.text = TextBuffer(self.guest.read, hdr)
         self.set_record_everything(self.record_everything)
@@ -455,20 +485,27 @@ class DiceLog:
         self._picked_changed = True
 
     def _forget_undone_picks(self) -> None:
-        """When the game's clock goes back (a game saved earlier was loaded), the pockets tried
-        since that save are forgotten: the person can be tried again."""
+        """Pockets tried later than the game's clock are forgotten (the person can be tried
+        again): those since a save, when the save is loaded; another game's, in a new game."""
         try:
             now = self.game.game_time()
         except (struct.error, IndexError, ValueError):
             return
         if not now or now <= 0:  # (no game, or the menus)
             return
-        if self._clock is not None and now < self._clock:
-            undone = [k for k in self.picked if self.picked_at.get(k) is None or self.picked_at[k] > now]
-            for key in undone:
-                self.picked.discard(key)
-                self.picked_at.pop(key, None)
-            self._picked_changed = self._picked_changed or bool(undone)
+        went_back = self._clock is not None and now < self._clock
+        if went_back:
+            self._mended_in = None  # (a save loaded: its scrolls looked at again)
+        # A try later than the game's clock is not this game's: one undone by loading an earlier
+        # save, or another game's (a new game started with the same party, the Ledger started
+        # after it: seen the first time the clock is read)
+        undone = [k for k in self.picked
+                  if (self.picked_at.get(k) is None and went_back)
+                  or (self.picked_at.get(k) is not None and self.picked_at[k] > now)]
+        for key in undone:
+            self.picked.discard(key)
+            self.picked_at.pop(key, None)
+        self._picked_changed = self._picked_changed or bool(undone)
         self._clock = now
 
     def give_tools_now(self) -> List[str]:
@@ -570,6 +607,13 @@ class DiceLog:
         self.monster_info = bool(settings.get("monster_info", True))
         self.arena_ring = bool(settings.get("arena_ring", True))
         self.pickpockets = bool(settings.get("pickpockets", True))
+        self.show_gear = bool(settings.get("show_gear", True))
+        self.show_shadows = bool(settings.get("shadows", True))
+        self.scroll_map = bool(settings.get("scroll_map", True))
+        self.show_dust = bool(settings.get("dust", True))
+        self.ring_mode = rings.mode(settings)
+        self.use_targeting = bool(settings.get("targeting", True))
+        self.scroll_right = bool(settings.get("scroll_right", False))
         self.load_picked(settings.get("pickpocketed", []))
         self.tools_given = set(settings.get("tools_given", []))
         self.rules = game.rules_from_settings(settings)
@@ -906,6 +950,10 @@ class DiceLog:
             if not self._party_check(now):
                 out += self.tracker.check(now)
                 out += self._arena_ring(now)
+                out += self._drawn(now)
+                self._kalzith_sold_out()
+                self._dress_now(now)
+        self._scroll()
         if self._initiative and now - self._initiative_at >= INITIATIVE_WAIT:
             out += self.initiative_lines()
         out += self.turn_lines()  # after the round's order and the last turn's XP
@@ -935,6 +983,17 @@ class DiceLog:
                 out += bonescale.place(self.game, self.tools_given)  # the bone scale armour's set
                 npcitems.reprice(self.game)  # (those given before they had a magic item's price)
                 self._tools_new += sorted(self.tools_given - before)
+            kalzith.stock(self.game, bool(self.rules & game.RULE_CATS_GRACE))  # (once a game, by its flag)
+            semyon.watch(self.game)  # (killed: never put in the pens)
+            out += vulture.meal(self.game)  # (Dinos's script has set its flag: XP and a full rest)
+            if kalzith.watch(self.game):  # (killed: Dinos and the Trustee speak of him so)
+                left = kalzith.loot(self.game)  # (one of his scrolls, his Cloak and Quarterstaff)
+                if left:
+                    out.append("Kalzith leaves: " + ", ".join(left))
+            region = self.game.region()
+            if region != self._mended_in:  # (his scrolls of before the fix, once in each area)
+                kalzith.mend(self.game)
+                self._mended_in = region
             if self.pickpockets:
                 tools.repaint(self.game)
                 before = set(self.tools_given)
@@ -945,6 +1004,79 @@ class DiceLog:
         except (struct.error, IndexError, ValueError):
             return out
         return out
+
+    def _drawn(self, now: float) -> List[str]:
+        """What DSCLOG draws and does for the Ledger, kept up four times a second (not with the
+        ring's search, every 3 s: a Tab's ring and the Enter's target were that late): shadows,
+        the enemy chosen with Tab and the rings, dust."""
+        if self.tsr_hdr is None:
+            return []
+        try:
+            self._shadows.update(self.game, self.tsr_hdr, self.show_shadows, now,
+                                 needed=self.show_dust or self.ring_mode != rings.OFF)
+            foes = rings.enemies(self.game)
+            out = self._targeting.update(self.game, self.tsr_hdr, self.use_targeting, foes)
+            self._rings.update(self.game, self.tsr_hdr, self.ring_mode != rings.OFF, self._shadows.palettes,
+                               self._targeting.chosen, all_enemies=self.ring_mode == rings.ALL)
+            self._dust.update(self.game, self.tsr_hdr, self.show_dust, self._shadows.palettes)
+        except (struct.error, IndexError, ValueError):
+            return []
+        return out
+
+    def _kalzith_sold_out(self) -> None:
+        """All six of Kalzith's scrolls bought: no more shop, and he carries his two, put on him
+        only while the map's main loop runs (DSCLOG's count of it went up since the last look: no
+        talk, menu or shop open)."""
+        if self.tsr_hdr is None:
+            return
+        try:
+            ticks = struct.unpack("<H", self.guest.read(self.tsr_hdr + TSR_MAIN_TICKS, 2))[0]
+            quiet = self._main_ticks is not None and ticks != self._main_ticks
+            self._main_ticks = ticks
+            kalzith.sold_out(self.game, quiet)
+        except (struct.error, IndexError, ValueError):
+            pass
+
+    def _scroll(self) -> None:
+        """The map scrolled by the wheel's turns, at every look (they come in as they're made)."""
+        if self.tsr_hdr is None:
+            return
+        try:
+            self._scrolling.update(self.game, self.tsr_hdr, self.scroll_map, self.scroll_right)
+        except (struct.error, IndexError, ValueError):
+            pass
+
+    def _dress_now(self, now: float) -> None:
+        """The party dressed four times a second (not with the ring's search, every 3 s: a party
+        walking off as an area loads was drawn plain till then), and memory looked through
+        again soon after an area change, when its pictures are loaded anew."""
+        try:
+            region = self.game.region()
+            if region != self._dress_region:
+                self._dress_region = region
+                if self._dresser is not None:
+                    self._dresser.area_changed(now)
+            self._dress(now)
+        except (struct.error, IndexError, ValueError):
+            pass
+
+    def _dress(self, now: float) -> None:
+        """The party's sprites in what they wear, once the game has the Ledger's SEGOBJEX (whose
+        party pictures the Ledger keeps dressed); as the game's own when switched off."""
+        if not icons.ready(self.game, self.tsr_hdr):
+            return
+        if self._dresser is None and not self._dresser_tried:
+            from . import launch
+            self._dresser_tried = True
+            import os
+            copy = os.path.join(launch.DOS_DIR, icons.OBJECTS_FILE)
+            self._dresser = sprites.Dresser.for_game(self.game, launch.find_game_dir(),
+                                                     copy if os.path.exists(copy) else None)
+            if self._dresser is not None and self.tsr_hdr is not None:
+                hdr = self.tsr_hdr
+                self._dresser.request_redraw = lambda: shadows.redraw(self.game, hdr)
+        if self._dresser is not None and (self.show_gear or self._dresser.shown):
+            self._dresser.update(self.show_gear, now)
 
     def _ring_search(self) -> List[str]:
         """While the arena's ring is still to be found: have DSCLOG show ring.SEARCH_TEXT instead
@@ -1012,7 +1144,7 @@ class DiceLog:
             sheet = g.sheet(index)
             most = struct.unpack_from("<h", sheet, game.SHEET_MAX_HP)[0] if len(sheet) >= game.SHEET_SIZE else None
             left = f"now {hp}/{most} HP" if most and most > 0 else f"now {hp} HP"
-            hit = min(self._hits.pop(index, 0), max(before - hp, 0))
+            hit, resisted = self._hits_seen(index, max(before - hp, 0), hp)
             if now <= self._spell_until and before - hp > hit:
                 # the game's damage code gives a creature that was Out Cold the most the dice can do
                 out_cold = " (Out Cold: the most the dice can do)" if was_out_cold else ""
@@ -1021,11 +1153,69 @@ class DiceLog:
             elif now <= self._spell_until and hp > before:
                 out.append(f"  {who} regains {hp - before} HP from {self._spell_name}, {left}")
             elif hp < before:
-                out.append(f"  {who} {left} (-{before - hp})")
+                out.append(f"  {who} {left} (-{before - hp}{resisted})")
             else:
                 out.append(f"  {who} {left} (+{hp - before})")
         self._hp = current
+        return out + self.unhurt(now)
+
+    def _hit(self, target: int, damage: int, now: float) -> None:
+        """A weapon hit's damage rolled against TARGET: to be seen in its HP."""
+        entry = self._hits.setdefault(target, {"hits": [], "at": now, "hp": self._hp.get(target)})
+        entry["hits"].append(damage)
+        entry["at"] = now
+
+    def _hits_seen(self, index: int, lost: int, hp: int) -> Tuple[int, str]:
+        """The weapon hits a fall of LOST HP (to HP) took in, in the order they landed: (their
+        damage, and a note when one did less than its roll: resisted)."""
+        entry = self._hits.get(index)
+        if not entry:
+            return 0, ""
+        hits, taken, note = entry["hits"], 0, ""
+        if hp <= 0:  # (down: whatever was rolled, its HP ran out)
+            del self._hits[index]
+            return min(sum(hits), lost), ""
+        while hits and lost - taken >= hits[0]:
+            taken += hits.pop(0)
+        if hits and not taken and lost:  # (less than the hit)
+            rolled = hits.pop(0)
+            taken = lost
+            reason = self._weapon_reason(index)
+            note = f": {lost} of the {rolled} rolled" + (f", {reason}" if reason else "")
+        if hits:
+            entry["hp"] = hp
+        else:
+            del self._hits[index]
+        return taken, note
+
+    def unhurt(self, now: float, force: bool = False) -> List[str]:
+        """Weapon hits that took no HP (HIT_WAIT seconds on, or FORCE: a new round): the target
+        immune to the weapon, or protected (Stoneskin...)."""
+        out = []
+        for index, entry in list(self._hits.items()):
+            if not force and now - entry["at"] < HIT_WAIT:
+                continue
+            del self._hits[index]
+            rec = self.game.creature(index)
+            hp = struct.unpack_from("<h", rec, 0)[0] if len(rec) >= 2 else None
+            if hp is None or hp <= 0 or (entry["hp"] is not None and entry["hp"] != hp):
+                continue  # (its HP did go down, or it's gone: not unhurt)
+            reason = self._weapon_reason(index) or "a protection or resistance took it"
+            rolled = sum(entry["hits"])
+            out.append(f"  {self.game.creature_name(index)} takes none of the {rolled} damage: {reason}")
         return out
+
+    def _weapon_reason(self, index: int) -> Optional[str]:
+        """What the creature's defences say about weapons, if anything."""
+        if index < game.PARTY_SIZE:
+            return None
+        try:
+            if self._tables is None:
+                self._tables = monsters.MonsterTables(self.guest.read, self.game.load_seg)
+            d = monsters.creature_defences(self.game, self._tables, index)
+        except (struct.error, IndexError, ValueError):
+            return None
+        return monsters.weapon_reason(d) if d is not None else None
 
     def _spell_cast(self, spell: Optional[int], now: float) -> None:
         """A spell is taking effect: HP changes for the next few seconds are its doing."""
@@ -1278,7 +1468,7 @@ class DiceLog:
         pairs, self._initiative = self._initiative, []
         if not pairs:
             return []
-        self._hits.clear()  # a new round: hits not seen in HP by now never will be (Stoneskin...)
+        unhurt = self.unhurt(0.0, force=True)  # a new round: hits not seen in HP by now never will be
         g = self.game
         combatants = g.combatants()
         table = g.initiative(max(combatants.values(), default=0) + 1)
@@ -1316,7 +1506,7 @@ class DiceLog:
         for score, tie, who, steps, _, _ in rows:
             tied = f", tie broken by {tie} (0-199 roll)" if scores[score] > 1 else ""
             out.append(f"    {who} = {INITIATIVE_BASE} + {steps}{tied}")
-        return out
+        return unhurt + out
 
     def _describe_entry(self, e: Entry, show_all: bool, now: float) -> List[str]:
         if e.kind == KIND_SAVE:
@@ -1576,7 +1766,7 @@ class DiceLog:
             steps = f"({steps}) x{times} backstab"
         target = g.combatant_creature(e.glob[0])
         if target is not None:  # so the HP it takes isn't put down to a spell being cast
-            self._hits[target] = self._hits.get(target, 0) + total
+            self._hit(target, total, now)
         last = next((a for a in reversed(self._turn_attacks.get(attacker, [])) if a["hit"] and a["damage"] is None),
                     None)
         line = f"{g.creature_name(attacker)} hits {g.combatant_name(e.glob[0])} for {total}: {steps}"

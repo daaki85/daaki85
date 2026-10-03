@@ -40,9 +40,16 @@ class RecordTests(unittest.TestCase):
         self.assertTrue(log.game.set_cats_grace(True))
         self.assertEqual(bytes(m[sphere]), STRENGTH)
         self.assertEqual(bytes(m[DS * 16 + NAME_AT:DS * 16 + NAME_AT + 15]), b"CAT'S GRACE\0\0\0\0")
+        self.assertEqual(self.effect_entry(log), (NAME_AT, DS, game.GRACE_ICON))  # (its icon on the Effects screen)
         self.assertTrue(log.game.set_cats_grace(False))
         self.assertEqual(bytes(m[sphere]), game.SPHERE_RECORD)
         self.assertEqual(bytes(m[DS * 16 + NAME_AT:DS * 16 + NAME_AT + 15]), b"FLAMING SPHERE\0")
+        self.assertEqual(self.effect_entry(log), (game.NO_NAME, DS, 0))  # (as the game has it)
+
+    @staticmethod
+    def effect_entry(log):
+        at = (LOAD_SEG + game.EFFECT_TABLE_SEG) * 16 + (game.GRACE_EFFECT - 1) * game.EFFECT_ENTRY
+        return struct.unpack_from("<HHH", log.guest.mem, at)
 
     def test_leaves_other_names_alone(self):
         log = make_game()
